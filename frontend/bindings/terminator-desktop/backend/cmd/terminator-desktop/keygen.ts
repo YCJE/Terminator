@@ -1,4 +1,5 @@
-// KeyGenService 前端 binding — 生成 SSH 密钥对
+// 密钥生成功能已合并到 KeyService
+// 使用 KeyService.GenerateKey
 import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wailsio/runtime";
 
 /**
@@ -8,5 +9,5 @@ import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wails
  * @returns OpenSSH 格式 PEM 私钥
  */
 export function GenerateKey(keyType: string, rsaBits: number): $CancellablePromise<string> {
-    return $Call.ByID(4118170018, keyType, rsaBits);
+    return $Call.ByID(402982813, keyType, rsaBits);
 }

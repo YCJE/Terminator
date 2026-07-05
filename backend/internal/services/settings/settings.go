@@ -2,8 +2,10 @@ package settings
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 )
 
@@ -21,12 +23,14 @@ type AppSettings struct {
 
 type SettingsService struct {
 	configPath string
+	logPath    string
 	mutex      sync.RWMutex
 }
 
 func NewSettingsService(appDir string) *SettingsService {
 	return &SettingsService{
 		configPath: filepath.Join(appDir, "settings.json"),
+		logPath:    filepath.Join(appDir, "terminator.log"),
 	}
 }
 
@@ -65,4 +69,25 @@ func (s *SettingsService) SaveSettings(settings AppSettings) error {
 	}
 
 	return os.WriteFile(s.configPath, data, 0644)
+}
+
+// GetLogs 读取日志文件内容，返回最后 maxLines 行
+func (s *SettingsService) GetLogs(maxLines int) (string, error) {
+	if maxLines <= 0 {
+		maxLines = 500
+	}
+	content, err := os.ReadFile(s.logPath)
+	if err != nil {
+		return "", fmt.Errorf("读取日志失败: %w", err)
+	}
+	lines := strings.Split(string(content), "\n")
+	if len(lines) > maxLines {
+		lines = lines[len(lines)-maxLines:]
+	}
+	return strings.Join(lines, "\n"), nil
+}
+
+// ClearLogs 清空日志文件
+func (s *SettingsService) ClearLogs() error {
+	return os.WriteFile(s.logPath, []byte{}, 0666)
 }
