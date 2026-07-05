@@ -266,6 +266,29 @@ func (s *AuthService) LockVault() {
 	s.client.ClearToken()
 }
 
+// DisconnectCloud removes the cloud server association from the local vault.
+// The vault stays unlocked and all data remains; only the server URL is
+// cleared and the auth token discarded. Auto-sync should be stopped by the
+// caller (SyncService.StopAutoSync) before invoking this.
+func (s *AuthService) DisconnectCloud(ctx context.Context) error {
+	user, err := s.q.GetUser(ctx)
+	if err != nil {
+		return err
+	}
+
+	err = s.q.UpdateUserServerUrl(ctx, dbgen.UpdateUserServerUrlParams{
+		ServerUrl:    sql.NullString{Valid: false},
+		LastSyncTime: sql.NullString{Valid: false},
+		ID:           user.ID,
+	})
+	if err != nil {
+		return err
+	}
+
+	s.client.ClearToken()
+	return nil
+}
+
 func (s *AuthService) GetCurrentUser(ctx context.Context) (*UserInfo, error) {
 	user, err := s.q.GetUser(ctx)
 	if err != nil {

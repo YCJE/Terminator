@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { User, Server, Lock, Trash2, Globe, AlertTriangle, Palette, Moon, Sun } from "lucide-react";
+import { User, Server, Lock, Trash2, Globe, AlertTriangle, Palette, Moon, Sun, Unplug } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SwitchServerModal } from "@/components/views/SwitchServerModal";
 import { ConfirmModal } from "@/components/ui/confirm-modal";
@@ -9,6 +9,7 @@ import { useCurrentUser } from "@/hooks/useAuth";
 import { useAuthStore } from "@/store/authStore";
 import { useSessionStore } from "@/store/sessionStore";
 import { AuthService } from "../../../bindings/terminator-desktop/backend/internal/services/auth";
+import { SyncService } from "../../../bindings/terminator-desktop/backend/internal/services/sync";
 import { AppSettings, SettingsService } from "../../../bindings/terminator-desktop/backend/internal/services/settings";
 import { handleAppError } from "@/lib/error";
 import {
@@ -31,6 +32,7 @@ export function SettingsPage() {
 
     const [isServerModalOpen, setIsServerModalOpen] = useState(false);
     const [isWipeModalOpen, setIsWipeModalOpen] = useState(false);
+    const [isDisconnectModalOpen, setIsDisconnectModalOpen] = useState(false);
 
     const handleLockVault = async () => {
         try {
@@ -48,6 +50,16 @@ export function SettingsPage() {
             await AuthService.WipeData();
             setUnlocked(false);
             setHasUser(false);
+        } catch (error) {
+            handleAppError(error);
+        }
+    };
+
+    const handleDisconnectCloud = async () => {
+        try {
+            await SyncService.StopAutoSync();
+            await AuthService.DisconnectCloud();
+            await refetch();
         } catch (error) {
             handleAppError(error);
         }
@@ -125,9 +137,17 @@ export function SettingsPage() {
                                 </span>
                             </div>
                         </div>
-                        <Button variant="secondary" onClick={() => setIsServerModalOpen(true)}>
-                            {user?.serverUrl ? t("switch_server_btn") : t("connect_btn")}
-                        </Button>
+                        <div className="flex items-center gap-2">
+                            <Button variant="secondary" onClick={() => setIsServerModalOpen(true)}>
+                                {user?.serverUrl ? t("switch_server_btn") : t("connect_btn")}
+                            </Button>
+                            {user?.serverUrl && (
+                                <Button variant="outline" onClick={() => setIsDisconnectModalOpen(true)}>
+                                    <Unplug className="mr-2 size-4"/>
+                                    {t("disconnect_btn")}
+                                </Button>
+                            )}
+                        </div>
                     </div>
 
                     {lastError && (
@@ -249,6 +269,16 @@ export function SettingsPage() {
                 title={t("wipe_confirm_title")}
                 description={t("wipe_confirm_desc")}
                 confirmText={t("nuke_it")}
+                isDestructive={true}
+            />
+
+            <ConfirmModal
+                isOpen={isDisconnectModalOpen}
+                onClose={() => setIsDisconnectModalOpen(false)}
+                onConfirm={handleDisconnectCloud}
+                title={t("disconnect_confirm_title")}
+                description={t("disconnect_confirm_desc")}
+                confirmText={t("disconnect_btn")}
                 isDestructive={true}
             />
 

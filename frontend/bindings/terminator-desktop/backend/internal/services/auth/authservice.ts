@@ -45,6 +45,13 @@ export function RegisterOnServer(serverURL: string): $CancellablePromise<void> {
     return $Call.ByID(2102841450, serverURL);
 }
 
+/**
+ * DisconnectCloud - remove cloud server association
+ */
+export function DisconnectCloud(): $CancellablePromise<void> {
+    return $Call.ByID(3716161388);
+}
+
 export function WipeData(): $CancellablePromise<void> {
     return $Call.ByID(132727258);
 }
