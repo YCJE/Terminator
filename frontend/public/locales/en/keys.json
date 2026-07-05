@@ -12,6 +12,7 @@
   "key_name_placeholder": "e.g. AWS Production",
   "private_key_label": "Private Key",
   "load_from_file": "Load from file",
+  "generate": "Generate",
   "drop_to_autofill": "Drop a file to autofill, or click to browse",
   "key_loaded": "Key loaded. Click to replace.",
   "save_key": "Save Key",

@@ -120,6 +120,7 @@ export function SettingsPage() {
                 <h1 className="text-2xl font-bold tracking-tight text-foreground">{t("page_title")}</h1>
 
                 <SettingsCard title={t("profile_sync_title")} description={t("profile_sync_desc")}>
+                    {/* 账户信息 */}
                     <div className="flex items-center gap-4">
                         <div
                             className="flex size-12 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
@@ -151,9 +152,10 @@ export function SettingsPage() {
                             </div>
                         </div>
                     )}
-                </SettingsCard>
 
-                <SettingsCard title={t("sync_method_title")} description={t("sync_method_desc")}>
+                    {/* 同步方式分隔线 */}
+                    <div className="my-2 h-px w-full bg-border"/>
+
                     {/* 服务器同步 */}
                     <div className="flex items-center justify-between
                                    rounded-lg border border-border bg-background p-4">
@@ -188,10 +190,8 @@ export function SettingsPage() {
                         </div>
                     )}
 
-                    <div className="my-2 h-px w-full bg-border"/>
-
                     {/* WebDAV 同步 */}
-                    <div className="flex items-center justify-between
+                    <div className="mt-2 flex items-center justify-between
                                    rounded-lg border border-border bg-background p-4">
                         <div className="flex items-center gap-4">
                             <div className="flex size-10 shrink-0 items-center justify-center

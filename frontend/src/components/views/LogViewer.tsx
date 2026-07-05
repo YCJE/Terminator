@@ -1,4 +1,4 @@
-// 日志查看器组件：显示应用日志，支持刷新、复制、清除
+// 日志查看器组件：显示应用日志，支持刷新、复制、清除、鼠标选中复制
 import { useState, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { ScrollText, RefreshCw, Copy, Trash2, Check } from "lucide-react";
@@ -76,7 +76,8 @@ export function LogViewer() {
                     </Button>
                 </div>
             </div>
-            <div className="h-64 overflow-auto rounded-lg border border-border bg-muted/30 p-3">
+            {/* select-text 确保可以通过鼠标选中文本复制 */}
+            <div className="h-64 overflow-auto rounded-lg border border-border bg-muted/30 p-3 select-text">
                 {logs ? (
                     <pre className="whitespace-pre-wrap break-all font-mono text-xs leading-relaxed text-muted-foreground">
                         {logs}

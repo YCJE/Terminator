@@ -3,10 +3,10 @@ import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wails
 
 /** 读取日志文件内容，返回最后 maxLines 行 */
 export function GetLogs(maxLines: number): $CancellablePromise<string> {
-    return $Call.ByID(1053683577, maxLines);
+    return $Call.ByID(2232439488, maxLines);
 }
 
 /** 清空日志文件 */
 export function ClearLogs(): $CancellablePromise<void> {
-    return $Call.ByID(3922654900);
+    return $Call.ByID(2886546173);
 }

@@ -1,4 +1,4 @@
-import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { PanelLeftClose, PanelLeftOpen, FolderOpen, PanelRightClose } from "lucide-react";
 import { useSessionStore } from "@/store/sessionStore";
 import { useUIStore, ViewType } from "@/store/uiStore";
 import { WindowControls } from "@/components/layout/WindowControls";
@@ -6,16 +6,18 @@ import { TerminalTab } from "@/components/layout/TerminalTab";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/store/authStore.ts";
+import { useTranslation } from "react-i18next";
 import React, { useRef } from "react";
 
 export function TitleBar() {
     const {sessions, activeSessionId, setActiveSession, removeSession} = useSessionStore();
-    const {activeView, isSidebarVisible, toggleSidebar} = useUIStore();
+    const {activeView, isSidebarVisible, toggleSidebar, isFilePanelVisible, toggleFilePanel} = useUIStore();
 
     const isTerminalView = activeView === ViewType.Terminal;
     const showSidebarStyling = isTerminalView ? isSidebarVisible : true;
 
     const {isUnlocked} = useAuthStore();
+    const {t} = useTranslation("sftp");
 
     const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -73,6 +75,22 @@ export function TitleBar() {
                     />
                 ))}
             </div>
+
+            {/* 文件管理面板切换按钮：终端视图且有活跃会话时显示 */}
+            {isTerminalView && activeSessionId && (
+                <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    onClick={toggleFilePanel}
+                    className="wails-no-drag mr-1 text-muted-foreground hover:text-foreground"
+                    title={t("toggle_panel")}
+                >
+                    {isFilePanelVisible
+                        ? <PanelRightClose className="size-4"/>
+                        : <FolderOpen className="size-4"/>
+                    }
+                </Button>
+            )}
 
             <WindowControls className="ml-12"/>
 

@@ -8,7 +8,6 @@ import {
     Upload,
     FolderPlus,
     ChevronRight,
-    PanelRightClose,
     Download,
     Pencil,
     FileText,
@@ -30,7 +29,6 @@ import {
     type FileEntry,
 } from "../../../bindings/terminator-desktop/backend/internal/services/sftp";
 import { useTransferStore } from "@/store/transferStore";
-import { useUIStore } from "@/store/uiStore";
 import { FileTable } from "@/components/sftp/FileTable";
 import { TransferQueue } from "@/components/sftp/TransferQueue";
 import { Button } from "@/components/ui/button";
@@ -109,7 +107,6 @@ export function FilePanel({ sessionId }: FilePanelProps) {
     // 只订阅函数引用，不订阅整个 store，避免传输进度变化触发面板重渲染
     const addTransfer = useTransferStore((s) => s.addTransfer);
     const updateTransfer = useTransferStore((s) => s.updateTransfer);
-    const setFilePanelVisible = useUIStore((s) => s.setFilePanelVisible);
 
     const [currentPath, setCurrentPath] = useState("/");
     const [entries, setEntries] = useState<FileEntry[]>([]);
@@ -397,14 +394,6 @@ export function FilePanel({ sessionId }: FilePanelProps) {
             {/* 头部标题 */}
             <div className="flex items-center justify-between border-b border-border px-3 py-2">
                 <span className="text-sm font-medium">{t("file_panel_title")}</span>
-                <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    onClick={() => setFilePanelVisible(false)}
-                    title={t("close", { ns: "common" })}
-                >
-                    <PanelRightClose className="size-4" />
-                </Button>
             </div>
 
             {/* 工具栏：返回上级 + 面包屑 + 操作按钮 */}
