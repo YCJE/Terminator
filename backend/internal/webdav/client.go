@@ -12,6 +12,9 @@ import (
 // httpTimeout WebDAV 请求的超时时间
 const httpTimeout = 30 * time.Second
 
+// maxResponseBody 响应体最大读取大小（10MB），防止恶意服务器返回超大响应导致 OOM
+const maxResponseBody = 10 * 1024 * 1024
+
 // newClient 创建一个带超时设置的 HTTP 客户端
 func newClient() *http.Client {
 	return &http.Client{
@@ -51,7 +54,7 @@ func GetFile(url, username, password string) (data []byte, etag string, err erro
 		return nil, "", fmt.Errorf("WebDAV GET 返回错误状态码: %d", resp.StatusCode)
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBody))
 	if err != nil {
 		return nil, "", fmt.Errorf("读取 WebDAV 响应体失败: %w", err)
 	}
@@ -161,7 +164,7 @@ func TestConnection(url, username, password string) error {
 
 	// 207 Multi-Status 是 PROPFIND 的标准成功响应
 	if resp.StatusCode == http.StatusMultiStatus {
-		body, err := io.ReadAll(resp.Body)
+		body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBody))
 		if err != nil {
 			return fmt.Errorf("读取 PROPFIND 响应体失败: %w", err)
 		}

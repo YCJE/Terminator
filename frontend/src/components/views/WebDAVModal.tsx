@@ -24,10 +24,11 @@ export function WebDAVModal({isOpen, onClose, onSuccess}: WebDAVModalProps) {
     const [isSaving, setIsSaving] = useState(false);
     const [testResult, setTestResult] = useState<"none" | "success" | "error">("none");
 
-    // 打开时加载已有配置
+    // 打开时加载已有配置，并清空密码字段（密码不回显，编辑时需重新输入或留空保留）
     useEffect(() => {
         if (isOpen) {
             setTestResult("none");
+            setPassword("");
             GetWebDAVConfig()
                 .then(([savedUrl, savedUser]) => {
                     if (savedUrl) setUrl(savedUrl);

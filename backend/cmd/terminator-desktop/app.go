@@ -27,6 +27,7 @@ func (s *WebDAVService) TestWebDAVConnection(url, username, password string) err
 
 // SaveWebDAVConfig 保存 WebDAV 配置到 settings.json，并将同步方式切换为 webdav。
 // 密码明文存储在 settings.json（和网盘密码一样，用户自己负责）。
+// 如果 password 为空，保留原有密码（编辑配置时不强制重新输入密码）。
 func (s *WebDAVService) SaveWebDAVConfig(url, username, password string) error {
 	if url == "" {
 		return errors.New("WebDAV URL 不能为空")
@@ -40,7 +41,10 @@ func (s *WebDAVService) SaveWebDAVConfig(url, username, password string) error {
 	current.SyncMethod = "webdav"
 	current.WebDAVURL = url
 	current.WebDAVUsername = username
-	current.WebDAVPassword = password
+	// 密码为空时保留原密码，避免编辑配置时意外清空密码
+	if password != "" {
+		current.WebDAVPassword = password
+	}
 
 	return s.settingsSvc.SaveSettings(current)
 }
