@@ -2,13 +2,14 @@ import { useEffect, useRef } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { Events, Clipboard } from "@wailsio/runtime";
-import { TERMINAL_THEME } from "@/lib/terminalTheme";
+import { getTerminalTheme } from "@/lib/terminalTheme";
 import { parseAppError } from "@/lib/error";
 import { cn, decodeBase64ToUint8Array } from "@/lib/utils";
 import "@xterm/xterm/css/xterm.css";
 import { SSHConnectionConfig, SshService } from "../../../bindings/terminator-desktop/backend/internal/services/ssh";
 import { useTranslation } from "react-i18next";
 import { AppEvent } from "@/lib/events.ts";
+import { useUIStore } from "@/store/uiStore.ts";
 
 interface TerminalInstanceProps {
     sessionId: string;
@@ -18,6 +19,7 @@ interface TerminalInstanceProps {
 
 export function TerminalInstance({sessionId, isActive, config}: TerminalInstanceProps) {
     const {t} = useTranslation("terminal");
+    const theme = useUIStore((s) => s.theme);
 
     const containerRef = useRef<HTMLDivElement>(null);
     const terminalRef = useRef<Terminal | null>(null);
@@ -41,7 +43,7 @@ export function TerminalInstance({sessionId, isActive, config}: TerminalInstance
         if (!containerRef.current || terminalRef.current) return;
         const container = containerRef.current;
 
-        const term = new Terminal(TERMINAL_THEME);
+        const term = new Terminal(getTerminalTheme(theme));
         const fitAddon = new FitAddon();
 
         term.loadAddon(fitAddon);
@@ -127,6 +129,16 @@ export function TerminalInstance({sessionId, isActive, config}: TerminalInstance
             });
         };
     }, [sessionId, config]);
+
+    // 主题切换时实时更新终端颜色
+    useEffect(() => {
+        const term = terminalRef.current;
+        if (!term) return;
+        const colors = getTerminalTheme(theme).theme;
+        term.options.theme = colors;
+        // 强制刷新渲染
+        term.refresh(0, term.rows - 1);
+    }, [theme]);
 
     useEffect(() => {
         const unsubscribe = Events.On(AppEvent.SshData, (event) => {
