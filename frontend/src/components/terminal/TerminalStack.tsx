@@ -6,6 +6,7 @@ import { useUIStore } from "@/store/uiStore";
 import { useTransferStore } from "@/store/transferStore";
 import { TerminalInstance } from "@/components/terminal/TerminalInstance";
 import { FilePanel } from "@/components/sftp/FilePanel";
+import { ErrorBoundary } from "@/components/ui/error-boundary";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useTranslation } from "react-i18next";
@@ -16,13 +17,15 @@ interface TerminalStackProps {
 }
 
 export function TerminalStack({isVisible}: TerminalStackProps) {
-    const {sessions, activeSessionId} = useSessionStore();
-    const {isFilePanelVisible, toggleFilePanel} = useUIStore();
-    const {updateTransfer} = useTransferStore();
+    const sessions = useSessionStore((s) => s.sessions);
+    const activeSessionId = useSessionStore((s) => s.activeSessionId);
+    const isFilePanelVisible = useUIStore((s) => s.isFilePanelVisible);
+    const toggleFilePanel = useUIStore((s) => s.toggleFilePanel);
+    // 只订阅 updateTransfer 函数引用（不会随传输进度变化），避免高频重渲染
+    const updateTransfer = useTransferStore((s) => s.updateTransfer);
     const {t} = useTranslation("sftp");
 
     // 全局监听 SFTP 传输进度与完成事件，实时更新传输队列状态
-    // 订阅放在终端视图层（始终挂载），保证文件面板隐藏时仍能更新进度
     useEffect(() => {
         const offProgress = Events.On(SFTP_PROGRESS_EVENT, (event) => {
             const d = event?.data;
@@ -52,9 +55,9 @@ export function TerminalStack({isVisible}: TerminalStackProps) {
     }, [updateTransfer]);
 
     return (
-        <div className={cn("absolute inset-0 flex", isVisible ? "flex" : "hidden")}>
+        <div className={cn("absolute inset-0", isVisible ? "flex" : "hidden")}>
             {/* 终端区域 */}
-            <div className="relative flex-1 overflow-hidden">
+            <div className="relative min-w-0 flex-1 overflow-hidden">
                 {sessions.map((session) => (
                     <TerminalInstance
                         key={session.id}
@@ -83,7 +86,9 @@ export function TerminalStack({isVisible}: TerminalStackProps) {
 
             {/* 文件管理侧边面板 */}
             {isFilePanelVisible && activeSessionId && (
-                <FilePanel sessionId={activeSessionId}/>
+                <ErrorBoundary>
+                    <FilePanel sessionId={activeSessionId}/>
+                </ErrorBoundary>
             )}
         </div>
     );

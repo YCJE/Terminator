@@ -106,8 +106,10 @@ function toOctal(mode: string): string {
 
 export function FilePanel({ sessionId }: FilePanelProps) {
     const { t } = useTranslation("sftp");
-    const { addTransfer, updateTransfer } = useTransferStore();
-    const { setFilePanelVisible } = useUIStore();
+    // 只订阅函数引用，不订阅整个 store，避免传输进度变化触发面板重渲染
+    const addTransfer = useTransferStore((s) => s.addTransfer);
+    const updateTransfer = useTransferStore((s) => s.updateTransfer);
+    const setFilePanelVisible = useUIStore((s) => s.setFilePanelVisible);
 
     const [currentPath, setCurrentPath] = useState("/");
     const [entries, setEntries] = useState<FileEntry[]>([]);

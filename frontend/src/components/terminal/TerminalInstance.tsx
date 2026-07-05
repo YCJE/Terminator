@@ -32,15 +32,11 @@ export function TerminalInstance({sessionId, isActive, config}: TerminalInstance
     const printErrorToTerminal = (error: unknown) => {
         if (!terminalRef.current) return;
         const appError = parseAppError(error);
-
-        // TODO think of something better
-        // \x1b[0m = reset formatting
-        // \x1b[31m = red
-        console.log(appError)
         const translated = t("error_message", { message: appError.message, error: appError.detailsString })
         terminalRef.current.write(`\r\n\x1b[31m${translated}\x1b[0m\r\n`)
     };
 
+    // 终端初始化（只在 sessionId/config 变化时重新执行）
     useEffect(() => {
         if (!containerRef.current || terminalRef.current) return;
         const container = containerRef.current;
@@ -52,7 +48,7 @@ export function TerminalInstance({sessionId, isActive, config}: TerminalInstance
         term.loadAddon(fitAddon);
         term.loadAddon(unicode11Addon);
         term.unicode.activeVersion = "11";
-        term.open(containerRef.current);
+        term.open(container);
 
         terminalRef.current = term;
         fitAddonRef.current = fitAddon;
@@ -83,7 +79,6 @@ export function TerminalInstance({sessionId, isActive, config}: TerminalInstance
 
         const handleContextMenu = (e: MouseEvent) => {
             e.preventDefault();
-
             const selection = term.getSelection();
             if (selection) {
                 Clipboard.SetText(selection).catch(console.error);
@@ -96,17 +91,15 @@ export function TerminalInstance({sessionId, isActive, config}: TerminalInstance
                 }).catch(console.error);
             }
         };
-        containerRef.current.addEventListener("contextmenu", handleContextMenu);
+        container.addEventListener("contextmenu", handleContextMenu);
 
         if (!hasConnectedRef.current) {
             hasConnectedRef.current = true;
             SshService.Connect(config)
                 .then(() => {
                     isReadyRef.current = true;
-
                     if (terminalRef.current && fitAddonRef.current) {
                         fitAddonRef.current.fit();
-
                         SshService.Resize(sessionId, terminalRef.current.rows, terminalRef.current.cols)
                             .catch(console.error);
                     }
@@ -118,31 +111,29 @@ export function TerminalInstance({sessionId, isActive, config}: TerminalInstance
 
         const onDataDisposable = term.onData((data) => {
             if (!isReadyRef.current) return;
-
             SshService.Input(sessionId, data).catch((err) => {
                 printErrorToTerminal(err);
             });
         });
 
-        // 监听容器尺寸变化（如 FilePanel 展开/折叠、窗口缩放），
-        // 自动重新 fit 终端并通知 SSH 服务端调整 PTY 尺寸，
-        // 否则 xterm.js canvas 会因尺寸不匹配而黑屏
+        // 唯一的 ResizeObserver：监听容器尺寸变化，防抖后 fit + resize
+        // 处理所有场景：FilePanel 展开/折叠、窗口缩放、标签页切换
         let resizeTimer: ReturnType<typeof setTimeout> | null = null;
         const resizeObserver = new ResizeObserver(() => {
-            if (!isReadyRef.current || !fitAddonRef.current || !terminalRef.current) return;
-            // 防抖：快速连续变化时只执行最后一次
+            if (!fitAddonRef.current || !terminalRef.current) return;
             if (resizeTimer) clearTimeout(resizeTimer);
             resizeTimer = setTimeout(() => {
+                if (!isReadyRef.current || !fitAddonRef.current || !terminalRef.current) return;
                 try {
-                    fitAddonRef.current?.fit();
-                    const t = terminalRef.current;
-                    if (t) {
-                        SshService.Resize(sessionId, t.rows, t.cols).catch(console.error);
+                    fitAddonRef.current.fit();
+                    if (isActive) {
+                        SshService.Resize(sessionId, terminalRef.current.rows, terminalRef.current.cols)
+                            .catch(() => {});
                     }
                 } catch (e) {
                     // 容器尚未就绪等情况，忽略
                 }
-            }, 100);
+            }, 80);
         });
         resizeObserver.observe(container);
 
@@ -154,9 +145,9 @@ export function TerminalInstance({sessionId, isActive, config}: TerminalInstance
             term.dispose();
             terminalRef.current = null;
             fitAddonRef.current = null;
-            SshService.Disconnect(sessionId).catch(() => {
-            });
+            SshService.Disconnect(sessionId).catch(() => {});
         };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [sessionId, config]);
 
     // 主题切换时实时更新终端颜色
@@ -165,61 +156,35 @@ export function TerminalInstance({sessionId, isActive, config}: TerminalInstance
         if (!term) return;
         const colors = getTerminalTheme(theme).theme;
         term.options.theme = colors;
-        // 强制刷新渲染
         term.refresh(0, term.rows - 1);
     }, [theme]);
 
+    // SSH 数据事件
     useEffect(() => {
         const unsubscribe = Events.On(AppEvent.SshData, (event) => {
             if (event.data.id === sessionId && terminalRef.current) {
                 const rawBytes = decodeBase64ToUint8Array(event.data.data);
-
                 terminalRef.current.write(rawBytes);
             }
         });
         return () => unsubscribe();
     }, [sessionId]);
 
-    useEffect(() => {
-        if (!containerRef.current) return;
-
-        const resizeObserver = new ResizeObserver(() => {
-            if (!isActive || !isReadyRef.current) return;
-
-            const fit = fitAddonRef.current;
-            const term = terminalRef.current;
-            if (!fit || !term) return;
-
-            try {
-                fit.fit();
-                term.focus();
-                SshService.Resize(sessionId, term.rows, term.cols).catch((err) => {
-                    printErrorToTerminal(err);
-                });
-            } catch (e) {
-                console.warn("xterm fit failed:", e);
-            }
-        });
-
-        resizeObserver.observe(containerRef.current);
-        return () => resizeObserver.disconnect();
-    }, [isActive, sessionId]);
-
-    // 当文件面板显示/隐藏时，终端容器宽度会变化，
-    // 需要等布局稳定后重新 fit，否则 xterm canvas 会黑屏
+    // 当文件面板显示/隐藏时，等布局稳定后强制 fit + refresh
+    // xterm canvas 在容器尺寸突变时可能被清空，需要主动重绘
     useEffect(() => {
         if (!isActive || !isReadyRef.current) return;
         const timer = setTimeout(() => {
+            if (!fitAddonRef.current || !terminalRef.current) return;
             try {
-                fitAddonRef.current?.fit();
-                const term = terminalRef.current;
-                if (term) {
-                    SshService.Resize(sessionId, term.rows, term.cols).catch(() => {});
-                }
+                fitAddonRef.current.fit();
+                SshService.Resize(sessionId, terminalRef.current.rows, terminalRef.current.cols).catch(() => {});
+                // 强制重绘整个终端，防止 canvas 被清空后显示黑屏
+                terminalRef.current.refresh(0, terminalRef.current.rows - 1);
             } catch (e) {
-                // 忽略 fit 失败
+                // 忽略
             }
-        }, 150);
+        }, 120);
         return () => clearTimeout(timer);
     }, [isFilePanelVisible, isActive, sessionId]);
 
