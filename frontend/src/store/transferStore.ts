@@ -36,7 +36,14 @@ let flushTimer: ReturnType<typeof setInterval> | null = null;
 function ensureFlushTimer(set: (fn: (s: TransferState) => TransferState) => void) {
     if (flushTimer) return;
     flushTimer = setInterval(() => {
-        if (pendingUpdates.size === 0) return;
+        if (pendingUpdates.size === 0) {
+            // 没有待处理的更新，自动停止定时器节省资源
+            if (flushTimer) {
+                clearInterval(flushTimer);
+                flushTimer = null;
+            }
+            return;
+        }
         const updates = new Map(pendingUpdates);
         pendingUpdates.clear();
         set((state) => ({

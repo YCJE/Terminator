@@ -29,6 +29,8 @@ export function TerminalInstance({sessionId, isActive, config, disconnected}: Te
     const fitAddonRef = useRef<FitAddon | null>(null);
     const hasConnectedRef = useRef(false);
     const isReadyRef = useRef(false);
+    const isActiveRef = useRef(isActive);
+    isActiveRef.current = isActive;
 
     const printErrorToTerminal = (error: unknown) => {
         if (!terminalRef.current) return;
@@ -127,7 +129,7 @@ export function TerminalInstance({sessionId, isActive, config, disconnected}: Te
                 if (!isReadyRef.current || !fitAddonRef.current || !terminalRef.current) return;
                 try {
                     fitAddonRef.current.fit();
-                    if (isActive) {
+                    if (isActiveRef.current) {
                         SshService.Resize(sessionId, terminalRef.current.rows, terminalRef.current.cols)
                             .catch(() => {});
                     }
@@ -163,10 +165,10 @@ export function TerminalInstance({sessionId, isActive, config, disconnected}: Te
     // SSH 数据事件
     useEffect(() => {
         const unsubscribe = Events.On(AppEvent.SshData, (event) => {
-            if (event.data.id === sessionId && terminalRef.current) {
-                const rawBytes = decodeBase64ToUint8Array(event.data.data);
-                terminalRef.current.write(rawBytes);
-            }
+            const data = event?.data as { id?: string; data?: string } | null;
+            if (!data || data.id !== sessionId || !terminalRef.current) return;
+            const rawBytes = decodeBase64ToUint8Array(data.data || "");
+            terminalRef.current.write(rawBytes);
         });
         return () => unsubscribe();
     }, [sessionId]);

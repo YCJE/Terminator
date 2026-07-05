@@ -13,6 +13,7 @@ import { SettingsService } from "../bindings/terminator-desktop/backend/internal
 import { useTranslation } from "react-i18next";
 import { AppEvent } from "@/lib/events.ts";
 import { useUIStore, Theme } from "@/store/uiStore.ts";
+import { useSessionStore } from "@/store/sessionStore.ts";
 import { UpdaterService } from "../bindings/terminator-desktop/backend/internal/services/updater";
 
 export default function App() {

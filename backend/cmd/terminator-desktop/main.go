@@ -215,9 +215,10 @@ func main() {
 	// Run the application. This blocks until the application has been exited.
 	err = app.Run()
 
-	// If an error occurred while running the application, log it and exit.
+	// If an error occurred while running the application, log it.
+	// 不使用 log.Fatal，因为它会调用 os.Exit 跳过所有 defer
 	if err != nil {
-		log.Fatal(err)
+		log.Printf("application error: %v", err)
 	}
 }
 

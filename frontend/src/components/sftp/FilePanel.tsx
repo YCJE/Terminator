@@ -153,7 +153,6 @@ export function FilePanel({ sessionId }: FilePanelProps) {
         let cancelled = false;
         // 重置状态，避免显示上一个主机的文件
         setEntries([]);
-        setHistory([]);
         setCurrentPath("/");
         setLoading(true);
         HomeDir(sessionId)

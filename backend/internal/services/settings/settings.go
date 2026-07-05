@@ -68,7 +68,7 @@ func (s *SettingsService) SaveSettings(settings AppSettings) error {
 		return err
 	}
 
-	return os.WriteFile(s.configPath, data, 0644)
+	return os.WriteFile(s.configPath, data, 0600)
 }
 
 // GetLogs 读取日志文件内容，返回最后 maxLines 行
@@ -89,5 +89,5 @@ func (s *SettingsService) GetLogs(maxLines int) (string, error) {
 
 // ClearLogs 清空日志文件
 func (s *SettingsService) ClearLogs() error {
-	return os.WriteFile(s.logPath, []byte{}, 0666)
+	return os.WriteFile(s.logPath, []byte{}, 0644)
 }

@@ -126,8 +126,8 @@ export function TransferQueue() {
                             {t("no_transfers")}
                         </div>
                     ) : (
-                        transfers.map((t) => (
-                            <TransferRow key={t.id} id={t.id} />
+                        transfers.map((transfer) => (
+                            <TransferRow key={transfer.id} id={transfer.id} />
                         ))
                     )}
                 </div>

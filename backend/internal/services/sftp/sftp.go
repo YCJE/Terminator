@@ -288,15 +288,14 @@ func (s *SftpService) DownloadFile(sessionID string, transferID string, remotePa
 		s.emitter.EmitTransferComplete(sessionID, transferID, false, fmt.Sprintf("创建本地文件失败: %v", err))
 		return fmt.Errorf("创建本地文件 %q 失败: %w", localPath, err)
 	}
-	defer localFile.Close()
 
 	if err := s.copyWithProgress(remoteFile, localFile, sessionID, transferID, filename, total); err != nil {
-		s.emitter.EmitTransferComplete(sessionID, transferID, false, err.Error())
-		// 传输失败时清理不完整的本地文件
 		localFile.Close()
 		os.Remove(localPath)
+		s.emitter.EmitTransferComplete(sessionID, transferID, false, err.Error())
 		return fmt.Errorf("下载 %q -> %q 失败: %w", remotePath, localPath, err)
 	}
+	localFile.Close()
 
 	s.emitter.EmitTransferComplete(sessionID, transferID, true, "")
 	return nil
