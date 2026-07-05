@@ -70,7 +70,16 @@ func (s *SftpService) ListDir(sessionID string, path string) ([]FileEntry, error
 
 	infos, err := client.ReadDir(path)
 	if err != nil {
-		return nil, fmt.Errorf("读取目录 %q 失败: %w", path, err)
+		// SFTP 连接可能已失效，重置后重试一次
+		s.sshSvc.ResetSFTPClient(sessionID)
+		client, err2 := s.sshSvc.GetSFTPClient(sessionID)
+		if err2 != nil {
+			return nil, fmt.Errorf("读取目录 %q 失败: %w", path, err)
+		}
+		infos, err = client.ReadDir(path)
+		if err != nil {
+			return nil, fmt.Errorf("读取目录 %q 失败: %w", path, err)
+		}
 	}
 
 	entries := make([]FileEntry, 0, len(infos))
@@ -195,7 +204,8 @@ func (s *SftpService) HomeDir(sessionID string) (string, error) {
 
 	dir, err := client.Getwd()
 	if err != nil {
-		return "", fmt.Errorf("获取家目录失败: %w", err)
+		// Getwd 失败时回退到 /，避免面板无法打开
+		return "/", nil
 	}
 	return dir, nil
 }

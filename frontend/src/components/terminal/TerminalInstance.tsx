@@ -21,6 +21,7 @@ interface TerminalInstanceProps {
 export function TerminalInstance({sessionId, isActive, config}: TerminalInstanceProps) {
     const {t} = useTranslation("terminal");
     const theme = useUIStore((s) => s.theme);
+    const isFilePanelVisible = useUIStore((s) => s.isFilePanelVisible);
 
     const containerRef = useRef<HTMLDivElement>(null);
     const terminalRef = useRef<Terminal | null>(null);
@@ -203,6 +204,24 @@ export function TerminalInstance({sessionId, isActive, config}: TerminalInstance
         resizeObserver.observe(containerRef.current);
         return () => resizeObserver.disconnect();
     }, [isActive, sessionId]);
+
+    // 当文件面板显示/隐藏时，终端容器宽度会变化，
+    // 需要等布局稳定后重新 fit，否则 xterm canvas 会黑屏
+    useEffect(() => {
+        if (!isActive || !isReadyRef.current) return;
+        const timer = setTimeout(() => {
+            try {
+                fitAddonRef.current?.fit();
+                const term = terminalRef.current;
+                if (term) {
+                    SshService.Resize(sessionId, term.rows, term.cols).catch(() => {});
+                }
+            } catch (e) {
+                // 忽略 fit 失败
+            }
+        }, 150);
+        return () => clearTimeout(timer);
+    }, [isFilePanelVisible, isActive, sessionId]);
 
     return (
         <div className={cn("h-full w-full bg-background p-2", isActive ? "block" : "hidden")}>

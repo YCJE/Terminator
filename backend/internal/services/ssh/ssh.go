@@ -342,6 +342,17 @@ func (s *SshService) GetSFTPClient(sessionID string) (*sftp.Client, error) {
 	return client, nil
 }
 
+// ResetSFTPClient 重置 SFTP 客户端缓存，下次 GetSFTPClient 时重新创建
+// 用于 SFTP 连接异常后恢复
+func (s *SshService) ResetSFTPClient(sessionID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if active, exists := s.sessions[sessionID]; exists && active.sftpClient != nil {
+		active.sftpClient.Close()
+		active.sftpClient = nil
+	}
+}
+
 func (s *SshService) streamOutput(sessionID string, stdout io.Reader, current *activeSession) {
 	buf := make([]byte, 32*1024)
 	dataChan := make(chan []byte)
