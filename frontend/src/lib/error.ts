@@ -16,6 +16,9 @@ export interface AppClientError {
     raw?: unknown;
 }
 
+/** 递归深度上限，防止循环引用导致栈溢出 */
+const MAX_RECURSION_DEPTH = 5;
+
 export function parseAppError(error: unknown): AppClientError {
     console.debug(error)
 
@@ -27,30 +30,37 @@ export function parseAppError(error: unknown): AppClientError {
 
     if (!error) return fallback;
 
-    const mapRawError = (rawCause: any, originalPayload: unknown): AppClientError => {
-        if (rawCause.Code) { // app error
-            return {
-                code: rawCause.Code,
-                message: rawCause.Message || "App Error",
-                detailsString: rawCause.ErrorString,
-                detailsObject: rawCause.Err,
-                raw: originalPayload,
-            };
+    const mapRawError = (rawCause: any, originalPayload: unknown, depth: number = 0): AppClientError => {
+        // 深度保护：超过上限直接返回 fallback，防止循环引用死循环
+        if (depth >= MAX_RECURSION_DEPTH) {
+            return fallback;
         }
-        if (rawCause.StatusCode) { // api error
-            const details = Array.isArray(rawCause.Details)
-                ? rawCause.Details as ApiErrorDetail[]
-                : [];
 
-            return {
-                code: ErrorCode.API_ERROR,
-                message: "API Error",
-                apiDetails: details,
-                raw: originalPayload,
-            };
-        }
-        if (rawCause.error) { // emitter error
-            return mapRawError(rawCause.error, originalPayload)
+        if (rawCause && typeof rawCause === "object") {
+            if (rawCause.Code) { // app error
+                return {
+                    code: rawCause.Code,
+                    message: rawCause.Message || "App Error",
+                    detailsString: rawCause.ErrorString,
+                    detailsObject: rawCause.Err,
+                    raw: originalPayload,
+                };
+            }
+            if (rawCause.StatusCode) { // api error
+                const details = Array.isArray(rawCause.Details)
+                    ? rawCause.Details as ApiErrorDetail[]
+                    : [];
+
+                return {
+                    code: ErrorCode.API_ERROR,
+                    message: "API Error",
+                    apiDetails: details,
+                    raw: originalPayload,
+                };
+            }
+            if (rawCause.error) { // emitter error
+                return mapRawError(rawCause.error, originalPayload, depth + 1)
+            }
         }
         return fallback;
     };

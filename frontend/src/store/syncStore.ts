@@ -10,9 +10,19 @@ interface SyncState {
     setStatus: (status: SyncStatus) => void;
 }
 
+// 模块级订阅句柄，确保 HMR 或重复加载时能先取消旧订阅再注册新订阅，
+// 避免事件多次绑定导致内存泄漏和重复 setState。
+let unsubStatus: (() => void) | null = null;
+let unsubError: (() => void) | null = null;
+
 export const useSyncStore = create<SyncState>((set) => {
-    Events.On(AppEvent.SyncStatus, (event) => {
-        const status = event.data as SyncStatus;
+    // 先清理旧订阅（HMR 场景）
+    if (unsubStatus) { try { unsubStatus(); } catch { /* ignore */ } }
+    if (unsubError) { try { unsubError(); } catch { /* ignore */ } }
+
+    unsubStatus = Events.On(AppEvent.SyncStatus, (event) => {
+        const status = event?.data as SyncStatus;
+        if (!status) return;
         set((state) => ({
             status,
             lastError: (status === SyncStatus.SyncStatusSuccess)
@@ -21,8 +31,8 @@ export const useSyncStore = create<SyncState>((set) => {
         }));
     });
 
-    Events.On(AppEvent.SyncError, (event) => {
-        const parsedError = parseAppError(event.data);
+    unsubError = Events.On(AppEvent.SyncError, (event) => {
+        const parsedError = parseAppError(event?.data);
         set({
             status: SyncStatus.SyncStatusError,
             lastError: parsedError

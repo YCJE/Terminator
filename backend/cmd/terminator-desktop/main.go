@@ -165,7 +165,7 @@ func main() {
 	sshEmitter := emitters.NewWailsSSHEmitter(app)
 	updaterEmitter := emitters.NewWailsUpdaterEmitter(app)
 
-	authService := auth.NewAuthService(queries, v, client)
+	authService := auth.NewAuthService(queries, db, v, client)
 	syncService := sync.NewSyncService(queries, client, v, syncEmitter, nil)
 	sshService := ssh.NewSshService(sshEmitter)
 	hostService := blob.NewHostService(queries, v)

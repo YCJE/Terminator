@@ -19,6 +19,7 @@ import (
 
 type AuthService struct {
 	q      *dbgen.Queries
+	db     *sql.DB
 	vault  *vault.Vault
 	client *api.Client
 }
@@ -35,10 +36,12 @@ const (
 
 func NewAuthService(
 	q *dbgen.Queries,
+	db *sql.DB,
 	vault *vault.Vault,
 	client *api.Client) *AuthService {
 	return &AuthService{
 		q:      q,
+		db:     db,
 		vault:  vault,
 		client: client,
 	}
@@ -114,7 +117,8 @@ func (s *AuthService) Login(ctx context.Context, password string) error {
 	dbUser, err := s.q.GetUser(ctx)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return apperror.NotFound("User not found", err)
+			// 统一返回模糊错误，防止用户枚举攻击
+			return apperror.DecryptionFailed(err)
 		}
 		return err
 	}
@@ -248,10 +252,21 @@ func (s *AuthService) RegisterOnServer(ctx context.Context, serverURL string) er
 }
 
 func (s *AuthService) WipeData(ctx context.Context) error {
-	if err := s.q.WipeBlobs(ctx); err != nil {
+	// 使用事务确保完全清除，避免出现 blob 已删但用户还在的半清除状态
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
 		return err
 	}
-	if err := s.q.WipeUsers(ctx); err != nil {
+	defer func() { _ = tx.Rollback() }()
+
+	qtx := s.q.WithTx(tx)
+	if err := qtx.WipeBlobs(ctx); err != nil {
+		return err
+	}
+	if err := qtx.WipeUsers(ctx); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
 		return err
 	}
 
