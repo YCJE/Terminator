@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"io"
@@ -10,6 +11,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
+	"strings"
 	"terminator-desktop/backend/cmd/terminator-desktop/emitters"
 	"terminator-desktop/backend/cmd/terminator-desktop/env"
 	"terminator-desktop/backend/internal/api"
@@ -93,9 +95,9 @@ func main() {
 	} else {
 		multiWriter = io.MultiWriter(logFile)
 	}
-	logger := slog.New(slog.NewTextHandler(multiWriter, &slog.HandlerOptions{
+	logger := slog.New(&filteredHandler{wrapped: slog.NewTextHandler(multiWriter, &slog.HandlerOptions{
 		Level: slog.LevelInfo,
-	}))
+	})})
 	slog.SetDefault(logger)
 
 	crashPath := filepath.Join(appDir, crashLogFileName)
@@ -251,4 +253,42 @@ func getDbDir(appDir string, isDebug bool) string {
 		return filepath.Join(appDir, devDbFile)
 	}
 	return filepath.Join(appDir, dbFile)
+}
+
+// filteredHandler 包装 slog.Handler，过滤掉已知的非错误日志
+// 例如用户取消文件选择对话框时 Wails 框架会记录 ERROR 级别日志，
+// 但这是正常用户操作，不应记录为错误
+type filteredHandler struct {
+	wrapped slog.Handler
+}
+
+// shouldSuppress 检查是否应抑制该日志条目
+func (h *filteredHandler) shouldSuppress(level slog.Level, msg string) bool {
+	if level < slog.LevelError {
+		return false
+	}
+	// 用户取消文件选择对话框不是错误
+	if strings.Contains(msg, "cancelled by user") {
+		return true
+	}
+	return false
+}
+
+func (h *filteredHandler) Enabled(ctx context.Context, level slog.Level) bool {
+	return h.wrapped.Enabled(ctx, level)
+}
+
+func (h *filteredHandler) Handle(ctx context.Context, r slog.Record) error {
+	if h.shouldSuppress(r.Level, r.Message) {
+		return nil
+	}
+	return h.wrapped.Handle(ctx, r)
+}
+
+func (h *filteredHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	return &filteredHandler{wrapped: h.wrapped.WithAttrs(attrs)}
+}
+
+func (h *filteredHandler) WithGroup(name string) slog.Handler {
+	return &filteredHandler{wrapped: h.wrapped.WithGroup(name)}
 }

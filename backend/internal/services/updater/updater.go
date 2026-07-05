@@ -32,6 +32,8 @@ type UpdaterService struct {
 	latest    *velopack.UpdateInfo
 	state     updaterState
 	mu        sync.Mutex
+	// cgoUnavailable 标记 cgo 是否可用，避免反复尝试创建 manager
+	cgoUnavailable bool
 }
 
 func NewUpdaterService(updateURL string, emitter Emitter) *UpdaterService {
@@ -48,9 +50,15 @@ func (s *UpdaterService) getManager() (*velopack.UpdateManager, error) {
 	if s.manager != nil {
 		return s.manager, nil
 	}
+	// cgo 不可用时直接返回 nil（无更新），不报错
+	if s.cgoUnavailable {
+		return nil, nil
+	}
 	manager, err := velopack.NewUpdateManager(s.updateURL)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create update manager: %w", err)
+		// cgo disabled 或 velopack 初始化失败时，标记为不可用，静默处理
+		s.cgoUnavailable = true
+		return nil, nil
 	}
 	s.manager = manager
 	return manager, nil
@@ -69,13 +77,14 @@ func (s *UpdaterService) CheckForUpdates() (*UpdateInfo, error) {
 	}
 
 	manager, err := s.getManager()
-	if err != nil {
-		return nil, err
+	if err != nil || manager == nil {
+		// cgo 不可用或 manager 初始化失败，返回无更新（不报错）
+		return &UpdateInfo{IsAvailable: false}, nil
 	}
 
 	latest, status, err := manager.CheckForUpdates()
 	if err != nil {
-		return nil, fmt.Errorf("failed to check for updates: %w", err)
+		return &UpdateInfo{IsAvailable: false}, nil
 	}
 
 	if status == velopack.UpdateAvailable && latest != nil && latest.TargetFullRelease != nil {
