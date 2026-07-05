@@ -57,7 +57,8 @@ const dbFile = "terminator.db"
 const devDbFile = "dev.db"
 const logFileName = "terminator.log"
 const crashLogFileName = "crash.log"
-const updateUrl = "https://github.com/terminator-ssh/terminator-desktop/releases/latest/download/"
+const updateUrl = "https://github.com/YCJE/Terminator/releases/latest/download/"
+const githubRepo = "YCJE/Terminator"
 
 func main() {
 	velopack.Run(velopack.App{
@@ -181,7 +182,7 @@ func main() {
 	sftpService := sftp.NewSftpService(sshService, sftpEmitter)
 	hostService := blob.NewHostService(queries, v)
 	keyService := blob.NewKeyService(queries, v)
-	updaterService := updater.NewUpdaterService(updateUrl, updaterEmitter)
+	updaterService := updater.NewUpdaterService(updateUrl, githubRepo, updaterEmitter)
 
 	app.RegisterService(application.NewService(authService))
 	app.RegisterService(application.NewService(syncService))

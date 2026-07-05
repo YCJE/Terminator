@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
-import { User, Server, Lock, Trash2, Globe, AlertTriangle, Palette, Moon, Sun, Unplug, FolderSync, ScrollText } from "lucide-react";
+import { User, Server, Lock, Trash2, Globe, AlertTriangle, Palette, Moon, Sun, Unplug, FolderSync, ScrollText, Download, ExternalLink, Loader2, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SwitchServerModal } from "@/components/views/SwitchServerModal";
 import { WebDAVModal } from "@/components/views/WebDAVModal";
@@ -13,6 +13,8 @@ import { useSessionStore } from "@/store/sessionStore";
 import { AuthService } from "../../../bindings/terminator-desktop/backend/internal/services/auth";
 import { SyncService } from "../../../bindings/terminator-desktop/backend/internal/services/sync";
 import { AppSettings, SettingsService } from "../../../bindings/terminator-desktop/backend/internal/services/settings";
+import { UpdaterService } from "../../../bindings/terminator-desktop/backend/internal/services/updater";
+import { GitHubReleaseInfo } from "../../../bindings/terminator-desktop/backend/internal/services/updater/models";
 import { handleAppError } from "@/lib/error";
 import {
     Select,
@@ -38,6 +40,10 @@ export function SettingsPage() {
     const [isWebDAVModalOpen, setIsWebDAVModalOpen] = useState(false);
     const [syncMethod, setSyncMethod] = useState<string>("server");
     const [webdavUrl, setWebdavUrl] = useState<string>("");
+
+    // 更新检查状态
+    const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
+    const [releaseInfo, setReleaseInfo] = useState<GitHubReleaseInfo | null>(null);
 
     // 读取当前同步方式
     useEffect(() => {
@@ -77,6 +83,33 @@ export function SettingsPage() {
             await refetch();
         } catch (error) {
             handleAppError(error);
+        }
+    };
+
+    const handleCheckUpdate = async () => {
+        setIsCheckingUpdate(true);
+        setReleaseInfo(null);
+        try {
+            const info = await UpdaterService.CheckGitHubReleases();
+            if (info) {
+                setReleaseInfo(info);
+            } else {
+                handleAppError(new Error("Failed to check for updates"));
+            }
+        } catch (error) {
+            handleAppError(error);
+        } finally {
+            setIsCheckingUpdate(false);
+        }
+    };
+
+    const handleOpenReleasePage = async () => {
+        if (releaseInfo?.htmlUrl) {
+            try {
+                await UpdaterService.OpenReleasePage(releaseInfo.htmlUrl);
+            } catch {
+                window.open(releaseInfo.htmlUrl, "_blank");
+            }
         }
     };
 
@@ -303,6 +336,63 @@ export function SettingsPage() {
                 {/* 日志查看器 */}
                 <SettingsCard icon={<ScrollText className="size-5"/>} title={t("log_section_title")}>
                     <LogViewer/>
+                </SettingsCard>
+
+                {/* 关于 / 检查更新 */}
+                <SettingsCard icon={<Download className="size-5"/>} title={t("about_title")} description={t("about_desc")}>
+                    <div className="flex items-center justify-between">
+                        <div className="flex flex-col">
+                            <span className="font-medium text-foreground">{t("check_update_title")}</span>
+                            <span className="text-xs text-muted-foreground">{t("check_update_desc")}</span>
+                        </div>
+                        <Button
+                            variant="outline"
+                            onClick={handleCheckUpdate}
+                            disabled={isCheckingUpdate}
+                        >
+                            {isCheckingUpdate ? (
+                                <Loader2 className="mr-2 size-4 animate-spin"/>
+                            ) : (
+                                <Download className="mr-2 size-4"/>
+                            )}
+                            {isCheckingUpdate ? t("checking", {ns: "common"}) : t("check_update_btn")}
+                        </Button>
+                    </div>
+
+                    {/* 检查结果 */}
+                    {releaseInfo && (
+                        <div className="mt-4 rounded-lg border border-border bg-muted/30 p-4">
+                            {releaseInfo.hasUpdate ? (
+                                <>
+                                    <div className="mb-2 flex items-center gap-2">
+                                        <Download className="size-4 text-primary"/>
+                                        <span className="font-semibold text-primary">
+                                            {t("new_version_available", {version: releaseInfo.latestVersion})}
+                                        </span>
+                                    </div>
+                                    <p className="mb-2 text-xs text-muted-foreground">
+                                        {t("current_version", {version: releaseInfo.currentVersion})}
+                                    </p>
+                                    {releaseInfo.publishedAt && (
+                                        <p className="mb-2 text-xs text-muted-foreground">
+                                            {t("published_at", {date: new Date(releaseInfo.publishedAt).toLocaleDateString()})}
+                                        </p>
+                                    )}
+                                    <Button size="sm" variant="outline" onClick={handleOpenReleasePage} className="mt-2">
+                                        <ExternalLink className="mr-2 size-3"/>
+                                        {t("go_to_download")}
+                                    </Button>
+                                </>
+                            ) : (
+                                <div className="flex items-center gap-2">
+                                    <CheckCircle2 className="size-4 text-green-500"/>
+                                    <span className="text-sm text-foreground">
+                                        {t("already_latest", {version: releaseInfo.currentVersion})}
+                                    </span>
+                                </div>
+                            )}
+                        </div>
+                    )}
                 </SettingsCard>
 
             </div>

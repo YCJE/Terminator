@@ -19,10 +19,22 @@ export function CheckForUpdates(): $CancellablePromise<$models.UpdateInfo | null
     });
 }
 
+export function CheckGitHubReleases(): $CancellablePromise<$models.GitHubReleaseInfo | null> {
+    return $Call.ByID(158079014).then(($result: any) => {
+        return $$createType2($result);
+    });
+}
+
 export function DownloadUpdate(): $CancellablePromise<void> {
     return $Call.ByID(3010458000);
+}
+
+export function OpenReleasePage(url: string): $CancellablePromise<void> {
+    return $Call.ByID(2057714281, [url]);
 }
 
 // Private type creation functions
 const $$createType0 = $models.UpdateInfo.createFrom;
 const $$createType1 = $Create.Nullable($$createType0);
+const $$createType3 = $models.GitHubReleaseInfo.createFrom;
+const $$createType2 = $Create.Nullable($$createType3);
