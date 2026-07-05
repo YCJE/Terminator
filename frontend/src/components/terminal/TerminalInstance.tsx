@@ -94,10 +94,10 @@ export function TerminalInstance({sessionId, isActive, config}: TerminalInstance
         container.addEventListener("contextmenu", handleContextMenu);
 
         if (!hasConnectedRef.current) {
-            hasConnectedRef.current = true;
             SshService.Connect(config)
                 .then(() => {
                     isReadyRef.current = true;
+                    hasConnectedRef.current = true; // 仅成功后才标记，允许失败后重试
                     if (terminalRef.current && fitAddonRef.current) {
                         fitAddonRef.current.fit();
                         SshService.Resize(sessionId, terminalRef.current.rows, terminalRef.current.cols)

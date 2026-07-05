@@ -112,7 +112,7 @@ export default function App() {
                 )}
 
             </div>
-            <Toaster position="bottom-right" theme={theme} richColors/>
+            <Toaster position="bottom-right" theme={theme} richColors style={{ zIndex: 9999 }} />
         </div>
     );
 }

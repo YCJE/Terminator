@@ -1,7 +1,7 @@
 // SFTP 文件管理面板：FinalShell 风格的侧边面板，放在终端右侧
 // 提供目录浏览、文件操作（增删改查）、上传/下载、拖拽上传、传输队列等能力
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
     ArrowUp,
     RefreshCw,
@@ -332,6 +332,9 @@ export function FilePanel({ sessionId }: FilePanelProps) {
     };
 
     // 拖拽调整面板宽度
+    // 用 ref 存储监听器引用，组件卸载时兜底清理
+    const resizeCleanupRef = useRef<(() => void) | null>(null);
+
     const startResize = (e: React.MouseEvent) => {
         e.preventDefault();
         const startX = e.clientX;
@@ -345,11 +348,26 @@ export function FilePanel({ sessionId }: FilePanelProps) {
             document.removeEventListener("mousemove", onMove);
             document.removeEventListener("mouseup", onUp);
             document.body.style.cursor = "";
+            resizeCleanupRef.current = null;
         };
         document.body.style.cursor = "col-resize";
         document.addEventListener("mousemove", onMove);
         document.addEventListener("mouseup", onUp);
+        resizeCleanupRef.current = () => {
+            document.removeEventListener("mousemove", onMove);
+            document.removeEventListener("mouseup", onUp);
+            document.body.style.cursor = "";
+        };
     };
+
+    // 组件卸载时清理拖拽监听器
+    useEffect(() => {
+        return () => {
+            if (resizeCleanupRef.current) {
+                resizeCleanupRef.current();
+            }
+        };
+    }, []);
 
     // 拖拽本地文件到面板上传
     const handleDragOver = (e: React.DragEvent) => {

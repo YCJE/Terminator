@@ -48,6 +48,9 @@ export function KeyModal({isOpen, onClose, onSave, initialData, isSaving}: KeyMo
         reader.onload = (e) => {
             if (e.target?.result) setPrivateKey(e.target.result as string);
         };
+        reader.onerror = () => {
+            handleAppError(new Error("读取文件失败"));
+        };
         reader.readAsText(file);
         if (fileInputRef.current) fileInputRef.current.value = "";
     };

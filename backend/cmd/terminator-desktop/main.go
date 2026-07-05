@@ -192,7 +192,6 @@ func main() {
 	app.RegisterService(application.NewService(NewWebDAVService(settingsService)))
 	app.RegisterService(application.NewService(NewLogService(appDir)))
 	app.RegisterService(application.NewService(NewKeyGenService()))
-	app.RegisterService(application.NewService(&WindowControls{mainWindow}))
 
 	// Create a new window with the necessary options.
 	// 'Title' is the title of the window.

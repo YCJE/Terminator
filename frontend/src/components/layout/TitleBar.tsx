@@ -76,23 +76,25 @@ export function TitleBar() {
                 ))}
             </div>
 
-            {/* 文件管理面板切换按钮：终端视图且有活跃会话时显示 */}
-            {isTerminalView && activeSessionId && (
-                <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    onClick={toggleFilePanel}
-                    className="wails-no-drag mr-1 text-muted-foreground hover:text-foreground"
-                    title={t("toggle_panel")}
-                >
-                    {isFilePanelVisible
-                        ? <PanelRightClose className="size-4"/>
-                        : <FolderOpen className="size-4"/>
-                    }
-                </Button>
-            )}
-
-            <WindowControls className="ml-12"/>
+            {/* 文件管理面板切换按钮 + 窗口控制按钮
+                用 flex 容器包裹，垂直居中对齐，紧靠右侧 */}
+            <div className="flex h-full items-center gap-1 pr-1">
+                {isTerminalView && activeSessionId && (
+                    <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        onClick={toggleFilePanel}
+                        className="wails-no-drag text-muted-foreground hover:text-foreground"
+                        title={t("toggle_panel")}
+                    >
+                        {isFilePanelVisible
+                            ? <PanelRightClose className="size-4"/>
+                            : <FolderOpen className="size-4"/>
+                        }
+                    </Button>
+                )}
+                <WindowControls/>
+            </div>
 
         </header>
     );

@@ -30,7 +30,26 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     sessions: [],
     activeSessionId: null,
 
-    addSession: (params) => set((state) => {
+    addSession: (params) => {
+        const state = get();
+
+        // 检查是否已有相同主机+端口+用户名的会话
+        // 如果有，直接切换到该会话，不另开标签
+        const existing = state.sessions.find(
+            (s) =>
+                s.config.host === params.host &&
+                s.config.port === params.port &&
+                s.config.username === params.username
+        );
+
+        if (existing) {
+            // 切换到已有会话
+            useUIStore.getState().setActiveView(ViewType.Terminal);
+            set({ activeSessionId: existing.id });
+            return;
+        }
+
+        // 创建新会话
         const newId = crypto.randomUUID();
 
         const fullConfig = new SSHConnectionConfig({
@@ -50,32 +69,37 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
         useUIStore.getState().setActiveView(ViewType.Terminal);
 
-        return {
+        set({
             sessions: [...state.sessions, newSession],
             activeSessionId: newId,
-        };
-    }),
+        });
+    },
 
-    removeSession: (id) => set((state) => {
-        const newSessions = state.sessions.filter((s) => s.id !== id);
-        let newActiveId = state.activeSessionId;
+    removeSession: (id) => {
+        // 显式断开后端连接，不依赖组件卸载副作用
+        SshService.Disconnect(id).catch(console.error);
 
-        if (state.activeSessionId === id) {
-            if (newSessions.length > 0) {
-                const closedIndex = state.sessions.findIndex((s) => s.id === id);
-                const fallbackSession = newSessions[closedIndex - 1] || newSessions[0];
-                newActiveId = fallbackSession.id;
-            } else {
-                newActiveId = null;
-                useUIStore.getState().setActiveView(ViewType.Hosts);
+        set((state) => {
+            const newSessions = state.sessions.filter((s) => s.id !== id);
+            let newActiveId = state.activeSessionId;
+
+            if (state.activeSessionId === id) {
+                if (newSessions.length > 0) {
+                    const closedIndex = state.sessions.findIndex((s) => s.id === id);
+                    const fallbackSession = newSessions[closedIndex - 1] || newSessions[0];
+                    newActiveId = fallbackSession.id;
+                } else {
+                    newActiveId = null;
+                    useUIStore.getState().setActiveView(ViewType.Hosts);
+                }
             }
-        }
 
-        return {
-            sessions: newSessions,
-            activeSessionId: newActiveId,
-        };
-    }),
+            return {
+                sessions: newSessions,
+                activeSessionId: newActiveId,
+            };
+        });
+    },
 
     setActiveSession: (id) => {
         useUIStore.getState().setActiveView(ViewType.Terminal);

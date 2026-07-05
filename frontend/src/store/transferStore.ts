@@ -1,5 +1,6 @@
 // 文件传输队列状态管理
 // 优化：进度更新节流，避免高频事件导致 React 狂暴重渲染
+// 使用尾帧刷新机制确保最后一次进度更新不丢失
 
 import { create } from "zustand";
 
@@ -17,28 +18,42 @@ export interface TransferItem {
 
 interface TransferState {
     transfers: TransferItem[];
-    /** 新增一个传输任务 */
     addTransfer: (item: TransferItem) => void;
-    /** 更新某个传输任务的状态 */
     updateTransfer: (id: string, updates: Partial<TransferItem>) => void;
-    /** 移除某个传输任务 */
     removeTransfer: (id: string) => void;
-    /** 清除所有已完成的传输任务 */
     clearCompleted: () => void;
 }
 
 // 进度节流：同一 transferID 的进度事件最多每 200ms 更新一次 UI
-// 后端每 32KB 发一次进度，大文件传输时每秒可达数百次事件
-// 用 Map 记录上次更新时间，跳过过快的更新
+// 使用 pending ref 暂存被节流的最新值，定时器补发最后一帧
 const progressThrottle = new Map<string, number>();
+const pendingUpdates = new Map<string, Partial<TransferItem>>();
 const THROTTLE_MS = 200;
 
-export const useTransferStore = create<TransferState>((set, get) => ({
+// 尾帧刷新定时器：每 200ms 检查是否有被节流的更新需要补发
+let flushTimer: ReturnType<typeof setInterval> | null = null;
+
+function ensureFlushTimer(set: (fn: (s: TransferState) => TransferState) => void) {
+    if (flushTimer) return;
+    flushTimer = setInterval(() => {
+        if (pendingUpdates.size === 0) return;
+        const updates = new Map(pendingUpdates);
+        pendingUpdates.clear();
+        set((state) => ({
+            transfers: state.transfers.map((t) => {
+                const u = updates.get(t.id);
+                return u ? { ...t, ...u } : t;
+            }),
+        }));
+    }, THROTTLE_MS);
+}
+
+export const useTransferStore = create<TransferState>((set) => ({
     transfers: [],
 
     addTransfer: (item) => {
-        // 新增时重置节流计时
         progressThrottle.delete(item.id);
+        pendingUpdates.delete(item.id);
         set((state) => ({
             transfers: [...state.transfers, item],
         }));
@@ -48,21 +63,23 @@ export const useTransferStore = create<TransferState>((set, get) => ({
         // 完成或错误事件立即处理，不节流
         if (updates.status === "success" || updates.status === "error") {
             progressThrottle.delete(id);
+            pendingUpdates.delete(id);
             set((state) => ({
                 transfers: state.transfers.map((t) => (t.id === id ? { ...t, ...updates } : t)),
             }));
             return;
         }
 
-        // 进度更新节流：检查距上次更新是否已过 THROTTLE_MS
+        // 进度更新节流
         const now = Date.now();
         const lastTime = progressThrottle.get(id) ?? 0;
         if (now - lastTime < THROTTLE_MS) {
-            // 跳过本次更新，但记录最新值到 ref（下次定时刷新时会用到）
+            // 暂存到 pending，等待尾帧刷新补发
+            pendingUpdates.set(id, updates);
+            ensureFlushTimer(set);
             return;
         }
         progressThrottle.set(id, now);
-
         set((state) => ({
             transfers: state.transfers.map((t) => (t.id === id ? { ...t, ...updates } : t)),
         }));
@@ -70,6 +87,7 @@ export const useTransferStore = create<TransferState>((set, get) => ({
 
     removeTransfer: (id) => {
         progressThrottle.delete(id);
+        pendingUpdates.delete(id);
         set((state) => ({
             transfers: state.transfers.filter((t) => t.id !== id),
         }));

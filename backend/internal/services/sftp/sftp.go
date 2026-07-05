@@ -74,11 +74,11 @@ func (s *SftpService) ListDir(sessionID string, path string) ([]FileEntry, error
 		s.sshSvc.ResetSFTPClient(sessionID)
 		client, err2 := s.sshSvc.GetSFTPClient(sessionID)
 		if err2 != nil {
-			return nil, fmt.Errorf("读取目录 %q 失败: %w", path, err)
+			return nil, fmt.Errorf("读取目录 %q 失败(原始): %w; 重置SFTP失败: %v", path, err, err2)
 		}
 		infos, err = client.ReadDir(path)
 		if err != nil {
-			return nil, fmt.Errorf("读取目录 %q 失败: %w", path, err)
+			return nil, fmt.Errorf("读取目录 %q 失败(重试后): %w", path, err)
 		}
 	}
 
@@ -292,6 +292,9 @@ func (s *SftpService) DownloadFile(sessionID string, transferID string, remotePa
 
 	if err := s.copyWithProgress(remoteFile, localFile, sessionID, transferID, filename, total); err != nil {
 		s.emitter.EmitTransferComplete(sessionID, transferID, false, err.Error())
+		// 传输失败时清理不完整的本地文件
+		localFile.Close()
+		os.Remove(localPath)
 		return fmt.Errorf("下载 %q -> %q 失败: %w", remotePath, localPath, err)
 	}
 
