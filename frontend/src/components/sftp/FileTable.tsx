@@ -47,14 +47,14 @@ function FileTableImpl({ entries, loading, onOpen, onContextMenu }: FileTablePro
 
     useEffect(() => {
         if (!containerRef.current) return;
-        const observer = new ResizeObserver((entries) => {
-            for (const entry of entries) {
+        const observer = new ResizeObserver((resizeEntries) => {
+            for (const entry of resizeEntries) {
                 setContainerWidth(entry.contentRect.width);
             }
         });
         observer.observe(containerRef.current);
         return () => observer.disconnect();
-    }, []);
+    }, [loading, entries.length]);
 
     const showSize = containerWidth > 360;
     const showPerm = containerWidth > 480;

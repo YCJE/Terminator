@@ -97,7 +97,7 @@ func (s *SyncService) Authenticate(ctx context.Context) error {
 	return nil
 }
 
-func (s *SyncService) Sync(ctx context.Context) error {
+func (s *SyncService) Sync(ctx context.Context) (err error) {
 	if !s.vault.IsUnlocked() {
 		return nil
 	}
@@ -118,11 +118,17 @@ func (s *SyncService) Sync(ctx context.Context) error {
 
 	s.emitter.EmitStatus(SyncStatusSyncing)
 
+	// 统一错误处理：任何错误路径都发射 SyncStatusError
+	defer func() {
+		if err != nil {
+			s.emitter.EmitStatus(SyncStatusError)
+		}
+	}()
+
 	// 读取 AppSettings 判断同步方式：webdav 走 WebDAV 全量同步，其余走服务器同步
 	if s.settingsSvc != nil {
 		appSettings, err := s.settingsSvc.GetSettings()
 		if err != nil {
-			s.emitter.EmitStatus(SyncStatusError)
 			return err
 		}
 		if appSettings.SyncMethod == "webdav" {

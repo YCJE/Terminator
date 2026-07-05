@@ -1,7 +1,7 @@
 // 日志查看器组件：显示应用日志，支持刷新、复制、清除、鼠标选中复制
 // 美化日志格式：[2026-07-06 02:21:29 UTC+8] [INFO] 消息内容
 // 按级别着色：INFO=蓝色, ERROR=红色, WARN=黄色, DEBUG=灰色
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { ScrollText, RefreshCw, Copy, Trash2, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -95,6 +95,14 @@ export function LogViewer() {
     const [rawLogs, setRawLogs] = useState("");
     const [loading, setLoading] = useState(false);
     const [copied, setCopied] = useState(false);
+    const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    // 卸载时清理定时器
+    useEffect(() => {
+        return () => {
+            if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+        };
+    }, []);
 
     const loadLogs = useCallback(async () => {
         setLoading(true);
@@ -111,10 +119,14 @@ export function LogViewer() {
 
     const handleCopy = useCallback(async () => {
         if (!rawLogs) return;
+        const doCopy = () => {
+            setCopied(true);
+            if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+            copyTimerRef.current = setTimeout(() => setCopied(false), 2000);
+        };
         try {
             await navigator.clipboard.writeText(rawLogs);
-            setCopied(true);
-            setTimeout(() => setCopied(false), 2000);
+            doCopy();
         } catch {
             const textarea = document.createElement("textarea");
             textarea.value = rawLogs;
@@ -122,8 +134,7 @@ export function LogViewer() {
             textarea.select();
             document.execCommand("copy");
             document.body.removeChild(textarea);
-            setCopied(true);
-            setTimeout(() => setCopied(false), 2000);
+            doCopy();
         }
     }, [rawLogs]);
 

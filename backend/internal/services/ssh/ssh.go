@@ -149,6 +149,13 @@ func (s *SshService) Connect(config *SSHConnectionConfig) error {
 		return apperror.SSHConnectionFailed("failed to start shell", err)
 	}
 
+	// 启动 goroutine 等待 session 结束后关闭 pipe 写端
+	// 这样 pr.Read 会返回 EOF，触发 streamOutput → cleanupSession 清理资源
+	go func() {
+		_ = session.Wait()
+		pw.Close()
+	}()
+
 	s.mu.Lock()
 	// 清理同 ID 的旧 session，防止资源泄漏
 	if old, exists := s.sessions[config.ID]; exists {

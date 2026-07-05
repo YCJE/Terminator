@@ -244,11 +244,15 @@ func (s *SftpService) UploadFile(sessionID string, transferID string, localPath 
 		s.emitter.EmitTransferComplete(sessionID, transferID, false, fmt.Sprintf("创建远程文件失败: %v", err))
 		return fmt.Errorf("创建远程文件 %q 失败: %w", remotePath, err)
 	}
-	defer remoteFile.Close()
 
 	if err := s.copyWithProgress(localFile, remoteFile, sessionID, transferID, filename, total); err != nil {
+		remoteFile.Close()
 		s.emitter.EmitTransferComplete(sessionID, transferID, false, err.Error())
 		return fmt.Errorf("上传 %q -> %q 失败: %w", localPath, remotePath, err)
+	}
+	if err := remoteFile.Close(); err != nil {
+		s.emitter.EmitTransferComplete(sessionID, transferID, false, fmt.Sprintf("关闭远程文件失败: %v", err))
+		return fmt.Errorf("上传 %q -> %q 关闭远程文件失败: %w", localPath, remotePath, err)
 	}
 
 	s.emitter.EmitTransferComplete(sessionID, transferID, true, "")

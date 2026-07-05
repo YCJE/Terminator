@@ -81,13 +81,20 @@ function basename(p: string): string {
 }
 
 // 将权限字符串（数字或符号形式）转换为八进制字符串，用于权限编辑预填
+// 支持 setuid/setgid/sticky 特殊权限位
 function toOctal(mode: string): string {
     if (!mode) return "755";
     if (/^[0-7]+$/.test(mode)) return mode.replace(/^0+/, "") || "0";
-    // 解析符号权限，例如 drwxr-xr-x
+    // 解析符号权限，例如 drwsr-xr-x (4755) 或 drwxr-xr-t (1755)
     const sym = mode.replace(/[^rwxstST-]/g, "");
     if (sym.length >= 9) {
         const perms = sym.slice(-9);
+        // 特殊位：第3位 s/S=setuid(4)，第6位 s/S=setgid(2)，第9位 t/T=sticky(1)
+        let special = 0;
+        if (perms[2] === "s" || perms[2] === "S") special += 4;
+        if (perms[5] === "s" || perms[5] === "S") special += 2;
+        if (perms[8] === "t" || perms[8] === "T") special += 1;
+
         const groups = [perms.slice(0, 3), perms.slice(3, 6), perms.slice(6, 9)];
         let octal = 0;
         groups.forEach((g) => {
@@ -97,7 +104,8 @@ function toOctal(mode: string): string {
             if (g[2] === "x" || g[2] === "s" || g[2] === "t") n += 1;
             octal = octal * 10 + n;
         });
-        return String(octal).padStart(3, "0");
+        const base = String(octal).padStart(3, "0");
+        return special > 0 ? `${special}${base}` : base;
     }
     return "755";
 }
@@ -134,17 +142,24 @@ export function FilePanel({ sessionId }: FilePanelProps) {
     const [isDragOver, setIsDragOver] = useState(false);
     const [width, setWidth] = useState(360);
 
-    // 加载指定目录的文件列表
+    // 请求序列号，防止快速切换目录时的竞态条件
+    const loadIdRef = useRef(0);
+
+    // 加载指定目录的文件列表（带竞态保护）
     const loadDir = useCallback(async (path: string) => {
+        const myId = ++loadIdRef.current;
         setLoading(true);
         try {
             const list = await ListDir(sessionId, path);
+            // 如果在请求期间又有新请求发出，忽略过期响应
+            if (myId !== loadIdRef.current) return;
             setCurrentPath(path);
             setEntries(list || []);
         } catch (err) {
+            if (myId !== loadIdRef.current) return;
             handleAppError(err);
         } finally {
-            setLoading(false);
+            if (myId === loadIdRef.current) setLoading(false);
         }
     }, [sessionId]);
 

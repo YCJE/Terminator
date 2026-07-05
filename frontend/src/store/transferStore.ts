@@ -87,6 +87,8 @@ export const useTransferStore = create<TransferState>((set) => ({
             return;
         }
         progressThrottle.set(id, now);
+        // 清除过时的 pending，防止 flush 定时器用旧值覆盖即时更新
+        pendingUpdates.delete(id);
         set((state) => ({
             transfers: state.transfers.map((t) => (t.id === id ? { ...t, ...updates } : t)),
         }));

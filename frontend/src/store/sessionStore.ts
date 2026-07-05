@@ -35,13 +35,14 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     addSession: (params) => {
         const state = get();
 
-        // 检查是否已有相同主机+端口+用户名的会话
-        // 如果有，直接切换到该会话，不另开标签
+        // 检查是否已有相同主机+端口+用户名的活跃会话
+        // 如果有且未断开，直接切换到该会话，不另开标签
         const existing = state.sessions.find(
             (s) =>
                 s.config.host === params.host &&
                 s.config.port === params.port &&
-                s.config.username === params.username
+                s.config.username === params.username &&
+                !s.disconnected
         );
 
         if (existing) {
