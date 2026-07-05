@@ -1,0 +1,21 @@
+{
+  "cancel": "取消",
+  "save": "保存",
+  "delete": "删除",
+  "edit": "编辑",
+  "connect": "连接",
+  "close": "关闭",
+  "search_placeholder": "搜索...",
+  "username": "用户名",
+  "password": "密码",
+  "port": "端口",
+  "host_ip": "主机 / IP",
+  "label_optional": "标签（可选）",
+  "loading": "加载中...",
+  "saving": "保存中...",
+  "connecting": "连接中...",
+  "unlocking": "解锁中...",
+  "creating": "创建中...",
+  "continue": "继续",
+  "none": "无"
+}

@@ -1,0 +1,21 @@
+{
+  "page_title": "密钥",
+  "new_key": "新建密钥",
+  "search_keys": "搜索密钥...",
+  "loading_keys": "正在加载密钥...",
+  "empty_title": "未找到密钥",
+  "empty_desc": "添加一个私钥。",
+  "import_key": "导入密钥",
+  "edit_title": "编辑密钥",
+  "new_title": "新建密钥",
+  "key_name_label": "密钥名称",
+  "key_name_placeholder": "例如：AWS 生产环境",
+  "private_key_label": "私钥",
+  "load_from_file": "从文件加载",
+  "drop_to_autofill": "拖入文件以自动填充，或点击浏览",
+  "key_loaded": "密钥已加载，点击可替换。",
+  "save_key": "保存密钥",
+  "delete_title": "删除 SSH 密钥？",
+  "delete_desc": "确定要删除密钥“{{name}}”吗？此操作无法撤销，可能导致依赖此密钥的主机无法连接。",
+  "ssh_private_key": "SSH 私钥"
+}

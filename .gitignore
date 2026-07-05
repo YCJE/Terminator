@@ -1,0 +1,47 @@
+﻿# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# ide
+.idea
+.vscode
+
+
+# misc
+.DS_Store
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+dist
+out
+.eslintcache
+
+# local db
+*.db
+*.db-shm
+*.db-wal
+
+# local preferences
+settings.json
+
+# log
+terminator.log
+crash.log
+
+# wails
+.task
+bin
+frontend/dist
+frontend/node_modules
+build/linux/appimage/build
+build/windows/nsis/MicrosoftEdgeWebview2Setup.exe
+webview2
+
+# local build tools (portable NSIS, rsrc, etc.)
+tools/
+*.syso
+
+# velopack
+releases/
+
+__debug_bin.exe

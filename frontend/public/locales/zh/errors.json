@@ -1,0 +1,48 @@
+{
+  "NOT_FOUND": "未找到请求的项目。",
+  "VALIDATION_FAILED": "请检查输入后重试。",
+  "DECRYPTION_FAILED": "密码无效或数据已损坏。",
+  "VAULT_LOCKED": "你的保险库当前已锁定，请登录。",
+  "NETWORK_FAILED": "无法连接到服务器，请检查网络。",
+  "SSH_CONNECTION_FAILED": "无法建立到该主机的 SSH 连接。",
+  "SSH_SESSION_NOT_FOUND": "SSH 会话已断开或丢失。",
+  "API_ERROR": "服务器拒绝了该请求。",
+  "INTERNAL_ERROR": "发生内部应用错误。",
+  "RUNTIME_ERROR": "发生未知的客户端错误。",
+  "UNKNOWN_ERROR": "发生未知错误。",
+
+  "User.AlreadyExists": "用户名已被占用。",
+  "User.NotFound": "该服务器上未找到该用户。",
+  "User.InvalidCredentials": "登录密钥无效或已损坏。",
+  "User.BlobLimitReached": "已达到存储上限。",
+
+  "Sync.EncryptedBlob.InvalidTimestamp": "提供的同步时间戳无效。",
+
+  "Auth.Username.Required": "用户名为必填项。",
+  "Auth.Username.TooLong": "用户名超出最大允许长度。",
+  "Auth.AuthSalt.Required": "缺少认证盐值。",
+  "Auth.AuthSalt.InvalidFormat": "认证盐值必须是有效的 Base64 字符串。",
+  "Auth.KeySalt.Required": "缺少密钥盐值。",
+  "Auth.KeySalt.InvalidFormat": "密钥盐值必须是有效的 Base64 字符串。",
+  "Auth.LoginKey.Required": "缺少登录密钥。",
+  "Auth.LoginKey.InvalidFormat": "登录密钥必须是有效的 Base64 字符串。",
+  "Auth.MasterKey.Required": "缺少加密主密钥。",
+  "Auth.MasterKey.InvalidFormat": "加密主密钥必须是有效的 Base64 字符串。",
+
+  "Sync.EncryptedBlob.Id.Required": "同步需要项目 ID。",
+  "Sync.EncryptedBlob.Blob.Required": "同步需要加密数据。",
+  "Sync.EncryptedBlob.Blob.InvalidFormat": "加密数据必须是有效的 Base64 字符串。",
+  "Sync.EncryptedBlob.Iv.Required": "需要初始化向量。",
+  "Sync.EncryptedBlob.Iv.InvalidFormat": "初始化向量必须是有效的 Base64 字符串。",
+
+  "User.Id.Required": "需要用户 ID。",
+
+  "Admin.AlreadyExists": "管理员用户名已被占用。",
+  "Admin.NotFound": "未找到管理员。",
+  "Admin.InvalidCredentials": "管理员凭据无效。",
+  "Auth.Admin.Username.Required": "管理员用户名为必填项。",
+  "Auth.Admin.Username.TooLong": "管理员用户名超出最大允许长度。",
+  "Auth.Admin.Password.Required": "管理员密码为必填项。",
+  "Auth.Admin.Password.TooLong": "管理员密码超出最大允许长度。",
+  "Auth.Admin.Id.Required": "需要管理员 ID。"
+}

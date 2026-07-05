@@ -1,0 +1,21 @@
+{
+  "page_title": "主机",
+  "new_host": "新建主机",
+  "search_hosts": "查找主机...",
+  "loading_hosts": "正在加载主机...",
+  "empty_title": "尚未配置主机",
+  "empty_desc": "添加服务器以开始建立 SSH 连接。",
+  "add_first_host": "添加第一个主机",
+  "edit_title": "编辑主机",
+  "new_title": "新建主机",
+  "label_placeholder": "例如：生产数据库",
+  "host_placeholder": "10.0.0.1",
+  "password_optional": "密码（可选）",
+  "password_placeholder": "可留空",
+  "ssh_key_label": "SSH 密钥（可选）",
+  "select_key_placeholder": "选择密钥...",
+  "none_use_password": "无",
+  "save_host": "保存主机",
+  "delete_title": "删除主机？",
+  "delete_desc": "确定要删除“{{name}}”吗？此操作无法撤销。"
+}
