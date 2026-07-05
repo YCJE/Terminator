@@ -65,6 +65,11 @@ func (s *AuthService) HasUser(ctx context.Context) (bool, error) {
 }
 
 func (s *AuthService) RegisterLocal(ctx context.Context, username, password string) error {
+	// 防御性检查：防止通过 Wails binding 直接调用绕过 UI 守卫创建重复用户
+	if exists, _ := s.HasUser(ctx); exists {
+		return apperror.Validation("user already exists")
+	}
+
 	masterKey := make([]byte, keyLength)
 	if _, err := rand.Read(masterKey); err != nil {
 		return err
@@ -109,6 +114,16 @@ func (s *AuthService) RegisterLocal(ctx context.Context, username, password stri
 	}
 
 	s.vault.Unlock(masterKey, loginKey)
+	// 清零敏感的局部密钥切片（vault 已持有副本）
+	for i := range kek {
+		kek[i] = 0
+	}
+	for i := range loginKey {
+		loginKey[i] = 0
+	}
+	for i := range masterKey {
+		masterKey[i] = 0
+	}
 	return nil
 }
 
@@ -147,6 +162,17 @@ func (s *AuthService) Login(ctx context.Context, password string) error {
 
 	s.vault.Unlock(masterKey, loginKey)
 
+	// 清零敏感的局部密钥切片（vault 已持有副本）
+	for i := range kek {
+		kek[i] = 0
+	}
+	for i := range loginKey {
+		loginKey[i] = 0
+	}
+	for i := range masterKey {
+		masterKey[i] = 0
+	}
+
 	go func() {
 		debug.FreeOSMemory()
 	}()
@@ -156,6 +182,11 @@ func (s *AuthService) Login(ctx context.Context, password string) error {
 
 // LoginFromSync - "connect and restore"
 func (s *AuthService) LoginFromSync(ctx context.Context, serverUrl, username, password string) error {
+	// 防御性检查：防止通过 Wails binding 直接调用绕过 UI 守卫创建重复用户
+	if exists, _ := s.HasUser(ctx); exists {
+		return apperror.Validation("user already exists")
+	}
+
 	preflightRes, err := s.client.Preflight(ctx, serverUrl, &api.PreflightRequest{
 		Username: username,
 	})
@@ -202,6 +233,17 @@ func (s *AuthService) LoginFromSync(ctx context.Context, serverUrl, username, pa
 
 	s.client.SetToken(authRes.AccessToken)
 	s.vault.Unlock(masterKey, loginKey)
+
+	// 清零敏感的局部密钥切片（vault 已持有副本）
+	for i := range kek {
+		kek[i] = 0
+	}
+	for i := range loginKey {
+		loginKey[i] = 0
+	}
+	for i := range masterKey {
+		masterKey[i] = 0
+	}
 
 	go func() {
 		debug.FreeOSMemory()

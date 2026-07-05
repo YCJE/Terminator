@@ -4,12 +4,20 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"sync"
 	"terminator-desktop/backend/internal/apperror"
 	"time"
+)
+
+const (
+	// maxErrorBodySize 限制错误响应体大小（1MB）
+	maxErrorBodySize int64 = 1 << 20
+	// maxResponseBodySize 限制成功响应体大小（50MB，同步响应可能含大量 blob）
+	maxResponseBodySize int64 = 50 << 20
 )
 
 type Client struct {
@@ -109,7 +117,7 @@ func do[Req any, Res any](
 
 	if resp.StatusCode >= 400 {
 		var errResp ErrorResponse
-		err = json.NewDecoder(resp.Body).Decode(&errResp)
+		err = json.NewDecoder(io.LimitReader(resp.Body, maxErrorBodySize)).Decode(&errResp)
 
 		if err == nil && len(errResp.Errors) > 0 {
 			return nil, &APIError{
@@ -124,9 +132,9 @@ func do[Req any, Res any](
 	}
 
 	var result Res
-	err = json.NewDecoder(resp.Body).Decode(&result)
+	err = json.NewDecoder(io.LimitReader(resp.Body, maxResponseBodySize)).Decode(&result)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
 	return &result, nil

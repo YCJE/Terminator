@@ -38,8 +38,11 @@ func saveItem[T any](ctx context.Context, q *dbgen.Queries, v *vault.Vault, id s
 		UpdatedAt: time.Now().UTC().Format(time.RFC3339Nano),
 		IsDeleted: false,
 	})
+	if err != nil {
+		return "", err
+	}
 
-	return id, err
+	return id, nil
 }
 
 func getAllItems[T any](ctx context.Context, q *dbgen.Queries, v *vault.Vault, expectedType ItemType) ([]T, error) {

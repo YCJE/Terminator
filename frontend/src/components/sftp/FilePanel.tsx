@@ -214,7 +214,8 @@ export function FilePanel({ sessionId }: FilePanelProps) {
 
     // 预览文件内容（限制 1MB）
     const handlePreview = async (entry: FileEntry) => {
-        if (entry.size > PREVIEW_LIMIT) {
+        // 显式检查 size 是否为有效数字，undefined/null 时拒绝预览
+        if (typeof entry.size !== "number" || entry.size > PREVIEW_LIMIT) {
             toast.error(t("file_too_large"));
             return;
         }
@@ -337,8 +338,12 @@ export function FilePanel({ sessionId }: FilePanelProps) {
     // 修改权限
     const handleChmod = async () => {
         if (!chmodTarget) return;
+        // 严格校验八进制权限值（3-4位 0-7 数字）
+        if (!/^[0-7]{3,4}$/.test(chmodValue)) {
+            toast.error(t("invalid_chmod", {ns: "errors"}));
+            return;
+        }
         const mode = parseInt(chmodValue, 8);
-        if (isNaN(mode)) return;
         try {
             await Chmod(sessionId, joinPath(currentPath, chmodTarget), mode);
             setChmodOpen(false);

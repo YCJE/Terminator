@@ -10,6 +10,7 @@
   "INTERNAL_ERROR": "An internal application error occurred.",
   "RUNTIME_ERROR": "An unexpected client error occurred.",
   "UNKNOWN_ERROR": "An unknown error occurred.",
+  "invalid_chmod": "Invalid permission value. Enter 3-4 octal digits (0-7).",
 
   "User.AlreadyExists": "Username is already taken.",
   "User.NotFound": "User not found on this server.",

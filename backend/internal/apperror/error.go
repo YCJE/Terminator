@@ -32,16 +32,12 @@ func Validation(msg string) *AppError {
 
 func DecryptionFailed(err error) *AppError {
 	message := "invalid password or corrupted data"
-	errorString := message
-	if err != nil {
-		errorString = err.Error()
-	}
-
+	// 不泄露内部错误细节（如 SQL 错误、GCM 认证失败），防止用户枚举攻击
 	return &AppError{
 		Code:        CodeDecryptionFailed,
 		Message:     message,
 		Err:         err,
-		ErrorString: errorString,
+		ErrorString: message,
 	}
 }
 
