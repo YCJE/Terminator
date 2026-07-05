@@ -35,10 +35,13 @@ type FileEntry struct {
 
 // 传输相关常量
 const (
-	// transferChunkSize 单次读写的数据块大小，兼顾性能与进度刷新频率
-	transferChunkSize = 32 * 1024
+	// transferChunkSize 单次读写的数据块大小
+	// 32KB 太小导致进度事件过频（大文件每秒数百次），改为 256KB 减少事件频率
+	transferChunkSize = 256 * 1024
 	// maxReadFileSize ReadFile 允许读取的最大字节数（1MB），防止读取过大文件耗尽内存
 	maxReadFileSize = 1 << 20
+	// progressEmitInterval 进度事件最小发射间隔，避免高频事件淹没前端
+	progressEmitInterval = 200 * time.Millisecond
 )
 
 // SftpService 提供 SFTP 文件管理能力，作为 Wails 服务注册。
@@ -287,11 +290,12 @@ func (s *SftpService) DownloadFile(sessionID string, transferID string, remotePa
 }
 
 // copyWithProgress 以 transferChunkSize 为单位从 src 复制到 dst，
-// 每完成一个数据块即通过 emitter 推送一次进度。
+// 每 progressEmitInterval 推送一次进度（时间节流，非每块都发）。
 // src/dst 必须已打开，total 为本次传输的总字节数。
 func (s *SftpService) copyWithProgress(src io.Reader, dst io.Writer, sessionID string, transferID string, filename string, total int64) error {
 	buf := make([]byte, transferChunkSize)
 	var transferred int64
+	lastEmit := time.Now()
 
 	for {
 		n, readErr := src.Read(buf)
@@ -310,8 +314,11 @@ func (s *SftpService) copyWithProgress(src io.Reader, dst io.Writer, sessionID s
 				written = n
 			}
 			transferred += int64(written)
-			// 推送当前进度
-			s.emitter.EmitTransferProgress(sessionID, transferID, filename, transferred, total)
+			// 时间节流：距上次发射超过 200ms 才推送，避免高频事件淹没前端
+			if now := time.Now(); now.Sub(lastEmit) >= progressEmitInterval {
+				s.emitter.EmitTransferProgress(sessionID, transferID, filename, transferred, total)
+				lastEmit = now
+			}
 		}
 		if readErr != nil {
 			if readErr == io.EOF {

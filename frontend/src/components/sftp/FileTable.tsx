@@ -1,6 +1,7 @@
 // SFTP 文件列表表格：展示 FileEntry[]，支持排序，双击进入目录
+// 优化：窄面板时优先显示文件名，隐藏次要列；用 React.memo 减少重渲染
 
-import { useMemo, useState } from "react";
+import { memo, useMemo, useState } from "react";
 import {
     Folder,
     FileText,
@@ -27,7 +28,7 @@ interface FileTableProps {
     onContextMenu: (entry: FileEntry, e: React.MouseEvent) => void;
 }
 
-export function FileTable({ entries, loading, onOpen, onContextMenu }: FileTableProps) {
+function FileTableImpl({ entries, loading, onOpen, onContextMenu }: FileTableProps) {
     const { t } = useTranslation("sftp");
     const [sortKey, setSortKey] = useState<SortKey>("name");
     const [sortDir, setSortDir] = useState<SortDir>("asc");
@@ -87,10 +88,15 @@ export function FileTable({ entries, loading, onOpen, onContextMenu }: FileTable
         );
     }
 
+    // 列布局：文件名 flex-grow 最小 80px，大小/权限/时间用固定窄宽
+    // 窄面板时用 CSS @container 隐藏权限和修改时间列
     return (
         <div className="flex h-full flex-col overflow-hidden">
             {/* 表头 */}
-            <div className="grid grid-cols-[1fr_88px_88px_132px] items-center gap-2 border-b border-border bg-muted/40 px-3 py-1.5 text-xs font-medium text-muted-foreground">
+            <div
+                className="grid items-center gap-2 border-b border-border bg-muted/40 px-3 py-1.5 text-xs font-medium text-muted-foreground"
+                style={{ gridTemplateColumns: "minmax(80px,1fr) 70px 80px 110px" }}
+            >
                 <button
                     type="button"
                     className="flex items-center gap-1 text-left hover:text-foreground"
@@ -100,15 +106,19 @@ export function FileTable({ entries, loading, onOpen, onContextMenu }: FileTable
                 </button>
                 <button
                     type="button"
-                    className="flex items-center gap-1 hover:text-foreground"
+                    className="flex items-center gap-1 justify-end hover:text-foreground"
                     onClick={() => toggleSort("size")}
                 >
                     {t("size")} <SortIcon k="size" />
                 </button>
-                <span className="truncate">{t("permissions")}</span>
+                {/* 权限列：面板宽度 <340px 时隐藏 */}
+                <span className="hidden truncate [@container(max-width:340px)]:hidden">
+                    {t("permissions")}
+                </span>
+                {/* 修改时间列：面板宽度 <420px 时隐藏 */}
                 <button
                     type="button"
-                    className="flex items-center gap-1 hover:text-foreground"
+                    className="hidden items-center gap-1 [@container(max-width:420px)]:flex"
                     onClick={() => toggleSort("modTime")}
                 >
                     {t("modified")} <SortIcon k="modTime" />
@@ -116,7 +126,7 @@ export function FileTable({ entries, loading, onOpen, onContextMenu }: FileTable
             </div>
 
             {/* 列表 */}
-            <div className="flex-1 overflow-y-auto">
+            <div className="flex-1 overflow-y-auto overflow-x-hidden">
                 {sorted.map((entry) => {
                     const isSelected = entry.name === selectedName;
                     return (
@@ -129,13 +139,14 @@ export function FileTable({ entries, loading, onOpen, onContextMenu }: FileTable
                                 onContextMenu(entry, e);
                             }}
                             className={cn(
-                                "grid cursor-default grid-cols-[1fr_88px_88px_132px] items-center gap-2 px-3 py-1.5 text-sm",
+                                "grid cursor-default items-center gap-2 px-3 py-1.5 text-sm",
                                 "transition-colors hover:bg-accent/60",
                                 isSelected && "bg-accent"
                             )}
+                            style={{ gridTemplateColumns: "minmax(80px,1fr) 70px 80px 110px" }}
                             title={entry.name}
                         >
-                            {/* 名称 + 图标 */}
+                            {/* 名称 + 图标 — 优先显示，占用剩余空间 */}
                             <div className="flex min-w-0 items-center gap-2">
                                 <span className="shrink-0">
                                     {entry.isDir ? (
@@ -151,15 +162,15 @@ export function FileTable({ entries, loading, onOpen, onContextMenu }: FileTable
                                 </span>
                             </div>
                             {/* 大小 */}
-                            <span className="truncate text-muted-foreground">
+                            <span className="truncate text-right text-muted-foreground">
                                 {entry.isDir ? "-" : formatFileSize(entry.size)}
                             </span>
-                            {/* 权限 */}
-                            <span className="truncate font-mono text-xs text-muted-foreground">
+                            {/* 权限：窄面板隐藏 */}
+                            <span className="hidden truncate font-mono text-xs text-muted-foreground [@container(max-width:340px)]:hidden">
                                 {entry.mode || "-"}
                             </span>
-                            {/* 修改时间 */}
-                            <span className="truncate text-muted-foreground">
+                            {/* 修改时间：窄面板隐藏 */}
+                            <span className="hidden truncate text-muted-foreground [@container(max-width:420px)]:block">
                                 {formatDateTime(entry.modTime)}
                             </span>
                         </div>
@@ -169,3 +180,6 @@ export function FileTable({ entries, loading, onOpen, onContextMenu }: FileTable
         </div>
     );
 }
+
+// React.memo 包裹：entries 引用不变时跳过重渲染（如传输进度更新不会触发文件列表重渲染）
+export const FileTable = memo(FileTableImpl);
