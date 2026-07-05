@@ -27,7 +27,7 @@ export function TitleBar() {
     };
 
     return (
-        <header className="wails-drag flex h-10 shrink-0 items-end justify-between bg-background pr-0">
+        <header className="titlebar wails-drag flex h-10 shrink-0 items-end justify-between pr-0">
 
             {isUnlocked && (
                 <div
@@ -60,7 +60,7 @@ export function TitleBar() {
 
             <div ref={scrollRef}
                  onWheel={handleWheel}
-                 className="flex h-full flex-1 items-center gap-1 pl-2
+                 className="terminal-tab-bar flex h-full flex-1 items-center gap-0.5 pl-2
                             overflow-x-auto overflow-y-hidden [&::-webkit-scrollbar]:hidden"
             >
                 {sessions.map((session) => (

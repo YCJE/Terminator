@@ -30,7 +30,7 @@ export function Sidebar() {
                     variant={activeView === ViewType.Hosts ? "secondary" : "ghost"}
                     size="icon"
                     onClick={() => setActiveView(ViewType.Hosts)}
-                    className="wails-no-drag"
+                    className={cn("wails-no-drag transition-all duration-200", activeView === ViewType.Hosts && "nav-item-active")}
                     title={t("page_title", { ns: "hosts" })}
                 >
                     <Server className="size-5"/>
@@ -40,7 +40,7 @@ export function Sidebar() {
                     variant={activeView === ViewType.Keys ? "secondary" : "ghost"}
                     size="icon"
                     onClick={() => setActiveView(ViewType.Keys)}
-                    className="wails-no-drag"
+                    className={cn("wails-no-drag transition-all duration-200", activeView === ViewType.Keys && "nav-item-active")}
                     title={t("page_title", { ns: "keys" })}
                 >
                     <Key className="size-5"/>
@@ -55,7 +55,7 @@ export function Sidebar() {
                         variant={activeView === ViewType.Settings ? "secondary" : "ghost"}
                         size="icon"
                         onClick={() => setActiveView(ViewType.Settings)}
-                        className="wails-no-drag text-muted-foreground hover:text-foreground"
+                        className={cn("wails-no-drag text-muted-foreground hover:text-foreground transition-all duration-200", activeView === ViewType.Settings && "nav-item-active")}
                         title={t("page_title", { ns: "settings" })}
                     >
                         <Settings className="size-5"/>

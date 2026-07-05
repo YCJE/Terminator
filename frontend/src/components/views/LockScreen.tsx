@@ -89,6 +89,9 @@ export function LockScreen() {
 
     return (
         <div className="absolute inset-0 z-50 flex h-full w-full items-center justify-center bg-background">
+            {/* Ambient glow behind the panel */}
+            <div className="pointer-events-none absolute left-1/2 top-1/2 -z-0 h-96 w-96 -translate-x-1/2 -translate-y-1/2
+                            rounded-full bg-primary/5 blur-3xl"/>
             <div className="glass-panel lazy-fade-in relative w-full max-w-sm rounded-2xl p-7 shadow-lg">
 
                 {mode !== "select" && mode !== "login" && (
@@ -108,7 +111,7 @@ export function LockScreen() {
                 {mode === "login" && (
                     <form onSubmit={handleLogin} className="space-y-4">
                         <div className="mb-6 flex flex-col items-center text-center">
-                            <div className="mb-4 flex size-12 items-center justify-center
+                            <div className="pulse-glow mb-4 flex size-12 items-center justify-center
                                             rounded-full bg-primary/10 text-primary">
                                 <Lock className="size-6"/>
                             </div>
@@ -134,6 +137,7 @@ export function LockScreen() {
                 {mode === "select" && (
                     <div className="space-y-4">
                         <div className="mb-6 text-center">
+                            <img src="/appicon.png" alt="Terminator" className="mx-auto mb-4 size-12 rounded-xl"/>
                             <h2 className="text-2xl font-bold tracking-tight">{t("welcome_title")}</h2>
                             <p className="mt-1 text-sm text-muted-foreground">{t("welcome_desc")}</p>
                         </div>

@@ -28,6 +28,9 @@ export default function App() {
             .then((settings) => {
                 if (settings.language && settings.language !== i18n.language) {
                     void i18n.changeLanguage(settings.language);
+                } else if (!settings.language) {
+                    // First launch: default to Chinese
+                    void i18n.changeLanguage("zh");
                 }
             })
             .catch(console.error);

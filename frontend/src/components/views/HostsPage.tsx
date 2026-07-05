@@ -114,14 +114,15 @@ export function HostsPage() {
                 className="grid w-full gap-4"
                 style={{gridTemplateColumns: "repeat(auto-fit, minmax(20rem, 1fr))"}}
             >
-                {filteredHosts?.map((host) => (
-                    <HostCard
-                        key={host.id}
-                        host={host}
-                        onConnect={handleConnect}
-                        onEdit={handleEdit}
-                        onDelete={handleDeletePrompt}
-                    />
+                {filteredHosts?.map((host, index) => (
+                    <div key={host.id} className="stagger-in" style={{['--stagger-index' as string]: index}}>
+                        <HostCard
+                            host={host}
+                            onConnect={handleConnect}
+                            onEdit={handleEdit}
+                            onDelete={handleDeletePrompt}
+                        />
+                    </div>
                 ))}
             </div>
 

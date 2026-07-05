@@ -88,13 +88,14 @@ export function KeysPage() {
                 className="grid w-full gap-4"
                 style={{gridTemplateColumns: "repeat(auto-fit, minmax(20rem, 1fr))"}}
             >
-                {filteredKeys?.map((key) => (
-                    <KeyCard
-                        key={key.id}
-                        savedKey={key}
-                        onEdit={handleEdit}
-                        onDelete={handleDeletePrompt}
-                    />
+                {filteredKeys?.map((key, index) => (
+                    <div key={key.id} className="stagger-in" style={{['--stagger-index' as string]: index}}>
+                        <KeyCard
+                            savedKey={key}
+                            onEdit={handleEdit}
+                            onDelete={handleDeletePrompt}
+                        />
+                    </div>
                 ))}
             </div>
 
