@@ -32,8 +32,10 @@ export function formatServerUrl(inputUrl: string): string {
         cleanUrl = cleanUrl.slice(0, qIdx);
     }
 
+    // Strip trailing slash first, then check for /api/v1 suffix
+    cleanUrl = cleanUrl.replace(/\/+$/, "");
     if (!cleanUrl.endsWith("/api/v1")) {
-        cleanUrl = `${cleanUrl.replace(/\/$/, "")}/api/v1`;
+        cleanUrl = `${cleanUrl}/api/v1`;
     }
 
     return cleanUrl + query;

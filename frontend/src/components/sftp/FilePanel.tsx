@@ -84,7 +84,10 @@ function basename(p: string): string {
 // 支持 setuid/setgid/sticky 特殊权限位
 function toOctal(mode: string): string {
     if (!mode) return "755";
-    if (/^[0-7]+$/.test(mode)) return mode.replace(/^0+/, "") || "0";
+    if (/^[0-7]+$/.test(mode)) {
+        // 去除前导零后补齐到 3 位，确保 chmod 正则校验通过
+        return (mode.replace(/^0+/, "") || "0").padStart(3, "0");
+    }
     // 解析符号权限，例如 drwsr-xr-x (4755) 或 drwxr-xr-t (1755)
     const sym = mode.replace(/[^rwxstST-]/g, "");
     if (sym.length >= 9) {

@@ -51,10 +51,15 @@ export function LockScreen() {
         setIsLoading(true);
         try {
             await AuthService.Login(password);
-            await SyncService.StartAutoSync();
             // Clear sensitive fields from React state before unlocking.
             setPassword("");
             setUnlocked(true);
+            // 同步失败不阻塞解锁流程（后端 vault 已解锁）
+            try {
+                await SyncService.StartAutoSync();
+            } catch (syncError) {
+                handleAppError(syncError);
+            }
         } catch (error) {
             handleAppError(error);
         } finally {
@@ -84,11 +89,16 @@ export function LockScreen() {
             const cleanUrl = formatServerUrl(url);
 
             await AuthService.LoginFromSync(cleanUrl, username, password);
-            await SyncService.StartAutoSync();
             // Clear sensitive fields from React state before unlocking.
             setPassword("");
             setHasUser(true);
             setUnlocked(true);
+            // 同步失败不阻塞解锁流程（后端 vault 已解锁）
+            try {
+                await SyncService.StartAutoSync();
+            } catch (syncError) {
+                handleAppError(syncError);
+            }
         } catch (error) {
             handleAppError(error);
         } finally {

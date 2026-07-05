@@ -90,6 +90,8 @@ export function parseAppError(error: unknown): AppClientError {
             if (parsed?.cause) {
                 return mapRawError(parsed.cause, parsed);
             }
+            // 有效 JSON 但无 cause 字段，保留原始字符串作为错误信息
+            return { code: ErrorCode.INTERNAL_ERROR, message: errorString, raw: error };
         } catch {
             if (error instanceof Error) {
                 return { code: ErrorCode.RUNTIME_ERROR, message: error.message, raw: error };

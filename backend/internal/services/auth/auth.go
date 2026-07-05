@@ -92,8 +92,25 @@ func (s *AuthService) RegisterLocal(ctx context.Context, username, password stri
 
 	loginKey, err := crypto.DeriveLoginKey(password, authSalt)
 	if err != nil {
+		// kek 已分配，需清零
+		for i := range kek {
+			kek[i] = 0
+		}
 		return err
 	}
+
+	// defer 确保无论成功或失败都清零敏感密钥切片（vault 已持有副本）
+	defer func() {
+		for i := range kek {
+			kek[i] = 0
+		}
+		for i := range loginKey {
+			loginKey[i] = 0
+		}
+		for i := range masterKey {
+			masterKey[i] = 0
+		}
+	}()
 
 	encryptedMasterKey, err := crypto.EncryptAndPack(masterKey, kek)
 	if err != nil {
@@ -114,16 +131,6 @@ func (s *AuthService) RegisterLocal(ctx context.Context, username, password stri
 	}
 
 	s.vault.Unlock(masterKey, loginKey)
-	// 清零敏感的局部密钥切片（vault 已持有副本）
-	for i := range kek {
-		kek[i] = 0
-	}
-	for i := range loginKey {
-		loginKey[i] = 0
-	}
-	for i := range masterKey {
-		masterKey[i] = 0
-	}
 	return nil
 }
 
@@ -148,30 +155,40 @@ func (s *AuthService) Login(ctx context.Context, password string) error {
 	// zeros, which is a predictable key. Reject instead of silently falling
 	// back to a zero key.
 	if !dbUser.AuthSalt.Valid || dbUser.AuthSalt.String == "" {
+		// kek 已分配，需清零
+		for i := range kek {
+			kek[i] = 0
+		}
 		return apperror.Validation("auth salt is missing; vault data may be corrupted")
 	}
 	loginKey, err := crypto.DeriveLoginKey(password, dbUser.AuthSalt.String)
 	if err != nil {
+		for i := range kek {
+			kek[i] = 0
+		}
 		return err
 	}
 
-	masterKey, err := crypto.UnpackAndDecrypt(dbUser.EncryptedMasterKey, kek)
+	// defer 确保无论成功或失败都清零敏感密钥切片（vault 已持有副本）
+	var masterKey []byte
+	defer func() {
+		for i := range kek {
+			kek[i] = 0
+		}
+		for i := range loginKey {
+			loginKey[i] = 0
+		}
+		for i := range masterKey {
+			masterKey[i] = 0
+		}
+	}()
+
+	masterKey, err = crypto.UnpackAndDecrypt(dbUser.EncryptedMasterKey, kek)
 	if err != nil {
 		return err
 	}
 
 	s.vault.Unlock(masterKey, loginKey)
-
-	// 清零敏感的局部密钥切片（vault 已持有副本）
-	for i := range kek {
-		kek[i] = 0
-	}
-	for i := range loginKey {
-		loginKey[i] = 0
-	}
-	for i := range masterKey {
-		masterKey[i] = 0
-	}
 
 	go func() {
 		debug.FreeOSMemory()
@@ -198,10 +215,35 @@ func (s *AuthService) LoginFromSync(ctx context.Context, serverUrl, username, pa
 	if err != nil {
 		return err
 	}
+
+	// 验证服务器返回的 AuthSalt 不为空，防止空盐派生弱密钥
+	if preflightRes.AuthSalt == "" {
+		for i := range kek {
+			kek[i] = 0
+		}
+		return apperror.Validation("server returned empty auth salt")
+	}
 	loginKey, err := crypto.DeriveLoginKey(password, preflightRes.AuthSalt)
 	if err != nil {
+		for i := range kek {
+			kek[i] = 0
+		}
 		return err
 	}
+
+	// defer 确保无论成功或失败都清零敏感密钥切片（vault 已持有副本）
+	var masterKey []byte
+	defer func() {
+		for i := range kek {
+			kek[i] = 0
+		}
+		for i := range loginKey {
+			loginKey[i] = 0
+		}
+		for i := range masterKey {
+			masterKey[i] = 0
+		}
+	}()
 
 	loginKeyBase64 := base64.StdEncoding.EncodeToString(loginKey)
 	authRes, err := s.client.Login(ctx, serverUrl, &api.LoginRequest{
@@ -212,7 +254,7 @@ func (s *AuthService) LoginFromSync(ctx context.Context, serverUrl, username, pa
 		return err
 	}
 
-	masterKey, err := crypto.UnpackAndDecrypt(preflightRes.EncryptedMasterKey, kek)
+	masterKey, err = crypto.UnpackAndDecrypt(preflightRes.EncryptedMasterKey, kek)
 	if err != nil {
 		return err
 	}
@@ -233,17 +275,6 @@ func (s *AuthService) LoginFromSync(ctx context.Context, serverUrl, username, pa
 
 	s.client.SetToken(authRes.AccessToken)
 	s.vault.Unlock(masterKey, loginKey)
-
-	// 清零敏感的局部密钥切片（vault 已持有副本）
-	for i := range kek {
-		kek[i] = 0
-	}
-	for i := range loginKey {
-		loginKey[i] = 0
-	}
-	for i := range masterKey {
-		masterKey[i] = 0
-	}
 
 	go func() {
 		debug.FreeOSMemory()
