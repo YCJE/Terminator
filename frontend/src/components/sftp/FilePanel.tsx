@@ -166,6 +166,8 @@ export function FilePanel({ sessionId }: FilePanelProps) {
     // 初始化：sessionId 变化时重置状态并加载新主机的文件
     useEffect(() => {
         let cancelled = false;
+        // 递增 loadIdRef 使旧会话的在途 loadDir 请求失效
+        loadIdRef.current++;
         // 重置状态，避免显示上一个主机的文件
         setEntries([]);
         setCurrentPath("/");

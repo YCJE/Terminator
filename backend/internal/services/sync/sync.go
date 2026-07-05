@@ -201,7 +201,8 @@ func (s *SyncService) Sync(ctx context.Context) (err error) {
 		if errors.As(err, &apiErr) && apiErr.StatusCode == 401 {
 			s.client.ClearToken()
 			s.emitter.EmitStatus(SyncStatusUnauthenticated)
-			return err
+			// 返回 nil 避免 defer 中 EmitStatus(SyncStatusError) 覆盖 Unauthenticated 状态
+			return nil
 		}
 
 		return err

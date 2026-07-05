@@ -55,6 +55,10 @@ type UpdaterService struct {
 	cgoUnavailable bool
 }
 
+// Version 在构建时通过 -ldflags="-X ...updater.Version=v1.0.0" 注入
+// 默认 "dev" 表示开发构建
+var Version = "dev"
+
 func NewUpdaterService(updateURL string, githubRepo string, emitter Emitter) *UpdaterService {
 	return &UpdaterService{
 		updateURL:  updateURL,
@@ -65,13 +69,17 @@ func NewUpdaterService(updateURL string, githubRepo string, emitter Emitter) *Up
 }
 
 // getCurrentVersion 获取当前应用版本号
+// 优先使用构建时注入的 Version 变量，其次从 debug.ReadBuildInfo 获取
 func (s *UpdaterService) getCurrentVersion() string {
+	if Version != "dev" && Version != "" {
+		return Version
+	}
 	if info, ok := debug.ReadBuildInfo(); ok {
 		if info.Main.Version != "" && info.Main.Version != "(devel)" {
 			return info.Main.Version
 		}
 	}
-	return "unknown"
+	return "dev"
 }
 
 // CheckGitHubReleases 通过 GitHub API 检查最新 Release
@@ -115,7 +123,8 @@ func (s *UpdaterService) CheckGitHubReleases() (*GitHubReleaseInfo, error) {
 	}
 
 	latestVersion := normalizeVersion(release.TagName)
-	hasUpdate := currentVersion == "unknown" || compareVersions(latestVersion, normalizeVersion(currentVersion)) > 0
+	// 开发构建（"dev"）无法判断版本，默认提示有更新
+	hasUpdate := currentVersion == "dev" || compareVersions(latestVersion, normalizeVersion(currentVersion)) > 0
 
 	return &GitHubReleaseInfo{
 		HasUpdate:     hasUpdate,

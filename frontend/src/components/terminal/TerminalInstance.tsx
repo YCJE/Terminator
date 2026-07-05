@@ -44,6 +44,9 @@ export function TerminalInstance({sessionId, isActive, config, disconnected}: Te
         if (!containerRef.current || terminalRef.current) return;
         const container = containerRef.current;
 
+        // cancelled flag 防止旧 Connect Promise 在 cleanup 后修改 ref
+        let cancelled = false;
+
         const term = new Terminal(getTerminalTheme(theme));
         const fitAddon = new FitAddon();
         const unicode11Addon = new Unicode11Addon();
@@ -99,6 +102,7 @@ export function TerminalInstance({sessionId, isActive, config, disconnected}: Te
         if (!hasConnectedRef.current) {
             SshService.Connect(config)
                 .then(() => {
+                    if (cancelled) return;
                     isReadyRef.current = true;
                     hasConnectedRef.current = true; // 仅成功后才标记，允许失败后重试
                     if (terminalRef.current && fitAddonRef.current) {
@@ -108,6 +112,7 @@ export function TerminalInstance({sessionId, isActive, config, disconnected}: Te
                     }
                 })
                 .catch((err) => {
+                    if (cancelled) return;
                     printErrorToTerminal(err);
                 });
         }
@@ -145,6 +150,7 @@ export function TerminalInstance({sessionId, isActive, config, disconnected}: Te
         resizeObserver.observe(container);
 
         return () => {
+            cancelled = true;
             if (resizeTimer) clearTimeout(resizeTimer);
             resizeObserver.disconnect();
             container.removeEventListener("contextmenu", handleContextMenu);

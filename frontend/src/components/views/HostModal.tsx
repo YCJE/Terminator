@@ -190,7 +190,7 @@ export function HostModal({isOpen, onClose, onSave, initialData, isSaving}: Host
                         <Label>{t("auth_method_label")}</Label>
                         <Select
                             value={authMethod}
-                            onValueChange={handleAuthMethodChange}
+                            onValueChange={(v) => handleAuthMethodChange(v as AuthMethod)}
                         >
                             <SelectTrigger>
                                 <SelectValue />

@@ -71,7 +71,11 @@ func getAllItems[T any](ctx context.Context, q *dbgen.Queries, v *vault.Vault, e
 
 			if err == nil {
 				items = append(items, item)
+			} else {
+				slog.Warn("blob deserialization failed, skipping", "id", b.ID, "type", expectedType, "error", err)
 			}
+		} else if err != nil {
+			slog.Warn("blob header deserialization failed, skipping", "id", b.ID, "error", err)
 		}
 	}
 

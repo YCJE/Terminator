@@ -68,7 +68,12 @@ func (s *SettingsService) SaveSettings(settings AppSettings) error {
 		return err
 	}
 
-	return os.WriteFile(s.configPath, data, 0600)
+	// 原子写：先写临时文件再 rename，防止写入中途崩溃损坏配置
+	tmpPath := s.configPath + ".tmp"
+	if err := os.WriteFile(tmpPath, data, 0600); err != nil {
+		return err
+	}
+	return os.Rename(tmpPath, s.configPath)
 }
 
 // GetLogs 读取日志文件内容，返回最后 maxLines 行

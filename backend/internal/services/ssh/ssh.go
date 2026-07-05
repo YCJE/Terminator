@@ -157,12 +157,8 @@ func (s *SshService) Connect(config *SSHConnectionConfig) error {
 	}()
 
 	s.mu.Lock()
-	// 清理同 ID 的旧 session，防止资源泄漏
-	if old, exists := s.sessions[config.ID]; exists {
-		s.mu.Unlock()
-		s.cleanupSession(config.ID, old)
-		s.mu.Lock()
-	}
+	// 原子地取出旧 session 指针并写入新 session，避免并发 Connect 的 TOCTOU 竞态
+	old := s.sessions[config.ID]
 	currentSession := &activeSession{
 		client:     client,
 		session:    session,
@@ -172,6 +168,23 @@ func (s *SshService) Connect(config *SSHConnectionConfig) error {
 	}
 	s.sessions[config.ID] = currentSession
 	s.mu.Unlock()
+
+	// 锁外关闭旧 session 的资源（不调 cleanupSession，避免 EmitClosed 干扰新连接）
+	// 旧 session 的 streamOutput 调用 cleanupSession 时会因 active != current 而 no-op
+	if old != nil {
+		if old.sftpClient != nil {
+			_ = old.sftpClient.Close()
+		}
+		if old.pipeCloser != nil {
+			_ = old.pipeCloser.Close()
+		}
+		if old.session != nil {
+			_ = old.session.Close()
+		}
+		if old.client != nil {
+			_ = old.client.Close()
+		}
+	}
 
 	go s.streamOutput(config.ID, pr, currentSession)
 
