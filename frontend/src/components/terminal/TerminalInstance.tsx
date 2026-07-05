@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { Events, Clipboard } from "@wailsio/runtime";
 import { getTerminalTheme } from "@/lib/terminalTheme";
 import { parseAppError } from "@/lib/error";
@@ -45,8 +46,11 @@ export function TerminalInstance({sessionId, isActive, config}: TerminalInstance
 
         const term = new Terminal(getTerminalTheme(theme));
         const fitAddon = new FitAddon();
+        const unicode11Addon = new Unicode11Addon();
 
         term.loadAddon(fitAddon);
+        term.loadAddon(unicode11Addon);
+        term.unicode.activeVersion = "11";
         term.open(containerRef.current);
 
         terminalRef.current = term;

@@ -30,10 +30,11 @@ type SSHConnectionConfig struct {
 }
 
 type activeSession struct {
-	client  *ssh.Client
-	session *ssh.Session
-	stdin   io.WriteCloser
-	stdout  io.Reader
+	client     *ssh.Client
+	session    *ssh.Session
+	stdin      io.WriteCloser
+	stdout     io.Reader
+	pipeCloser io.Closer
 }
 
 type SshService struct {
@@ -147,10 +148,11 @@ func (s *SshService) Connect(config *SSHConnectionConfig) error {
 
 	s.mu.Lock()
 	currentSession := &activeSession{
-		client:  client,
-		session: session,
-		stdin:   stdin,
-		stdout:  pr,
+		client:     client,
+		session:    session,
+		stdin:      stdin,
+		stdout:     pr,
+		pipeCloser: pw,
 	}
 	s.sessions[config.ID] = currentSession
 	s.mu.Unlock()
@@ -291,6 +293,9 @@ func (s *SshService) Disconnect(sessionID string) {
 	s.mu.Unlock()
 
 	if exists {
+		if active.pipeCloser != nil {
+			_ = active.pipeCloser.Close()
+		}
 		_ = active.session.Close()
 		_ = active.client.Close()
 		s.emitter.EmitClosed(sessionID)
@@ -359,6 +364,9 @@ func (s *SshService) cleanupSession(sessionID string, current *activeSession) {
 		delete(s.sessions, sessionID)
 		s.mu.Unlock()
 
+		if current.pipeCloser != nil {
+			_ = current.pipeCloser.Close()
+		}
 		if current.session != nil {
 			_ = current.session.Close()
 		}

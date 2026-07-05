@@ -1,20 +1,46 @@
 /**
  * 终端主题配置
  *
- * 之前只定义了 background/foreground/cursor，缺少 ANSI 16 色调色板，
- * 导致所有彩色文字（ls、vim、prompt 等）都退化成白色。
- *
- * 现在为深色和浅色主题分别提供完整的 256 色 + ANSI 16 色调色板。
+ * 为深色和浅色主题分别提供完整的 ANSI 16 色 + 256 色调色板。
  * 深色主题用 Abyss 配色，浅色主题用 Frost 配色。
  */
 
 import type { ITheme } from "@xterm/xterm";
+
+// 生成 xterm 256 色调色板中 6×6×6 立方体部分 (索引 16-231)
+function generateColorCube(): string[] {
+    const colors: string[] = [];
+    const levels = [0x00, 0x5f, 0x87, 0xaf, 0xd7, 0xff];
+    for (let r = 0; r < 6; r++) {
+        for (let g = 0; g < 6; g++) {
+            for (let b = 0; b < 6; b++) {
+                colors.push(`#${levels[r].toString(16).padStart(2, '0')}${levels[g].toString(16).padStart(2, '0')}${levels[b].toString(16).padStart(2, '0')}`);
+            }
+        }
+    }
+    return colors;
+}
+
+// 生成灰阶部分 (索引 232-255)
+function generateGrayscale(): string[] {
+    const colors: string[] = [];
+    for (let i = 0; i < 24; i++) {
+        const v = 8 + i * 10;
+        const hex = v.toString(16).padStart(2, '0');
+        colors.push(`#${hex}${hex}${hex}`);
+    }
+    return colors;
+}
+
+// 完整的 256 色扩展调色板 (索引 16-255，共 240 个颜色)
+const EXTENDED_256 = [...generateColorCube(), ...generateGrayscale()];
 
 /** 深色终端主题（Abyss）— 深底浅字，高饱和度 ANSI 色 */
 const DARK_THEME: ITheme = {
     background: "#0e0e12",
     foreground: "#e4e4e7",
     cursor: "#a5b4fc",
+    cursorAccent: "#0e0e12",
     selectionBackground: "rgba(165, 180, 252, 0.25)",
     selectionInactiveBackground: "rgba(165, 180, 252, 0.1)",
 
@@ -38,12 +64,8 @@ const DARK_THEME: ITheme = {
     brightCyan: "#67e8f9",
     brightWhite: "#fafafa",
 
-    // 扩展色 (16-255) — 使用 xterm 标准调色板的子集
-    extendedAnsi: [
-        "#000000", "#800000", "#008000", "#808000", "#000080", "#800080",
-        "#008080", "#c0c0c0", "#808080", "#ff0000", "#00ff00", "#ffff00",
-        "#0000ff", "#ff00ff", "#00ffff", "#ffffff",
-    ],
+    // 扩展色 (16-255)
+    extendedAnsi: EXTENDED_256,
 };
 
 /** 浅色终端主题（Frost）— 白底深字，适当调暗 ANSI 色保证对比度 */
@@ -51,6 +73,7 @@ const LIGHT_THEME: ITheme = {
     background: "#fafafa",
     foreground: "#27272a",
     cursor: "#4f46e5",
+    cursorAccent: "#fafafa",
     selectionBackground: "rgba(79, 70, 229, 0.2)",
     selectionInactiveBackground: "rgba(79, 70, 229, 0.1)",
 
@@ -74,11 +97,7 @@ const LIGHT_THEME: ITheme = {
     brightCyan: "#06b6d4",
     brightWhite: "#000000",
 
-    extendedAnsi: [
-        "#000000", "#800000", "#008000", "#808000", "#000080", "#800080",
-        "#008080", "#c0c0c0", "#808080", "#ff0000", "#00ff00", "#ffff00",
-        "#0000ff", "#ff00ff", "#00ffff", "#ffffff",
-    ],
+    extendedAnsi: EXTENDED_256,
 };
 
 export type TerminalThemeName = "dark" | "light";
