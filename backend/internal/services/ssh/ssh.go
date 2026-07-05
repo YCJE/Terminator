@@ -335,7 +335,6 @@ func (s *SshService) GetSFTPClient(sessionID string) (*sftp.Client, error) {
 		return active.sftpClient, nil
 	}
 	client, err := sftp.NewClient(active.client,
-		sftp.MaxPacket(64*1024),              // 64KB 包大小（默认 32KB），减少往返次数
 		sftp.MaxConcurrentRequestsPerFile(8), // 每文件 8 个并发读请求，加速大文件预览
 	)
 	if err != nil {

@@ -1,8 +1,5 @@
 // KeyGenService 前端 binding — 生成 SSH 密钥对
-// 使用 Call.ByName 避免哈希计算错误
 import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wailsio/runtime";
-
-const PREFIX = "terminator-desktop/backend/cmd/terminator-desktop.KeyGenService.";
 
 /**
  * 生成 SSH 私钥
@@ -11,5 +8,5 @@ const PREFIX = "terminator-desktop/backend/cmd/terminator-desktop.KeyGenService.
  * @returns OpenSSH 格式 PEM 私钥
  */
 export function GenerateKey(keyType: string, rsaBits: number): $CancellablePromise<string> {
-    return $Call.ByName(PREFIX + "GenerateKey", keyType, rsaBits);
+    return $Call.ByID(4118170018, keyType, rsaBits);
 }
