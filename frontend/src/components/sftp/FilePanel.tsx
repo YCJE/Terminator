@@ -239,7 +239,11 @@ export function FilePanel({ sessionId }: FilePanelProps) {
             const paths = Array.isArray(result) ? result : (result ? [result] : []);
             paths.forEach((p) => startUpload(p));
         } catch (err) {
-            handleAppError(err);
+            // 用户取消文件选择不是错误，静默忽略
+            const msg = String(err?.message ?? err ?? "");
+            if (!/cancel/i.test(msg)) {
+                handleAppError(err);
+            }
         }
     };
 
