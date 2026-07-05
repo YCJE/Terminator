@@ -8,6 +8,7 @@ import (
 	"sync"
 	"terminator-desktop/backend/internal/api"
 	"terminator-desktop/backend/internal/dbgen"
+	"terminator-desktop/backend/internal/services/settings"
 	"terminator-desktop/backend/internal/vault"
 	"time"
 )
@@ -34,6 +35,7 @@ type SyncService struct {
 	vault        *vault.Vault
 	emitter      SyncEmitter
 	syncInterval time.Duration
+	settingsSvc  *settings.SettingsService
 
 	mutex      sync.Mutex
 	isSyncing  bool
@@ -45,7 +47,8 @@ func NewSyncService(
 	client *api.Client,
 	v *vault.Vault,
 	emitter SyncEmitter,
-	syncInterval *time.Duration) *SyncService {
+	syncInterval *time.Duration,
+	settingsSvc *settings.SettingsService) *SyncService {
 
 	var interval time.Duration
 	if syncInterval == nil {
@@ -60,6 +63,7 @@ func NewSyncService(
 		vault:        v,
 		emitter:      emitter,
 		syncInterval: interval,
+		settingsSvc:  settingsSvc,
 	}
 }
 
@@ -113,6 +117,22 @@ func (s *SyncService) Sync(ctx context.Context) error {
 	}()
 
 	s.emitter.EmitStatus(SyncStatusSyncing)
+
+	// 读取 AppSettings 判断同步方式：webdav 走 WebDAV 全量同步，其余走服务器同步
+	if s.settingsSvc != nil {
+		appSettings, err := s.settingsSvc.GetSettings()
+		if err != nil {
+			s.emitter.EmitStatus(SyncStatusError)
+			return err
+		}
+		if appSettings.SyncMethod == "webdav" {
+			return s.syncWebDAV(ctx, WebDAVConfig{
+				URL:      appSettings.WebDAVURL,
+				Username: appSettings.WebDAVUsername,
+				Password: appSettings.WebDAVPassword,
+			})
+		}
+	}
 
 	user, err := s.q.GetUser(ctx)
 	if err != nil {

@@ -10,6 +10,13 @@ import (
 type AppSettings struct {
 	Language string `json:"language"`
 	Theme    string `json:"theme"` // "dark", "light", or "" (default: dark)
+
+	// SyncMethod 同步方式: "server" | "webdav" | "" (默认 server)
+	SyncMethod string `json:"sync_method"`
+	// WebDAV 相关配置，明文存储在 settings.json（和网盘密码一样，用户自己负责）
+	WebDAVURL      string `json:"webdav_url"`
+	WebDAVUsername string `json:"webdav_username"`
+	WebDAVPassword string `json:"webdav_password"`
 }
 
 type SettingsService struct {

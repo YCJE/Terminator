@@ -166,11 +166,12 @@ func main() {
 	updaterEmitter := emitters.NewWailsUpdaterEmitter(app)
 
 	authService := auth.NewAuthService(queries, db, v, client)
-	syncService := sync.NewSyncService(queries, client, v, syncEmitter, nil)
+	// settingsService 需在 syncService 之前创建，以便注入到 SyncService
+	settingsService := settings.NewSettingsService(appDir)
+	syncService := sync.NewSyncService(queries, client, v, syncEmitter, nil, settingsService)
 	sshService := ssh.NewSshService(sshEmitter)
 	hostService := blob.NewHostService(queries, v)
 	keyService := blob.NewKeyService(queries, v)
-	settingsService := settings.NewSettingsService(appDir)
 	updaterService := updater.NewUpdaterService(updateUrl, updaterEmitter)
 
 	app.RegisterService(application.NewService(authService))
@@ -180,6 +181,7 @@ func main() {
 	app.RegisterService(application.NewService(keyService))
 	app.RegisterService(application.NewService(settingsService))
 	app.RegisterService(application.NewService(updaterService))
+	app.RegisterService(application.NewService(NewWebDAVService(settingsService)))
 	app.RegisterService(application.NewService(&WindowControls{mainWindow}))
 
 	// Create a new window with the necessary options.

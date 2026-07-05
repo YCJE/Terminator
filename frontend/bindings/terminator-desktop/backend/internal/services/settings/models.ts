@@ -8,6 +8,10 @@ import { Create as $Create } from "@wailsio/runtime";
 export class AppSettings {
     "language": string;
     "theme": string;
+    "sync_method": string;
+    "webdav_url": string;
+    "webdav_username": string;
+    "webdav_password": string;
 
     /** Creates a new AppSettings instance. */
     constructor($$source: Partial<AppSettings> = {}) {
@@ -17,6 +21,22 @@ export class AppSettings {
 
         if (!("theme" in $$source)) {
             this["theme"] = "";
+        }
+
+        if (!("sync_method" in $$source)) {
+            this["sync_method"] = "";
+        }
+
+        if (!("webdav_url" in $$source)) {
+            this["webdav_url"] = "";
+        }
+
+        if (!("webdav_username" in $$source)) {
+            this["webdav_username"] = "";
+        }
+
+        if (!("webdav_password" in $$source)) {
+            this["webdav_password"] = "";
         }
 
         Object.assign(this, $$source);

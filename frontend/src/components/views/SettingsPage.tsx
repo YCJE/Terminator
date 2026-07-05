@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
-import { User, Server, Lock, Trash2, Globe, AlertTriangle, Palette, Moon, Sun, Unplug } from "lucide-react";
+import { User, Server, Lock, Trash2, Globe, AlertTriangle, Palette, Moon, Sun, Unplug, FolderSync } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SwitchServerModal } from "@/components/views/SwitchServerModal";
+import { WebDAVModal } from "@/components/views/WebDAVModal";
 import { ConfirmModal } from "@/components/ui/confirm-modal";
 import { SettingsCard } from "@/components/ui/settings-card";
 import { useCurrentUser } from "@/hooks/useAuth";
@@ -33,6 +34,19 @@ export function SettingsPage() {
     const [isServerModalOpen, setIsServerModalOpen] = useState(false);
     const [isWipeModalOpen, setIsWipeModalOpen] = useState(false);
     const [isDisconnectModalOpen, setIsDisconnectModalOpen] = useState(false);
+    const [isWebDAVModalOpen, setIsWebDAVModalOpen] = useState(false);
+    const [syncMethod, setSyncMethod] = useState<string>("server");
+    const [webdavUrl, setWebdavUrl] = useState<string>("");
+
+    // 读取当前同步方式
+    useEffect(() => {
+        SettingsService.GetSettings()
+            .then((s) => {
+                setSyncMethod(s.sync_method || "server");
+                setWebdavUrl(s.webdav_url || "");
+            })
+            .catch(() => {});
+    }, [isWebDAVModalOpen, isServerModalOpen]);
 
     const handleLockVault = async () => {
         try {
@@ -119,37 +133,6 @@ export function SettingsPage() {
                         </div>
                     </div>
 
-                    <div
-                        className="flex items-center justify-between
-                                   rounded-lg border border-border bg-background p-4">
-                        <div className="flex items-center gap-4">
-                            <div
-                                className="flex size-10 shrink-0 items-center justify-center
-                                           rounded-lg bg-info/10 text-info">
-                                <Server className="size-5"/>
-                            </div>
-                            <div className="flex flex-col">
-                                <span className="text-sm font-medium text-foreground">
-                                    {t("cloud_server_label")}
-                                </span>
-                                <span className="text-xs text-muted-foreground">
-                                    {user?.serverUrl ? user.serverUrl : t("local_vault_only")}
-                                </span>
-                            </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                            <Button variant="secondary" onClick={() => setIsServerModalOpen(true)}>
-                                {user?.serverUrl ? t("switch_server_btn") : t("connect_btn")}
-                            </Button>
-                            {user?.serverUrl && (
-                                <Button variant="outline" onClick={() => setIsDisconnectModalOpen(true)}>
-                                    <Unplug className="mr-2 size-4"/>
-                                    {t("disconnect_btn")}
-                                </Button>
-                            )}
-                        </div>
-                    </div>
-
                     {lastError && (
                         <div className="p-4 flex items-start gap-3 text-destructive
                                         border border-destructive/20 bg-destructive/10 rounded-lg">
@@ -167,6 +150,69 @@ export function SettingsPage() {
                             </div>
                         </div>
                     )}
+                </SettingsCard>
+
+                <SettingsCard title={t("sync_method_title")} description={t("sync_method_desc")}>
+                    {/* 服务器同步 */}
+                    <div className="flex items-center justify-between
+                                   rounded-lg border border-border bg-background p-4">
+                        <div className="flex items-center gap-4">
+                            <div className="flex size-10 shrink-0 items-center justify-center
+                                           rounded-lg bg-primary/10 text-primary">
+                                <Server className="size-5"/>
+                            </div>
+                            <div className="flex flex-col">
+                                <span className="text-sm font-medium text-foreground">
+                                    {t("sync_server_title")}
+                                </span>
+                                <span className="text-xs text-muted-foreground">
+                                    {syncMethod === "server" && user?.serverUrl
+                                        ? user.serverUrl
+                                        : t("sync_server_desc")}
+                                </span>
+                            </div>
+                        </div>
+                        <Button variant={syncMethod === "server" ? "secondary" : "outline"}
+                                onClick={() => setIsServerModalOpen(true)}>
+                            {user?.serverUrl ? t("switch_server_btn") : t("connect_btn")}
+                        </Button>
+                    </div>
+
+                    {syncMethod === "server" && user?.serverUrl && (
+                        <div className="flex justify-end">
+                            <Button variant="ghost" size="sm" onClick={() => setIsDisconnectModalOpen(true)}>
+                                <Unplug className="mr-2 size-4"/>
+                                {t("disconnect_btn")}
+                            </Button>
+                        </div>
+                    )}
+
+                    <div className="my-2 h-px w-full bg-border"/>
+
+                    {/* WebDAV 同步 */}
+                    <div className="flex items-center justify-between
+                                   rounded-lg border border-border bg-background p-4">
+                        <div className="flex items-center gap-4">
+                            <div className="flex size-10 shrink-0 items-center justify-center
+                                           rounded-lg bg-accent/10 text-accent">
+                                <FolderSync className="size-5"/>
+                            </div>
+                            <div className="flex flex-col">
+                                <span className="text-sm font-medium text-foreground">
+                                    {t("webdav_title")}
+                                </span>
+                                <span className="text-xs text-muted-foreground">
+                                    {syncMethod === "webdav" && webdavUrl
+                                        ? webdavUrl
+                                        : t("webdav_card_desc")}
+                                </span>
+                            </div>
+                        </div>
+                        <Button variant={syncMethod === "webdav" ? "secondary" : "outline"}
+                                onClick={() => setIsWebDAVModalOpen(true)}>
+                            {syncMethod === "webdav" ? t("webdav_edit_btn") : t("webdav_setup_btn")}
+                        </Button>
+                    </div>
                 </SettingsCard>
 
                 <SettingsCard title={t("preferences_title")}>
@@ -259,6 +305,12 @@ export function SettingsPage() {
                 isOpen={isServerModalOpen}
                 onClose={() => setIsServerModalOpen(false)}
                 currentUrl={user?.serverUrl || ""}
+                onSuccess={() => refetch()}
+            />
+
+            <WebDAVModal
+                isOpen={isWebDAVModalOpen}
+                onClose={() => setIsWebDAVModalOpen(false)}
                 onSuccess={() => refetch()}
             />
 

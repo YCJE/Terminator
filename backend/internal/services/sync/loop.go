@@ -7,6 +7,9 @@ import (
 	"time"
 )
 
+// webdavSyncInterval WebDAV 全量同步的轮询间隔（全量传输，间隔较长）
+const webdavSyncInterval = 60 * time.Second
+
 func (s *SyncService) StartAutoSync() {
 	s.mutex.Lock()
 	if s.cancelSync != nil {
@@ -16,8 +19,14 @@ func (s *SyncService) StartAutoSync() {
 	s.cancelSync = cancel
 	s.mutex.Unlock()
 
+	// 根据同步方式选择轮询间隔：WebDAV 全量传输用较长间隔，服务器同步用较短间隔
+	interval := s.syncInterval
+	if s.isWebDAVSync() {
+		interval = webdavSyncInterval
+	}
+
 	go func() {
-		ticker := time.NewTicker(s.syncInterval)
+		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 
 		sync := func() {
@@ -42,6 +51,18 @@ func (s *SyncService) StartAutoSync() {
 			}
 		}
 	}()
+}
+
+// isWebDAVSync 判断当前是否使用 WebDAV 同步方式
+func (s *SyncService) isWebDAVSync() bool {
+	if s.settingsSvc == nil {
+		return false
+	}
+	appSettings, err := s.settingsSvc.GetSettings()
+	if err != nil {
+		return false
+	}
+	return appSettings.SyncMethod == "webdav"
 }
 
 func (s *SyncService) StopAutoSync() {
