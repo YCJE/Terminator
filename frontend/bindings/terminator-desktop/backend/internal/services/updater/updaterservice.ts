@@ -30,7 +30,7 @@ export function DownloadUpdate(): $CancellablePromise<void> {
 }
 
 export function OpenReleasePage(url: string): $CancellablePromise<void> {
-    return $Call.ByID(2057714281, [url]);
+    return $Call.ByID(2057714281, url);
 }
 
 // Private type creation functions
