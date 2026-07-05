@@ -119,24 +119,26 @@ export function TerminalInstance({sessionId, isActive, config, disconnected}: Te
             });
         });
 
-        // 唯一的 ResizeObserver：监听容器尺寸变化，防抖后 fit + resize
-        // 处理所有场景：FilePanel 展开/折叠、窗口缩放、标签页切换
+        // ResizeObserver：监听容器尺寸变化
+        // fit() 立即执行（视觉即时更新），SshService.Resize 防抖（避免频繁请求远端）
         let resizeTimer: ReturnType<typeof setTimeout> | null = null;
         const resizeObserver = new ResizeObserver(() => {
             if (!fitAddonRef.current || !terminalRef.current) return;
+            // 立即 fit，让本地终端尺寸与容器同步
+            try {
+                fitAddonRef.current.fit();
+            } catch (e) {
+                return;
+            }
+            // 防抖发送远端 PTY resize，只在用户停止调整后发送最终尺寸
             if (resizeTimer) clearTimeout(resizeTimer);
             resizeTimer = setTimeout(() => {
-                if (!isReadyRef.current || !fitAddonRef.current || !terminalRef.current) return;
-                try {
-                    fitAddonRef.current.fit();
-                    if (isActiveRef.current) {
-                        SshService.Resize(sessionId, terminalRef.current.rows, terminalRef.current.cols)
-                            .catch(() => {});
-                    }
-                } catch (e) {
-                    // 容器尚未就绪等情况，忽略
+                if (!isReadyRef.current || !terminalRef.current) return;
+                if (isActiveRef.current) {
+                    SshService.Resize(sessionId, terminalRef.current.rows, terminalRef.current.cols)
+                        .catch(() => {});
                 }
-            }, 80);
+            }, 150);
         });
         resizeObserver.observe(container);
 
