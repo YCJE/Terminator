@@ -148,9 +148,13 @@ export function FilePanel({ sessionId }: FilePanelProps) {
         }
     }, [sessionId]);
 
-    // 初始化：先获取远端主目录，再加载文件列表
+    // 初始化：sessionId 变化时重置状态并加载新主机的文件
     useEffect(() => {
         let cancelled = false;
+        // 重置状态，避免显示上一个主机的文件
+        setEntries([]);
+        setHistory([]);
+        setCurrentPath("/");
         setLoading(true);
         HomeDir(sessionId)
             .then((home) => {
@@ -399,7 +403,7 @@ export function FilePanel({ sessionId }: FilePanelProps) {
     return (
         <div
             className={cn(
-                "relative flex h-full flex-col border-l border-border bg-card",
+                "relative flex h-full flex-col cursor-default border-l border-border bg-card",
                 isDragOver && "ring-2 ring-inset ring-primary"
             )}
             style={{ width }}
@@ -407,10 +411,10 @@ export function FilePanel({ sessionId }: FilePanelProps) {
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
         >
-            {/* 左侧拖拽调整宽度的把手 */}
+            {/* 左侧拖拽调整宽度的把手 — 仅在 hover 时显示 cursor */}
             <div
                 onMouseDown={startResize}
-                className="absolute left-0 top-0 z-20 h-full w-1 cursor-col-resize hover:bg-primary/40"
+                className="absolute left-0 top-0 z-10 h-full w-1 cursor-col-resize opacity-0 hover:opacity-100 hover:bg-primary/40 transition-opacity"
             />
 
             {/* 头部标题 */}

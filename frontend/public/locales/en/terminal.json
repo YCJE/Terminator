@@ -1,3 +1,4 @@
 {
-  "error_message": "Error: {{message}}\r\n{{error}}"
+  "error_message": "Error: {{message}}\r\n{{error}}",
+  "session_disconnected": "── SSH session disconnected ──"
 }

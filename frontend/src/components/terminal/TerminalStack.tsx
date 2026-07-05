@@ -59,6 +59,7 @@ export function TerminalStack({isVisible}: TerminalStackProps) {
                         sessionId={session.id}
                         config={session.config}
                         isActive={session.id === activeSessionId}
+                        disconnected={session.disconnected}
                     />
                 ))}
             </div>

@@ -16,9 +16,10 @@ interface TerminalInstanceProps {
     sessionId: string;
     isActive: boolean;
     config: SSHConnectionConfig;
+    disconnected?: boolean;
 }
 
-export function TerminalInstance({sessionId, isActive, config}: TerminalInstanceProps) {
+export function TerminalInstance({sessionId, isActive, config, disconnected}: TerminalInstanceProps) {
     const {t} = useTranslation("terminal");
     const theme = useUIStore((s) => s.theme);
     const isFilePanelVisible = useUIStore((s) => s.isFilePanelVisible);
@@ -187,6 +188,14 @@ export function TerminalInstance({sessionId, isActive, config}: TerminalInstance
         }, 120);
         return () => clearTimeout(timer);
     }, [isFilePanelVisible, isActive, sessionId]);
+
+    // 会话断开时在终端显示提示，并阻止继续输入
+    useEffect(() => {
+        if (disconnected && terminalRef.current && isReadyRef.current) {
+            isReadyRef.current = false;
+            terminalRef.current.write(`\r\n\x1b[33m${t("session_disconnected")}\x1b[0m\r\n`);
+        }
+    }, [disconnected, t]);
 
     return (
         <div className={cn("h-full w-full bg-background p-2", isActive ? "block" : "hidden")}>

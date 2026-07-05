@@ -6,6 +6,7 @@ export interface TerminalSession {
     id: string;
     title: string;
     config: SSHConnectionConfig;
+    disconnected?: boolean;
 }
 
 export interface CreateSessionParams {
@@ -23,6 +24,7 @@ interface SessionState {
     addSession: (params: CreateSessionParams) => void;
     removeSession: (id: string) => void;
     setActiveSession: (id: string) => void;
+    markSessionDisconnected: (id: string) => void;
     clearSessions: () => void;
 }
 
@@ -99,6 +101,15 @@ export const useSessionStore = create<SessionState>((set, get) => ({
                 activeSessionId: newActiveId,
             };
         });
+    },
+
+    // 标记会话为已断开（不移除标签），终端会显示断开提示
+    markSessionDisconnected: (id) => {
+        set((state) => ({
+            sessions: state.sessions.map((s) =>
+                s.id === id ? { ...s, disconnected: true } : s
+            ),
+        }));
     },
 
     setActiveSession: (id) => {

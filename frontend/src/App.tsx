@@ -12,13 +12,12 @@ import { KEYS_QUERY_KEY } from "@/hooks/useKeys.ts";
 import { SettingsService } from "../bindings/terminator-desktop/backend/internal/services/settings";
 import { useTranslation } from "react-i18next";
 import { AppEvent } from "@/lib/events.ts";
-import { useSessionStore } from "@/store/sessionStore.ts";
 import { useUIStore, Theme } from "@/store/uiStore.ts";
 import { UpdaterService } from "../bindings/terminator-desktop/backend/internal/services/updater";
 
 export default function App() {
     const {isUnlocked} = useAuthStore();
-    const {removeSession} = useSessionStore();
+    const {markSessionDisconnected} = useSessionStore();
     const {setUpdateVersionReady, theme, setTheme} = useUIStore();
     const queryClient = useQueryClient();
     const {i18n} = useTranslation();
@@ -51,15 +50,16 @@ export default function App() {
         }
     }, [theme]);
 
+    // SSH 会话断开：标记为已断开（不自动移除标签），让用户决定是否关闭
     useEffect(() => {
         const unsubscribe = Events.On(AppEvent.SshClosed, (event) => {
             const data = event?.data as { id?: string } | null;
             if (!data?.id) return;
-            removeSession(data.id);
+            markSessionDisconnected(data.id);
         });
 
         return () => unsubscribe();
-    }, [removeSession]);
+    }, [markSessionDisconnected]);
 
     useEffect(() => {
         if (!isUnlocked) return;
@@ -74,6 +74,7 @@ export default function App() {
         return () => unsubscribe();
     }, [isUnlocked, queryClient]);
 
+    // 自动检查更新（cgo 禁用时会静默失败，不影响使用）
     useEffect(() => {
         if (!isUnlocked) return;
 
@@ -83,10 +84,12 @@ export default function App() {
                     if (info?.isAvailable) {
                         UpdaterService.DownloadUpdate()
                             .then(() => setUpdateVersionReady(info.version))
-                            .catch(console.error);
+                            .catch(console.debug);
                     }
                 })
-                .catch(console.error);
+                .catch(() => {
+                    // cgo 禁用或更新服务不可用时静默忽略
+                });
         };
 
         checkUpdates();
