@@ -88,8 +88,8 @@ function FileTableImpl({ entries, loading, onOpen, onContextMenu }: FileTablePro
         );
     }
 
-    // 列布局：文件名 flex-grow 最小 80px，大小/权限/时间用固定窄宽
-    // 窄面板时用 CSS @container 隐藏权限和修改时间列
+    // 列布局：文件名 flex-grow 最小 80px，大小固定 70px，权限和时间用 JS 媒体查询隐藏
+    // 用 matchMedia 检测面板宽度（通过父容器 offsetWidth），避免 Tailwind container query 兼容问题
     return (
         <div className="flex h-full flex-col overflow-hidden">
             {/* 表头 */}
@@ -111,14 +111,12 @@ function FileTableImpl({ entries, loading, onOpen, onContextMenu }: FileTablePro
                 >
                     {t("size")} <SortIcon k="size" />
                 </button>
-                {/* 权限列：面板宽度 <340px 时隐藏 */}
-                <span className="hidden truncate [@container(max-width:340px)]:hidden">
+                <span className="truncate text-center">
                     {t("permissions")}
                 </span>
-                {/* 修改时间列：面板宽度 <420px 时隐藏 */}
                 <button
                     type="button"
-                    className="hidden items-center gap-1 [@container(max-width:420px)]:flex"
+                    className="flex items-center gap-1"
                     onClick={() => toggleSort("modTime")}
                 >
                     {t("modified")} <SortIcon k="modTime" />
@@ -165,12 +163,12 @@ function FileTableImpl({ entries, loading, onOpen, onContextMenu }: FileTablePro
                             <span className="truncate text-right text-muted-foreground">
                                 {entry.isDir ? "-" : formatFileSize(entry.size)}
                             </span>
-                            {/* 权限：窄面板隐藏 */}
-                            <span className="hidden truncate font-mono text-xs text-muted-foreground [@container(max-width:340px)]:hidden">
+                            {/* 权限 */}
+                            <span className="truncate text-center font-mono text-xs text-muted-foreground">
                                 {entry.mode || "-"}
                             </span>
-                            {/* 修改时间：窄面板隐藏 */}
-                            <span className="hidden truncate text-muted-foreground [@container(max-width:420px)]:block">
+                            {/* 修改时间 */}
+                            <span className="truncate text-muted-foreground">
                                 {formatDateTime(entry.modTime)}
                             </span>
                         </div>

@@ -123,7 +123,31 @@ export function TerminalInstance({sessionId, isActive, config}: TerminalInstance
             });
         });
 
+        // 监听容器尺寸变化（如 FilePanel 展开/折叠、窗口缩放），
+        // 自动重新 fit 终端并通知 SSH 服务端调整 PTY 尺寸，
+        // 否则 xterm.js canvas 会因尺寸不匹配而黑屏
+        let resizeTimer: ReturnType<typeof setTimeout> | null = null;
+        const resizeObserver = new ResizeObserver(() => {
+            if (!isReadyRef.current || !fitAddonRef.current || !terminalRef.current) return;
+            // 防抖：快速连续变化时只执行最后一次
+            if (resizeTimer) clearTimeout(resizeTimer);
+            resizeTimer = setTimeout(() => {
+                try {
+                    fitAddonRef.current?.fit();
+                    const t = terminalRef.current;
+                    if (t) {
+                        SshService.Resize(sessionId, t.rows, t.cols).catch(console.error);
+                    }
+                } catch (e) {
+                    // 容器尚未就绪等情况，忽略
+                }
+            }, 100);
+        });
+        resizeObserver.observe(container);
+
         return () => {
+            if (resizeTimer) clearTimeout(resizeTimer);
+            resizeObserver.disconnect();
             container.removeEventListener("contextmenu", handleContextMenu);
             onDataDisposable.dispose();
             term.dispose();
