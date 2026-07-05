@@ -190,6 +190,7 @@ func main() {
 	app.RegisterService(application.NewService(settingsService))
 	app.RegisterService(application.NewService(updaterService))
 	app.RegisterService(application.NewService(NewWebDAVService(settingsService)))
+	app.RegisterService(application.NewService(NewLogService(appDir)))
 	app.RegisterService(application.NewService(&WindowControls{mainWindow}))
 
 	// Create a new window with the necessary options.

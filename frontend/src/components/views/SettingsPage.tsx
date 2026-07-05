@@ -1,9 +1,10 @@
 import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
-import { User, Server, Lock, Trash2, Globe, AlertTriangle, Palette, Moon, Sun, Unplug, FolderSync } from "lucide-react";
+import { User, Server, Lock, Trash2, Globe, AlertTriangle, Palette, Moon, Sun, Unplug, FolderSync, ScrollText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SwitchServerModal } from "@/components/views/SwitchServerModal";
 import { WebDAVModal } from "@/components/views/WebDAVModal";
+import { LogViewer } from "@/components/views/LogViewer";
 import { ConfirmModal } from "@/components/ui/confirm-modal";
 import { SettingsCard } from "@/components/ui/settings-card";
 import { useCurrentUser } from "@/hooks/useAuth";
@@ -297,6 +298,11 @@ export function SettingsPage() {
                             {t("wipe_btn")}
                         </Button>
                     </div>
+                </SettingsCard>
+
+                {/* 日志查看器 */}
+                <SettingsCard icon={<ScrollText className="size-5"/>} title={t("log_section_title")}>
+                    <LogViewer/>
                 </SettingsCard>
 
             </div>

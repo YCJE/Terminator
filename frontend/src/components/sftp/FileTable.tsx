@@ -1,5 +1,4 @@
 // SFTP 文件列表表格：展示 FileEntry[]，支持排序，双击进入目录
-// 优化：窄面板时优先显示文件名，隐藏次要列；用 React.memo 减少重渲染
 
 import { memo, useMemo, useState } from "react";
 import {
@@ -19,12 +18,18 @@ import { useTranslation } from "react-i18next";
 type SortKey = "name" | "size" | "modTime";
 type SortDir = "asc" | "desc";
 
+// 排序图标：纯函数组件，定义在组件外部避免每次 render 创建新类型
+function SortIcon({ sortKey, sortDir, target }: { sortKey: SortKey; sortDir: SortDir; target: SortKey }) {
+    if (sortKey !== target) return <ChevronsUpDown className="size-3 text-muted-foreground/40" />;
+    return sortDir === "asc"
+        ? <ChevronUp className="size-3" />
+        : <ChevronDown className="size-3" />;
+}
+
 interface FileTableProps {
     entries: FileEntry[];
     loading: boolean;
-    /** 双击条目时触发（文件夹进入、文件预览由父组件决定） */
     onOpen: (entry: FileEntry) => void;
-    /** 右键条目时触发，携带鼠标坐标用于定位菜单 */
     onContextMenu: (entry: FileEntry, e: React.MouseEvent) => void;
 }
 
@@ -34,7 +39,6 @@ function FileTableImpl({ entries, loading, onOpen, onContextMenu }: FileTablePro
     const [sortDir, setSortDir] = useState<SortDir>("asc");
     const [selectedName, setSelectedName] = useState<string | null>(null);
 
-    // 排序：目录永远排在文件前面，组内按当前排序键排序
     const sorted = useMemo(() => {
         const dirs = entries.filter((e) => e.isDir);
         const files = entries.filter((e) => !e.isDir);
@@ -63,14 +67,6 @@ function FileTableImpl({ entries, loading, onOpen, onContextMenu }: FileTablePro
         }
     };
 
-    // 渲染表头排序图标
-    const SortIcon = ({ k }: { k: SortKey }) => {
-        if (sortKey !== k) return <ChevronsUpDown className="size-3 text-muted-foreground/40" />;
-        return sortDir === "asc"
-            ? <ChevronUp className="size-3" />
-            : <ChevronDown className="size-3" />;
-    };
-
     if (loading) {
         return (
             <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
@@ -88,8 +84,6 @@ function FileTableImpl({ entries, loading, onOpen, onContextMenu }: FileTablePro
         );
     }
 
-    // 列布局：文件名 flex-grow 最小 80px，大小固定 70px，权限和时间用 JS 媒体查询隐藏
-    // 用 matchMedia 检测面板宽度（通过父容器 offsetWidth），避免 Tailwind container query 兼容问题
     return (
         <div className="flex h-full flex-col overflow-hidden">
             {/* 表头 */}
@@ -102,14 +96,14 @@ function FileTableImpl({ entries, loading, onOpen, onContextMenu }: FileTablePro
                     className="flex items-center gap-1 text-left hover:text-foreground"
                     onClick={() => toggleSort("name")}
                 >
-                    {t("name")} <SortIcon k="name" />
+                    {t("name")} <SortIcon sortKey={sortKey} sortDir={sortDir} target="name" />
                 </button>
                 <button
                     type="button"
                     className="flex items-center gap-1 justify-end hover:text-foreground"
                     onClick={() => toggleSort("size")}
                 >
-                    {t("size")} <SortIcon k="size" />
+                    {t("size")} <SortIcon sortKey={sortKey} sortDir={sortDir} target="size" />
                 </button>
                 <span className="truncate text-center">
                     {t("permissions")}
@@ -119,7 +113,7 @@ function FileTableImpl({ entries, loading, onOpen, onContextMenu }: FileTablePro
                     className="flex items-center gap-1"
                     onClick={() => toggleSort("modTime")}
                 >
-                    {t("modified")} <SortIcon k="modTime" />
+                    {t("modified")} <SortIcon sortKey={sortKey} sortDir={sortDir} target="modTime" />
                 </button>
             </div>
 
@@ -144,7 +138,6 @@ function FileTableImpl({ entries, loading, onOpen, onContextMenu }: FileTablePro
                             style={{ gridTemplateColumns: "minmax(80px,1fr) 70px 80px 110px" }}
                             title={entry.name}
                         >
-                            {/* 名称 + 图标 — 优先显示，占用剩余空间 */}
                             <div className="flex min-w-0 items-center gap-2">
                                 <span className="shrink-0">
                                     {entry.isDir ? (
@@ -159,15 +152,12 @@ function FileTableImpl({ entries, loading, onOpen, onContextMenu }: FileTablePro
                                     {entry.name}
                                 </span>
                             </div>
-                            {/* 大小 */}
                             <span className="truncate text-right text-muted-foreground">
                                 {entry.isDir ? "-" : formatFileSize(entry.size)}
                             </span>
-                            {/* 权限 */}
                             <span className="truncate text-center font-mono text-xs text-muted-foreground">
                                 {entry.mode || "-"}
                             </span>
-                            {/* 修改时间 */}
                             <span className="truncate text-muted-foreground">
                                 {formatDateTime(entry.modTime)}
                             </span>
@@ -179,5 +169,4 @@ function FileTableImpl({ entries, loading, onOpen, onContextMenu }: FileTablePro
     );
 }
 
-// React.memo 包裹：entries 引用不变时跳过重渲染（如传输进度更新不会触发文件列表重渲染）
 export const FileTable = memo(FileTableImpl);

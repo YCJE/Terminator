@@ -2,6 +2,10 @@ package main
 
 import (
 	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"terminator-desktop/backend/internal/services/settings"
 	"terminator-desktop/backend/internal/webdav"
 )
@@ -56,4 +60,37 @@ func (s *WebDAVService) GetWebDAVConfig() (url, username string, err error) {
 		return "", "", err
 	}
 	return current.WebDAVURL, current.WebDAVUsername, nil
+}
+
+// LogService 暴露给前端的日志查看服务
+type LogService struct {
+	appDir string
+}
+
+// NewLogService 创建 LogService
+func NewLogService(appDir string) *LogService {
+	return &LogService{appDir: appDir}
+}
+
+// GetLogs 读取日志文件内容，返回最后 maxLines 行
+func (s *LogService) GetLogs(maxLines int) (string, error) {
+	if maxLines <= 0 {
+		maxLines = 500
+	}
+	logPath := filepath.Join(s.appDir, logFileName)
+	content, err := os.ReadFile(logPath)
+	if err != nil {
+		return "", fmt.Errorf("读取日志失败: %w", err)
+	}
+	lines := strings.Split(string(content), "\n")
+	if len(lines) > maxLines {
+		lines = lines[len(lines)-maxLines:]
+	}
+	return strings.Join(lines, "\n"), nil
+}
+
+// ClearLogs 清空日志文件
+func (s *LogService) ClearLogs() error {
+	logPath := filepath.Join(s.appDir, logFileName)
+	return os.WriteFile(logPath, []byte{}, 0666)
 }

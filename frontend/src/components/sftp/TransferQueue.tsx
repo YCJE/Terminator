@@ -1,5 +1,5 @@
 // SFTP 传输进度队列：底部可折叠面板，展示所有传输任务的进度与状态
-// 优化：拆分 selector 订阅，避免单个传输进度更新触发整个队列重渲染
+// 优化：selector 返回稳定引用，避免无限重渲染
 
 import { memo, useState } from "react";
 import {
@@ -11,7 +11,7 @@ import {
     Loader2,
     Trash2,
 } from "lucide-react";
-import { useTransferStore, type TransferItem } from "@/store/transferStore";
+import { useTransferStore } from "@/store/transferStore";
 import { formatFileSize } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { useTranslation } from "react-i18next";
@@ -30,14 +30,11 @@ const TransferRow = memo(function TransferRow({ id }: { id: string }) {
 
     return (
         <div className="group flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-accent/40">
-            {/* 类型图标 */}
             <span className="shrink-0 text-muted-foreground">
                 {item.type === "upload"
                     ? <Upload className="size-3.5" />
                     : <Download className="size-3.5" />}
             </span>
-
-            {/* 文件名 + 进度条 */}
             <div className="min-w-0 flex-1">
                 <div className="flex items-center justify-between gap-2">
                     <span className="truncate text-xs">{item.filename}</span>
@@ -66,15 +63,11 @@ const TransferRow = memo(function TransferRow({ id }: { id: string }) {
                     </div>
                 )}
             </div>
-
-            {/* 状态图标 */}
             <span className="flex shrink-0 items-center">
                 {item.status === "active" && <Loader2 className="size-3.5 animate-spin text-muted-foreground" />}
                 {item.status === "success" && <Check className="size-3.5 text-success" />}
                 {item.status === "error" && <X className="size-3.5 text-destructive" />}
             </span>
-
-            {/* 移除按钮（仅完成态可移除） */}
             {item.status !== "active" && (
                 <Button
                     variant="ghost"
@@ -91,16 +84,17 @@ const TransferRow = memo(function TransferRow({ id }: { id: string }) {
 
 export function TransferQueue() {
     const { t } = useTranslation("sftp");
-    // 只订阅 ID 列表和 activeCount，不订阅整个 transfers 数组
-    const transferIds = useTransferStore((s) => s.transfers.map((t) => t.id));
-    const activeCount = useTransferStore((s) => s.transfers.filter((x) => x.status === "active").length);
-    const hasTransfers = useTransferStore((s) => s.transfers.length > 0);
+    // 订阅原始 transfers 数组引用（只在 store set 时变化）
+    // 不用 .map()/.filter() 否则每次都返回新数组/新值导致无限重渲染
+    const transfers = useTransferStore((s) => s.transfers);
     const clearCompleted = useTransferStore((s) => s.clearCompleted);
     const [collapsed, setCollapsed] = useState(false);
 
+    const activeCount = transfers.filter((x) => x.status === "active").length;
+    const hasTransfers = transfers.length > 0;
+
     return (
         <div className="shrink-0 border-t border-border bg-muted/20">
-            {/* 头部：标题 + 计数 + 操作 */}
             <div className="flex items-center justify-between px-3 py-1.5">
                 <button
                     type="button"
@@ -115,29 +109,25 @@ export function TransferQueue() {
                         </span>
                     )}
                 </button>
-
                 {hasTransfers && (
                     <Button
                         variant="ghost"
                         size="icon-xs"
-                        title={t("delete", { ns: "common" })}
                         onClick={clearCompleted}
                     >
                         <Trash2 className="size-3.5" />
                     </Button>
                 )}
             </div>
-
-            {/* 列表 */}
             {!collapsed && (
                 <div className="max-h-44 overflow-y-auto px-2 pb-2">
-                    {transferIds.length === 0 ? (
+                    {transfers.length === 0 ? (
                         <div className="px-3 py-3 text-xs text-muted-foreground">
                             {t("no_transfers")}
                         </div>
                     ) : (
-                        transferIds.map((id) => (
-                            <TransferRow key={id} id={id} />
+                        transfers.map((t) => (
+                            <TransferRow key={t.id} id={t.id} />
                         ))
                     )}
                 </div>
