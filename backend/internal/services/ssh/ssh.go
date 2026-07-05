@@ -12,6 +12,7 @@ import (
 	"terminator-desktop/backend/internal/apperror"
 	"time"
 
+	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -35,6 +36,7 @@ type activeSession struct {
 	stdin      io.WriteCloser
 	stdout     io.Reader
 	pipeCloser io.Closer
+	sftpClient *sftp.Client // 懒加载，首次使用时创建
 }
 
 type SshService struct {
@@ -293,6 +295,9 @@ func (s *SshService) Disconnect(sessionID string) {
 	s.mu.Unlock()
 
 	if exists {
+		if active.sftpClient != nil {
+			_ = active.sftpClient.Close()
+		}
 		if active.pipeCloser != nil {
 			_ = active.pipeCloser.Close()
 		}
@@ -300,6 +305,41 @@ func (s *SshService) Disconnect(sessionID string) {
 		_ = active.client.Close()
 		s.emitter.EmitClosed(sessionID)
 	}
+}
+
+// GetSFTPClient 懒加载 SFTP 客户端，复用现有 SSH 连接。
+// 首次调用时基于现有 *ssh.Client 创建 SFTP 子系统客户端并缓存到 session，
+// 后续调用直接返回缓存的实例，避免重复建立 SFTP 通道。
+// 并发安全：使用双检锁保证同一 session 只创建一次 sftpClient。
+func (s *SshService) GetSFTPClient(sessionID string) (*sftp.Client, error) {
+	// 快路径：若已存在缓存的客户端则直接返回
+	s.mu.RLock()
+	active, exists := s.sessions[sessionID]
+	if exists && active.sftpClient != nil {
+		client := active.sftpClient
+		s.mu.RUnlock()
+		return client, nil
+	}
+	s.mu.RUnlock()
+
+	// 慢路径：需要创建 SFTP 客户端
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	// 重新获取 session，防止在升级锁期间被断开
+	active, exists = s.sessions[sessionID]
+	if !exists {
+		return nil, apperror.SSHSessionNotFound()
+	}
+	// 双检：可能已被其它 goroutine 创建
+	if active.sftpClient != nil {
+		return active.sftpClient, nil
+	}
+	client, err := sftp.NewClient(active.client)
+	if err != nil {
+		return nil, fmt.Errorf("创建 SFTP 客户端失败: %w", err)
+	}
+	active.sftpClient = client
+	return client, nil
 }
 
 func (s *SshService) streamOutput(sessionID string, stdout io.Reader, current *activeSession) {
@@ -364,6 +404,9 @@ func (s *SshService) cleanupSession(sessionID string, current *activeSession) {
 		delete(s.sessions, sessionID)
 		s.mu.Unlock()
 
+		if current.sftpClient != nil {
+			_ = current.sftpClient.Close()
+		}
 		if current.pipeCloser != nil {
 			_ = current.pipeCloser.Close()
 		}

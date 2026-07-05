@@ -18,13 +18,14 @@ import (
 	"terminator-desktop/backend/internal/services/auth"
 	"terminator-desktop/backend/internal/services/blob"
 	"terminator-desktop/backend/internal/services/settings"
+	"terminator-desktop/backend/internal/services/sftp"
 	"terminator-desktop/backend/internal/services/ssh"
 	"terminator-desktop/backend/internal/services/sync"
 	"terminator-desktop/backend/internal/services/updater"
 	"terminator-desktop/backend/internal/vault"
 
-	_ "modernc.org/sqlite" // pure-Go SQLite driver, no CGO required
 	"github.com/quaadgras/velopack-go/velopack"
+	_ "modernc.org/sqlite" // pure-Go SQLite driver, no CGO required
 
 	root "terminator-desktop"
 
@@ -42,6 +43,9 @@ func init() {
 
 	application.RegisterEvent[emitters.SSHDataPayload](emitters.SSHDataEvent)
 	application.RegisterEvent[emitters.SSHClosedPayload](emitters.SSHClosedEvent)
+
+	application.RegisterEvent[emitters.SFTPTransferProgressPayload](emitters.SFTPProgressEvent)
+	application.RegisterEvent[emitters.SFTPTransferCompletePayload](emitters.SFTPCompleteEvent)
 
 	application.RegisterEvent[uint](emitters.UpdaterProgressEvent)
 }
@@ -164,12 +168,15 @@ func main() {
 	syncEmitter := emitters.NewWailsSyncEmitter(app)
 	sshEmitter := emitters.NewWailsSSHEmitter(app)
 	updaterEmitter := emitters.NewWailsUpdaterEmitter(app)
+	sftpEmitter := emitters.NewWailsSFTPEmitter(app)
 
 	authService := auth.NewAuthService(queries, db, v, client)
 	// settingsService 需在 syncService 之前创建，以便注入到 SyncService
 	settingsService := settings.NewSettingsService(appDir)
 	syncService := sync.NewSyncService(queries, client, v, syncEmitter, nil, settingsService)
 	sshService := ssh.NewSshService(sshEmitter)
+	// sftpService 复用 sshService 的 SSH 连接提供文件管理能力
+	sftpService := sftp.NewSftpService(sshService, sftpEmitter)
 	hostService := blob.NewHostService(queries, v)
 	keyService := blob.NewKeyService(queries, v)
 	updaterService := updater.NewUpdaterService(updateUrl, updaterEmitter)
@@ -177,6 +184,7 @@ func main() {
 	app.RegisterService(application.NewService(authService))
 	app.RegisterService(application.NewService(syncService))
 	app.RegisterService(application.NewService(sshService))
+	app.RegisterService(application.NewService(sftpService))
 	app.RegisterService(application.NewService(hostService))
 	app.RegisterService(application.NewService(keyService))
 	app.RegisterService(application.NewService(settingsService))
