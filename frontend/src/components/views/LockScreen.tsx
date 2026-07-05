@@ -1,9 +1,20 @@
 import { useState, useEffect, SyntheticEvent } from "react";
 import { useTranslation } from "react-i18next";
-import { Lock, Server, Shield, ArrowLeft } from "lucide-react";
+import { Lock, Server, Shield, ArrowLeft, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+    AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { AuthService } from "../../../bindings/terminator-desktop/backend/internal/services/auth";
 import { SyncService } from "../../../bindings/terminator-desktop/backend/internal/services/sync";
 import { useAuthStore } from "@/store/authStore";
@@ -80,6 +91,20 @@ export function LockScreen() {
         }
     };
 
+    const handleResetVault = async () => {
+        setIsLoading(true);
+        try {
+            await AuthService.WipeData();
+            setHasUser(false);
+            setPassword("");
+            setMode("select");
+        } catch (error) {
+            handleAppError(error);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
     if (isChecking) return (
         <div className="flex h-full items-center justify-center bg-background text-muted-foreground">
             <span className="activity-dot mr-3 size-2 rounded-full bg-primary"/>
@@ -131,6 +156,38 @@ export function LockScreen() {
                         <Button type="submit" className="w-full" disabled={isLoading}>
                             {isLoading ? t("unlocking", {ns: "common"}) : t("unlock")}
                         </Button>
+
+                        <div className="pt-2 text-center">
+                            <AlertDialog>
+                                <AlertDialogTrigger asChild>
+                                    <button type="button"
+                                        className="text-xs text-muted-foreground/60 underline-offset-2
+                                                   transition-colors hover:text-destructive hover:underline">
+                                        {t("forgot_password")}
+                                    </button>
+                                </AlertDialogTrigger>
+                                <AlertDialogContent>
+                                    <AlertDialogHeader>
+                                        <AlertDialogTitle className="flex items-center gap-2">
+                                            <AlertTriangle className="size-5 text-destructive"/>
+                                            {t("reset_vault_title")}
+                                        </AlertDialogTitle>
+                                        <AlertDialogDescription>
+                                            {t("reset_vault_desc")}
+                                        </AlertDialogDescription>
+                                    </AlertDialogHeader>
+                                    <AlertDialogFooter>
+                                        <AlertDialogCancel>{t("cancel", {ns: "common"})}</AlertDialogCancel>
+                                        <AlertDialogAction
+                                            onClick={handleResetVault}
+                                            className="bg-destructive text-destructive-foreground
+                                                       hover:bg-destructive/90">
+                                            {t("reset_confirm")}
+                                        </AlertDialogAction>
+                                    </AlertDialogFooter>
+                                </AlertDialogContent>
+                            </AlertDialog>
+                        </div>
                     </form>
                 )}
 
