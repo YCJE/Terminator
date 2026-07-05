@@ -35,7 +35,7 @@ func (s *SyncService) StartAutoSync() {
 				if !errors.Is(err, context.Canceled) {
 					slog.Error("background sync failed", "error", err)
 					s.emitter.EmitSyncError(err)
-					s.emitter.EmitStatus(SyncStatusError)
+					// SyncStatusError 已由 Sync() 的 defer 统一发射，此处不再重复
 				}
 			}
 		}

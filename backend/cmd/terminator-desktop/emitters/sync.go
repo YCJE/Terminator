@@ -11,7 +11,7 @@ type WailsSyncEmitter struct {
 }
 
 type SyncErrorPayload struct {
-	Err error `json:"error"`
+	Err string `json:"error"`
 }
 
 const (
@@ -34,7 +34,7 @@ func (e *WailsSyncEmitter) EmitUpdatesAvailable() {
 
 func (e *WailsSyncEmitter) EmitSyncError(err error) {
 	payload := SyncErrorPayload{
-		Err: err,
+		Err: err.Error(),
 	}
 
 	e.app.Event.Emit(SyncErrorEvent, payload)

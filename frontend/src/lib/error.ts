@@ -57,6 +57,14 @@ export function parseAppError(error: unknown): AppClientError {
                 };
             }
             if (rawCause.error) { // emitter error
+                // error 字段可能是字符串（如 EmitSyncError 的 Err string）或对象
+                if (typeof rawCause.error === "string") {
+                    return {
+                        code: ErrorCode.INTERNAL_ERROR,
+                        message: rawCause.error,
+                        raw: originalPayload,
+                    };
+                }
                 return mapRawError(rawCause.error, originalPayload, depth + 1)
             }
         }

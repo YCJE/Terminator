@@ -17,9 +17,11 @@ import { useSessionStore } from "@/store/sessionStore.ts";
 import { UpdaterService } from "../bindings/terminator-desktop/backend/internal/services/updater";
 
 export default function App() {
-    const {isUnlocked} = useAuthStore();
-    const {markSessionDisconnected} = useSessionStore();
-    const {setUpdateVersionReady, theme, setTheme} = useUIStore();
+    const isUnlocked = useAuthStore((s) => s.isUnlocked);
+    const markSessionDisconnected = useSessionStore((s) => s.markSessionDisconnected);
+    const setUpdateVersionReady = useUIStore((s) => s.setUpdateVersionReady);
+    const theme = useUIStore((s) => s.theme);
+    const setTheme = useUIStore((s) => s.setTheme);
     const queryClient = useQueryClient();
     const {i18n} = useTranslation();
 

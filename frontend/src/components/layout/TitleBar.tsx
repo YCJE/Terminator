@@ -10,8 +10,15 @@ import { useTranslation } from "react-i18next";
 import React, { useRef } from "react";
 
 export function TitleBar() {
-    const {sessions, activeSessionId, setActiveSession, removeSession} = useSessionStore();
-    const {activeView, isSidebarVisible, toggleSidebar, isFilePanelVisible, toggleFilePanel} = useUIStore();
+    const sessions = useSessionStore((s) => s.sessions);
+    const activeSessionId = useSessionStore((s) => s.activeSessionId);
+    const setActiveSession = useSessionStore((s) => s.setActiveSession);
+    const removeSession = useSessionStore((s) => s.removeSession);
+    const activeView = useUIStore((s) => s.activeView);
+    const isSidebarVisible = useUIStore((s) => s.isSidebarVisible);
+    const toggleSidebar = useUIStore((s) => s.toggleSidebar);
+    const isFilePanelVisible = useUIStore((s) => s.isFilePanelVisible);
+    const toggleFilePanel = useUIStore((s) => s.toggleFilePanel);
 
     const isTerminalView = activeView === ViewType.Terminal;
     const showSidebarStyling = isTerminalView ? isSidebarVisible : true;

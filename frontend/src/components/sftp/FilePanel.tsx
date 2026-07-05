@@ -120,6 +120,10 @@ export function FilePanel({ sessionId }: FilePanelProps) {
     const [entries, setEntries] = useState<FileEntry[]>([]);
     const [loading, setLoading] = useState(true);
 
+    // ref 跟踪最新 currentPath，供异步回调使用（避免闭包陷阱）
+    const currentPathRef = useRef(currentPath);
+    currentPathRef.current = currentPath;
+
     // 右键菜单状态
     const [contextMenu, setContextMenu] = useState<{ entry: FileEntry; x: number; y: number } | null>(null);
 
@@ -167,7 +171,7 @@ export function FilePanel({ sessionId }: FilePanelProps) {
     useEffect(() => {
         let cancelled = false;
         // 递增 loadIdRef 使旧会话的在途 loadDir 请求失效
-        loadIdRef.current++;
+        const initId = ++loadIdRef.current;
         // 重置状态，避免显示上一个主机的文件
         setEntries([]);
         setCurrentPath("/");
@@ -175,6 +179,8 @@ export function FilePanel({ sessionId }: FilePanelProps) {
         HomeDir(sessionId)
             .then((home) => {
                 if (cancelled) return;
+                // 用户在 HomeDir 期间已手动导航，不覆盖
+                if (loadIdRef.current !== initId) return;
                 loadDir(home || "/");
             })
             .catch((err) => {
@@ -227,6 +233,7 @@ export function FilePanel({ sessionId }: FilePanelProps) {
         if (!localPath) return;
         const name = basename(localPath);
         const remotePath = joinPath(currentPath, name);
+        const uploadDir = currentPath; // 捕获上传目录
         const transferId = crypto.randomUUID();
         addTransfer({
             id: transferId,
@@ -241,7 +248,10 @@ export function FilePanel({ sessionId }: FilePanelProps) {
             .then(() => {
                 updateTransfer(transferId, { status: "success" });
                 toast.success(t("upload_success"));
-                loadDir(currentPath);
+                // 仅当用户仍在上传目录时刷新，避免跳转
+                if (currentPathRef.current === uploadDir) {
+                    loadDir(uploadDir);
+                }
             })
             .catch((err) => {
                 updateTransfer(transferId, { status: "error", error: String(err?.message ?? err) });

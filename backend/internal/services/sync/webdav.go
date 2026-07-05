@@ -147,7 +147,9 @@ func (s *SyncService) syncWebDAV(ctx context.Context, cfg WebDAVConfig) error {
 	for _, rb := range remoteBlobs {
 		lb, exists := localMap[rb.ID]
 		if !exists {
-			hasLocalUpdates = true // 本地新增
+			// 远端有本地不存在的条目（hasRemoteUpdates 已在此场景为 true，
+			// 此处冗余标记不影响逻辑，但保留以防上游逻辑变化）
+			hasLocalUpdates = true
 			break
 		}
 		if lb.UpdatedAt != rb.UpdatedAt || lb.IsDeleted != rb.IsDeleted {

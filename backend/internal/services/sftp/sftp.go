@@ -324,14 +324,13 @@ func (s *SftpService) copyWithProgress(src io.Reader, dst io.Writer, sessionID s
 			if werr != nil {
 				return werr
 			}
-			// 部分写回退保护：理论上 dst.Write 应写入全部，但安全起见处理短写
-			if written < n {
-				// 极少发生；将剩余部分补写，仍失败则报错
-				_, werr2 := dst.Write(buf[written:n])
+			// 部分写回退保护：循环写入直到全部完成
+			for written < n {
+				m, werr2 := dst.Write(buf[written:n])
 				if werr2 != nil {
 					return werr2
 				}
-				written = n
+				written += m
 			}
 			transferred += int64(written)
 			// 时间节流：距上次发射超过 200ms 才推送，避免高频事件淹没前端

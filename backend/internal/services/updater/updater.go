@@ -147,7 +147,12 @@ func (s *UpdaterService) OpenReleasePage(url string) error {
 	default:
 		cmd = exec.Command("xdg-open", url)
 	}
-	return cmd.Start()
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	// 后台回收子进程，避免僵尸进程
+	go func() { _ = cmd.Wait() }()
+	return nil
 }
 
 // normalizeVersion 去除版本号前缀（v、V 等），返回纯数字版本号
@@ -261,7 +266,10 @@ func (s *UpdaterService) DownloadUpdate() error {
 	}
 
 	s.mu.Lock()
-	s.state = stateDownloaded
+	// 仅当 latest 未被并发 CheckForUpdates 修改时才标记为已下载
+	if s.latest == latest {
+		s.state = stateDownloaded
+	}
 	s.mu.Unlock()
 
 	return nil
