@@ -9,6 +9,7 @@ import (
 
 type AppSettings struct {
 	Language string `json:"language"`
+	Theme    string `json:"theme"` // "dark", "light", or "" (default: dark)
 }
 
 type SettingsService struct {
@@ -27,7 +28,8 @@ func (s *SettingsService) GetSettings() (AppSettings, error) {
 	defer s.mutex.RUnlock()
 
 	settings := AppSettings{
-		Language: "en",
+		Language: "zh",
+		Theme:    "dark",
 	}
 
 	data, err := os.ReadFile(s.configPath)

@@ -13,13 +13,13 @@ import { SettingsService } from "../bindings/terminator-desktop/backend/internal
 import { useTranslation } from "react-i18next";
 import { AppEvent } from "@/lib/events.ts";
 import { useSessionStore } from "@/store/sessionStore.ts";
-import { useUIStore } from "@/store/uiStore.ts";
+import { useUIStore, Theme } from "@/store/uiStore.ts";
 import { UpdaterService } from "../bindings/terminator-desktop/backend/internal/services/updater";
 
 export default function App() {
     const {isUnlocked} = useAuthStore();
     const {removeSession} = useSessionStore();
-    const {setUpdateVersionReady} = useUIStore();
+    const {setUpdateVersionReady, theme, setTheme} = useUIStore();
     const queryClient = useQueryClient();
     const {i18n} = useTranslation();
 
@@ -32,16 +32,30 @@ export default function App() {
                     // First launch: default to Chinese
                     void i18n.changeLanguage("zh");
                 }
+
+                // Apply theme: default to dark, validate value
+                const raw = settings.theme;
+                const savedTheme: Theme = raw === "light" || raw === "dark" ? raw : "dark";
+                setTheme(savedTheme);
             })
             .catch(console.error);
-    }, [i18n]);
+    }, [i18n, setTheme]);
+
+    // Apply theme class to document root whenever it changes
+    useEffect(() => {
+        const root = document.documentElement;
+        if (theme === "light") {
+            root.classList.remove("dark");
+        } else {
+            root.classList.add("dark");
+        }
+    }, [theme]);
 
     useEffect(() => {
         const unsubscribe = Events.On(AppEvent.SshClosed, (event) => {
-            // setTimeout(() => {
-            //     removeSession(event.data.id);
-            // }, 500);
-            removeSession(event.data.id);
+            const data = event?.data as { id?: string } | null;
+            if (!data?.id) return;
+            removeSession(data.id);
         });
 
         return () => unsubscribe();
@@ -98,7 +112,7 @@ export default function App() {
                 )}
 
             </div>
-            <Toaster position="bottom-right" theme="dark" richColors/>
+            <Toaster position="bottom-right" theme={theme} richColors/>
         </div>
     );
 }

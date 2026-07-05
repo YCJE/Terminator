@@ -124,12 +124,16 @@ func (s *AuthService) Login(ctx context.Context, password string) error {
 		return err
 	}
 
-	loginKey := make([]byte, keyLength)
-	if dbUser.AuthSalt.Valid {
-		loginKey, err = crypto.DeriveLoginKey(password, dbUser.AuthSalt.String)
-		if err != nil {
-			return err
-		}
+	// Derive login key for server sync authentication.
+	// AuthSalt must be present; a NULL AuthSalt would leave loginKey as all
+	// zeros, which is a predictable key. Reject instead of silently falling
+	// back to a zero key.
+	if !dbUser.AuthSalt.Valid || dbUser.AuthSalt.String == "" {
+		return apperror.Validation("auth salt is missing; vault data may be corrupted")
+	}
+	loginKey, err := crypto.DeriveLoginKey(password, dbUser.AuthSalt.String)
+	if err != nil {
+		return err
 	}
 
 	masterKey, err := crypto.UnpackAndDecrypt(dbUser.EncryptedMasterKey, kek)

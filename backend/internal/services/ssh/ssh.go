@@ -33,6 +33,7 @@ type activeSession struct {
 	client  *ssh.Client
 	session *ssh.Session
 	stdin   io.WriteCloser
+	stdout  io.Reader
 }
 
 type SshService struct {
@@ -119,14 +120,11 @@ func (s *SshService) Connect(config *SSHConnectionConfig) error {
 		return err
 	}
 
-	stdout, err := session.StdoutPipe()
-	if err != nil {
-		_ = session.Close()
-		_ = client.Close()
-		return err
-	}
-
-	session.Stderr = session.Stdout
+	// Use a pipe so both stdout and stderr feed into the same reader,
+	// ensuring the remote error stream is not silently discarded.
+	pr, pw := io.Pipe()
+	session.Stdout = pw
+	session.Stderr = pw
 
 	modes := ssh.TerminalModes{
 		ssh.ECHO:          1,
@@ -152,11 +150,12 @@ func (s *SshService) Connect(config *SSHConnectionConfig) error {
 		client:  client,
 		session: session,
 		stdin:   stdin,
+		stdout:  pr,
 	}
 	s.sessions[config.ID] = currentSession
 	s.mu.Unlock()
 
-	go s.streamOutput(config.ID, stdout, currentSession)
+	go s.streamOutput(config.ID, pr, currentSession)
 
 	return nil
 }
@@ -194,11 +193,14 @@ func (s *SshService) makeHostKeyCallback(host string, port int) ssh.HostKeyCallb
 		// First time seeing this host: trust and persist (TOFU).
 		known[addr] = entry
 		if err := s.saveKnownHosts(known); err != nil {
-			// Persisting failed. We still allow this session but the key
-			// cannot be pinned, so log via the returned error path only
-			// when saving fails catastrophically. To avoid blocking the
-			// user we proceed; the next connection will re-record.
-			return nil
+			// Fail-closed: if we cannot persist the key, the next connection
+			// would re-enter this branch and treat the host as "first time"
+			// again, effectively disabling TOFU. That would allow a MITM to
+			// intercept future connections without detection. Refuse to
+			// connect instead.
+			return fmt.Errorf("SECURITY: failed to persist host key for %s: %w; "+
+				"check write permissions for %s",
+				addr, err, s.knownHostsPath)
 		}
 		return nil
 	}

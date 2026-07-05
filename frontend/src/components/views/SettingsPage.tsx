@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { User, Server, Lock, Trash2, Globe, AlertTriangle } from "lucide-react";
+import { User, Server, Lock, Trash2, Globe, AlertTriangle, Palette, Moon, Sun } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SwitchServerModal } from "@/components/views/SwitchServerModal";
 import { ConfirmModal } from "@/components/ui/confirm-modal";
@@ -19,6 +19,7 @@ import {
     SelectValue,
 } from "@/components/ui/select";
 import { useSyncStore } from "@/store/syncStore.ts";
+import { useUIStore, Theme } from "@/store/uiStore.ts";
 
 export function SettingsPage() {
     const {t, i18n} = useTranslation(["settings", "common", "errors"]);
@@ -26,6 +27,7 @@ export function SettingsPage() {
     const {setUnlocked, setHasUser} = useAuthStore();
     const {clearSessions} = useSessionStore();
     const {lastError} = useSyncStore();
+    const {theme, setTheme} = useUIStore();
 
     const [isServerModalOpen, setIsServerModalOpen] = useState(false);
     const [isWipeModalOpen, setIsWipeModalOpen] = useState(false);
@@ -63,6 +65,23 @@ export function SettingsPage() {
             await SettingsService.SaveSettings(updated);
             void i18n.changeLanguage(lng);
         } catch (error) {
+            handleAppError(error);
+        }
+    };
+
+    const changeTheme = async (newTheme: Theme) => {
+        const prevTheme = theme;
+        try {
+            setTheme(newTheme);
+            const current = await SettingsService.GetSettings();
+            const updated = new AppSettings({
+                ...current,
+                theme: newTheme,
+            });
+            await SettingsService.SaveSettings(updated);
+        } catch (error) {
+            // Rollback on failure to keep UI and persisted state consistent.
+            setTheme(prevTheme);
             handleAppError(error);
         }
     };
@@ -149,6 +168,40 @@ export function SettingsPage() {
                             <SelectContent>
                                 <SelectItem value="en">English</SelectItem>
                                 <SelectItem value="zh">中文</SelectItem>
+                            </SelectContent>
+                        </Select>
+                    </div>
+
+                    <div className="my-2 h-px w-full bg-border"/>
+
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-4">
+                            <div
+                                className="flex size-10 shrink-0 items-center justify-center
+                                           rounded-lg bg-primary/10 text-primary">
+                                <Palette className="size-5"/>
+                            </div>
+                            <span className="text-sm font-medium text-foreground">
+                                {t("theme_label")}
+                            </span>
+                        </div>
+                        <Select value={theme} onValueChange={(v) => changeTheme(v as Theme)}>
+                            <SelectTrigger className="w-45">
+                                <SelectValue placeholder={t("select_theme")}/>
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="dark">
+                                    <span className="flex items-center gap-2">
+                                        <Moon className="size-4"/>
+                                        {t("theme_dark")}
+                                    </span>
+                                </SelectItem>
+                                <SelectItem value="light">
+                                    <span className="flex items-center gap-2">
+                                        <Sun className="size-4"/>
+                                        {t("theme_light")}
+                                    </span>
+                                </SelectItem>
                             </SelectContent>
                         </Select>
                     </div>

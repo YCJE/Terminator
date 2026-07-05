@@ -7,12 +7,14 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"sync"
 	"terminator-desktop/backend/internal/apperror"
 	"time"
 )
 
 type Client struct {
 	httpClient *http.Client
+	mu         sync.RWMutex
 	token      string
 }
 
@@ -26,11 +28,22 @@ func NewClient() *Client {
 }
 
 func (c *Client) SetToken(token string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.token = token
 }
 
 func (c *Client) ClearToken() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.token = ""
+}
+
+// getToken safely reads the current token under a read lock.
+func (c *Client) getToken() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.token
 }
 
 func (c *Client) Preflight(ctx context.Context, baseUrl string, req *PreflightRequest) (*PreflightResponse, error) {
@@ -82,8 +95,8 @@ func do[Req any, Res any](
 		req.Header.Set("Content-Type", "application/json")
 	}
 
-	if c.token != "" {
-		req.Header.Set("Authorization", "Bearer "+c.token)
+	if token := c.getToken(); token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
 	}
 
 	resp, err := c.httpClient.Do(req)

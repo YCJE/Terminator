@@ -52,6 +52,8 @@ export function LockScreen() {
         try {
             await AuthService.Login(password);
             await SyncService.StartAutoSync();
+            // Clear sensitive fields from React state before unlocking.
+            setPassword("");
             setUnlocked(true);
         } catch (error) {
             handleAppError(error);
@@ -65,6 +67,7 @@ export function LockScreen() {
         setIsLoading(true);
         try {
             await AuthService.RegisterLocal(username, password);
+            setPassword("");
             setHasUser(true);
             setUnlocked(true);
         } catch (error) {
