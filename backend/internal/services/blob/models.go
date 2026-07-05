@@ -15,6 +15,7 @@ type Host struct {
 	ID       string   `json:"id"`
 	Type     ItemType `json:"type"`
 	Name     string   `json:"name"`
+	Group    string   `json:"group,omitempty"`
 	Host     string   `json:"host"`
 	Port     int      `json:"port"`
 	Username string   `json:"username"`

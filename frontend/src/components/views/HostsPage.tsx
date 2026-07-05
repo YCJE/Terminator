@@ -1,15 +1,19 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { useTranslation } from "react-i18next";
-import { Plus, Search, Server } from "lucide-react";
+import { Plus, Search, Server, ChevronRight, FolderOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { HostCard } from "@/components/views/HostCard";
 import { HostModal } from "@/components/views/HostModal";
+import { PasswordPromptDialog } from "@/components/views/PasswordPromptDialog";
 import { ConfirmModal } from "@/components/ui/confirm-modal";
 import { useHosts, useSaveHost, useDeleteHost } from "@/hooks/useHosts";
 import { useKeys } from "@/hooks/useKeys";
 import { useSessionStore } from "@/store/sessionStore";
 import { Host } from "../../../bindings/terminator-desktop/backend/internal/services/blob";
+import { cn } from "@/lib/utils";
+
+const UNGROUPED = "__ungrouped__";
 
 export function HostsPage() {
     const {t} = useTranslation(["hosts", "common"]);
@@ -24,6 +28,10 @@ export function HostsPage() {
     const [editingHost, setEditingHost] = useState<Host | null>(null);
     const [hostToDelete, setHostToDelete] = useState<Host | null>(null);
     const [searchQuery, setSearchQuery] = useState("");
+    const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+
+    // 交互式密码输入状态
+    const [passwordPromptHost, setPasswordPromptHost] = useState<Host | null>(null);
 
     const handleCreateNew = () => {
         setEditingHost(null);
@@ -48,7 +56,8 @@ export function HostsPage() {
         saveMutation.mutate(host, {onSuccess: () => setIsModalOpen(false)});
     };
 
-    const handleConnect = (host: Host) => {
+    // 实际建立连接（提取公共逻辑）
+    const doConnect = useCallback((host: Host, password?: string) => {
         let keyString: string | undefined = undefined;
 
         if (host.keyId && keys) {
@@ -60,19 +69,68 @@ export function HostsPage() {
             host: host.host,
             port: host.port,
             username: host.username,
-            password: host.password,
+            password: password || host.password,
             privateKey: keyString,
             title: host.name || host.host,
         });
+    }, [keys, addSession]);
+
+    // 连接主机：如果没有保存密码且没有密钥，弹出密码输入框
+    const handleConnect = useCallback((host: Host) => {
+        // keys 未加载时，如果有 keyId 则等待 keys 加载，不弹密码框
+        const hasKey = host.keyId && keys?.some(k => k.id === host.keyId);
+        const hasNoCredentials = !host.password && !hasKey;
+        const keyNotLoaded = host.keyId && !keys;
+
+        if (hasNoCredentials && !keyNotLoaded) {
+            // 需要交互式输入密码
+            setPasswordPromptHost(host);
+        } else {
+            doConnect(host);
+        }
+    }, [keys, doConnect]);
+
+    const handlePasswordConfirm = (password: string) => {
+        if (passwordPromptHost) {
+            doConnect(passwordPromptHost, password);
+        }
+        setPasswordPromptHost(null);
     };
 
-    const filteredHosts = useMemo(() => {
+    // 搜索过滤 + 分组
+    const groupedHosts = useMemo(() => {
         const query = searchQuery.toLowerCase();
-        return hosts?.filter((h) =>
+        const filtered = hosts?.filter((h) =>
             h.name?.toLowerCase().includes(query) ||
-            h.host.toLowerCase().includes(query)
-        );
+            h.host.toLowerCase().includes(query) ||
+            (h.group || "").toLowerCase().includes(query)
+        ) || [];
+
+        // 按分组组织
+        const groups = new Map<string, Host[]>();
+        for (const h of filtered) {
+            const g = h.group?.trim() || UNGROUPED;
+            if (!groups.has(g)) groups.set(g, []);
+            groups.get(g)!.push(h);
+        }
+        // 排序：未分组放最后
+        return Array.from(groups.entries()).sort(([a], [b]) => {
+            if (a === UNGROUPED) return 1;
+            if (b === UNGROUPED) return -1;
+            return a.localeCompare(b);
+        });
     }, [hosts, searchQuery]);
+
+    const toggleGroup = (group: string) => {
+        setCollapsedGroups(prev => {
+            const next = new Set(prev);
+            if (next.has(group)) next.delete(group);
+            else next.add(group);
+            return next;
+        });
+    };
+
+    const hasGroups = groupedHosts.length > 1 || (groupedHosts.length === 1 && groupedHosts[0][0] !== UNGROUPED);
 
     return (
         <div className="lazy-fade-in flex h-full w-full flex-col overflow-y-auto p-8">
@@ -110,21 +168,79 @@ export function HostsPage() {
                 </div>
             )}
 
-            <div
-                className="grid w-full gap-4"
-                style={{gridTemplateColumns: "repeat(auto-fit, minmax(20rem, 1fr))"}}
-            >
-                {filteredHosts?.map((host, index) => (
-                    <div key={host.id} className="stagger-in" style={{['--stagger-index' as string]: index}}>
-                        <HostCard
-                            host={host}
-                            onConnect={handleConnect}
-                            onEdit={handleEdit}
-                            onDelete={handleDeletePrompt}
-                        />
-                    </div>
-                ))}
-            </div>
+            {/* 主机列表：有分组时按分组展示，无分组时平铺 */}
+            {hasGroups ? (
+                <div className="flex flex-col gap-6">
+                    {groupedHosts.map(([group, groupHosts]) => {
+                        const isCollapsed = collapsedGroups.has(group);
+                        const groupName = group === UNGROUPED ? t("ungrouped") : group;
+                        return (
+                            <div key={group}>
+                                {/* 分组标题 */}
+                                <button
+                                    onClick={() => toggleGroup(group)}
+                                    className="mb-3 flex w-full items-center gap-2 text-left"
+                                >
+                                    <ChevronRight
+                                        className={cn(
+                                            "size-4 text-muted-foreground transition-transform",
+                                            !isCollapsed && "rotate-90"
+                                        )}
+                                    />
+                                    {group !== UNGROUPED && (
+                                        <FolderOpen className="size-4 text-primary/70" />
+                                    )}
+                                    <span className="text-sm font-semibold text-foreground">
+                                        {groupName}
+                                    </span>
+                                    <span className="text-xs text-muted-foreground">
+                                        ({groupHosts.length})
+                                    </span>
+                                </button>
+
+                                {/* 分组内的主机卡片 */}
+                                {!isCollapsed && (
+                                    <div
+                                        className="grid w-full gap-4"
+                                        style={{gridTemplateColumns: "repeat(auto-fit, minmax(20rem, 1fr))"}}
+                                    >
+                                        {groupHosts.map((host, index) => (
+                                            <div key={host.id} className="stagger-in" style={{['--stagger-index' as string]: index}}>
+                                                <HostCard
+                                                    host={host}
+                                                    onConnect={handleConnect}
+                                                    onEdit={handleEdit}
+                                                    onDelete={handleDeletePrompt}
+                                                />
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    })}
+                </div>
+            ) : groupedHosts.length > 0 ? (
+                <div
+                    className="grid w-full gap-4"
+                    style={{gridTemplateColumns: "repeat(auto-fit, minmax(20rem, 1fr))"}}
+                >
+                    {groupedHosts[0][1].map((host, index) => (
+                        <div key={host.id} className="stagger-in" style={{['--stagger-index' as string]: index}}>
+                            <HostCard
+                                host={host}
+                                onConnect={handleConnect}
+                                onEdit={handleEdit}
+                                onDelete={handleDeletePrompt}
+                            />
+                        </div>
+                    ))}
+                </div>
+            ) : !isLoading && hosts && hosts.length > 0 ? (
+                <div className="py-12 text-center text-sm text-muted-foreground">
+                    {t("no_search_results")}
+                </div>
+            ) : null}
 
             <HostModal
                 isOpen={isModalOpen}
@@ -132,6 +248,13 @@ export function HostsPage() {
                 onSave={handleSave}
                 initialData={editingHost}
                 isSaving={saveMutation.isPending}
+            />
+
+            <PasswordPromptDialog
+                isOpen={!!passwordPromptHost}
+                hostName={passwordPromptHost?.name || passwordPromptHost?.host || ""}
+                onClose={() => setPasswordPromptHost(null)}
+                onConfirm={handlePasswordConfirm}
             />
 
             <ConfirmModal

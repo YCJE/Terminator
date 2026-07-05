@@ -9,6 +9,7 @@ export class Host {
     "id": string;
     "type": ItemType;
     "name": string;
+    "group"?: string;
     "host": string;
     "port": number;
     "username": string;
