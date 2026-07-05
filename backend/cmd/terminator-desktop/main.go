@@ -79,7 +79,7 @@ func main() {
 	}
 
 	logPath := filepath.Join(appDir, logFileName)
-	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
 	if err != nil {
 		log.Fatal(fmt.Errorf("error opening log file: %w", err))
 	}
@@ -99,7 +99,7 @@ func main() {
 	slog.SetDefault(logger)
 
 	crashPath := filepath.Join(appDir, crashLogFileName)
-	crashFile, err := os.OpenFile(crashPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+	crashFile, err := os.OpenFile(crashPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
 	if err != nil {
 		log.Fatal(fmt.Errorf("error opening crash log file: %w", err))
 	}

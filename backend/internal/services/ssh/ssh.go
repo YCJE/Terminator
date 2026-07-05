@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"terminator-desktop/backend/internal/apperror"
@@ -149,6 +150,12 @@ func (s *SshService) Connect(config *SSHConnectionConfig) error {
 	}
 
 	s.mu.Lock()
+	// 清理同 ID 的旧 session，防止资源泄漏
+	if old, exists := s.sessions[config.ID]; exists {
+		s.mu.Unlock()
+		s.cleanupSession(config.ID, old)
+		s.mu.Lock()
+	}
 	currentSession := &activeSession{
 		client:     client,
 		session:    session,
@@ -249,6 +256,7 @@ func (s *SshService) saveKnownHosts(known map[string]string) error {
 	for a := range known {
 		addrs = append(addrs, a)
 	}
+	sort.Strings(addrs)
 	for _, a := range addrs {
 		fmt.Fprintln(&b, known[a])
 	}

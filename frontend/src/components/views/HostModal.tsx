@@ -84,6 +84,11 @@ export function HostModal({isOpen, onClose, onSave, initialData, isSaving}: Host
     const handleSubmit = (e: SyntheticEvent<HTMLFormElement>) => {
         e.preventDefault();
 
+        // 校验：密钥认证必须选择密钥
+        if (authMethod === "key" && (!formData.keyId || formData.keyId === "none")) {
+            return; // Select 组件已显示"选择密钥"placeholder
+        }
+
         const port = Number(formData.port) || 22;
         const clampedPort = Math.max(1, Math.min(65535, port));
 

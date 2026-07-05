@@ -137,8 +137,30 @@ func (s *SyncService) syncWebDAV(ctx context.Context, cfg WebDAVConfig) error {
 		}
 	}
 
-	// 6. 如果本地和远端数据完全一致（无变更），跳过上传，减少带宽和冲突风险
-	if !hasRemoteUpdates && len(localBlobs) == len(remoteBlobs) {
+	// 6. 检查本地是否有比远端更新的数据（含删除操作）
+	//    不能仅比较数量，因为软删除不改变数量
+	hasLocalUpdates := false
+	localMap := make(map[string]dbgen.EncryptedBlob, len(localBlobs))
+	for _, lb := range localBlobs {
+		localMap[lb.ID] = lb
+	}
+	for _, rb := range remoteBlobs {
+		lb, exists := localMap[rb.ID]
+		if !exists {
+			hasLocalUpdates = true // 本地新增
+			break
+		}
+		if lb.UpdatedAt != rb.UpdatedAt || lb.IsDeleted != rb.IsDeleted {
+			hasLocalUpdates = true // 本地有更新或删除
+			break
+		}
+	}
+	if len(localBlobs) != len(remoteBlobs) {
+		hasLocalUpdates = true // 数量不同，一定有变更
+	}
+
+	// 如果本地和远端数据完全一致（无变更），跳过上传
+	if !hasRemoteUpdates && !hasLocalUpdates {
 		s.emitter.EmitStatus(SyncStatusSuccess)
 		return nil
 	}

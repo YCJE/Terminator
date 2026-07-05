@@ -20,8 +20,6 @@ export interface AppClientError {
 const MAX_RECURSION_DEPTH = 5;
 
 export function parseAppError(error: unknown): AppClientError {
-    console.debug(error)
-
     const fallback: AppClientError = {
         code: ErrorCode.UNKNOWN_ERROR,
         message: "Unknown error",
@@ -119,5 +117,6 @@ export function handleAppError(rawError: unknown, fallbackCode: string = ErrorCo
         duration: 5000,
     });
 
-    console.error("App Error:", appError);
+    // 仅输出非敏感字段，避免密码/密钥泄露到控制台
+    console.error("App Error:", { code: appError.code, message: appError.message });
 }

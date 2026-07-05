@@ -51,8 +51,8 @@ export function SettingsPage() {
 
     const handleLockVault = async () => {
         try {
-            clearSessions();
             await AuthService.LockVault();
+            clearSessions();
             setUnlocked(false);
         } catch (error) {
             handleAppError(error);
@@ -61,8 +61,8 @@ export function SettingsPage() {
 
     const handleWipeData = async () => {
         try {
-            clearSessions();
             await AuthService.WipeData();
+            clearSessions();
             setUnlocked(false);
             setHasUser(false);
         } catch (error) {

@@ -124,6 +124,8 @@ export function TerminalInstance({sessionId, isActive, config, disconnected}: Te
         let resizeTimer: ReturnType<typeof setTimeout> | null = null;
         const resizeObserver = new ResizeObserver(() => {
             if (!fitAddonRef.current || !terminalRef.current) return;
+            // 容器隐藏时（display:none）尺寸为 0，跳过 fit 避免异常
+            if (container.offsetWidth === 0 || container.offsetHeight === 0) return;
             // 立即 fit，让本地终端尺寸与容器同步
             try {
                 fitAddonRef.current.fit();
@@ -150,6 +152,9 @@ export function TerminalInstance({sessionId, isActive, config, disconnected}: Te
             term.dispose();
             terminalRef.current = null;
             fitAddonRef.current = null;
+            // 重置连接状态，允许 config 变化时重新连接
+            hasConnectedRef.current = false;
+            isReadyRef.current = false;
             SshService.Disconnect(sessionId).catch(() => {});
         };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -169,8 +174,12 @@ export function TerminalInstance({sessionId, isActive, config, disconnected}: Te
         const unsubscribe = Events.On(AppEvent.SshData, (event) => {
             const data = event?.data as { id?: string; data?: string } | null;
             if (!data || data.id !== sessionId || !terminalRef.current) return;
-            const rawBytes = decodeBase64ToUint8Array(data.data || "");
-            terminalRef.current.write(rawBytes);
+            try {
+                const rawBytes = decodeBase64ToUint8Array(data.data || "");
+                terminalRef.current.write(rawBytes);
+            } catch {
+                // base64 解码失败时忽略该数据包
+            }
         });
         return () => unsubscribe();
     }, [sessionId]);

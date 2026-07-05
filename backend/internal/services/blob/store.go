@@ -3,6 +3,7 @@ package blob
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"terminator-desktop/backend/internal/crypto"
 	"terminator-desktop/backend/internal/dbgen"
 	"terminator-desktop/backend/internal/vault"
@@ -57,6 +58,7 @@ func getAllItems[T any](ctx context.Context, q *dbgen.Queries, v *vault.Vault, e
 	for _, b := range blobs {
 		decryptedJSON, err := crypto.UnpackAndDecrypt(b.Blob, mk)
 		if err != nil {
+			slog.Warn("blob decryption failed, skipping", "id", b.ID, "error", err)
 			continue
 		}
 

@@ -77,12 +77,13 @@ export function HostsPage() {
 
     // 连接主机：如果没有保存密码且没有密钥，弹出密码输入框
     const handleConnect = useCallback((host: Host) => {
-        // keys 未加载时，如果有 keyId 则等待 keys 加载，不弹密码框
         const hasKey = host.keyId && keys?.some(k => k.id === host.keyId);
-        const hasNoCredentials = !host.password && !hasKey;
-        const keyNotLoaded = host.keyId && !keys;
+        const keyNotLoaded = !!host.keyId && !keys;
 
-        if (hasNoCredentials && !keyNotLoaded) {
+        // keys 尚未加载但主机配置了 keyId，不连接（等 keys 加载后重试）
+        if (keyNotLoaded) return;
+
+        if (!host.password && !hasKey) {
             // 需要交互式输入密码
             setPasswordPromptHost(host);
         } else {

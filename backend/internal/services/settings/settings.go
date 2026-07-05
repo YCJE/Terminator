@@ -89,5 +89,5 @@ func (s *SettingsService) GetLogs(maxLines int) (string, error) {
 
 // ClearLogs 清空日志文件
 func (s *SettingsService) ClearLogs() error {
-	return os.WriteFile(s.logPath, []byte{}, 0644)
+	return os.WriteFile(s.logPath, []byte{}, 0600)
 }

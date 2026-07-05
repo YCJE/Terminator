@@ -295,7 +295,11 @@ func (s *SftpService) DownloadFile(sessionID string, transferID string, remotePa
 		s.emitter.EmitTransferComplete(sessionID, transferID, false, err.Error())
 		return fmt.Errorf("下载 %q -> %q 失败: %w", remotePath, localPath, err)
 	}
-	localFile.Close()
+	if err := localFile.Close(); err != nil {
+		os.Remove(localPath)
+		s.emitter.EmitTransferComplete(sessionID, transferID, false, fmt.Sprintf("关闭文件失败: %v", err))
+		return fmt.Errorf("下载 %q -> %q 关闭文件失败: %w", remotePath, localPath, err)
+	}
 
 	s.emitter.EmitTransferComplete(sessionID, transferID, true, "")
 	return nil
