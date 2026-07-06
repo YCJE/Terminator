@@ -3,6 +3,7 @@ import { TerminalStack } from "@/components/terminal/TerminalStack";
 import { HostsPage } from "@/components/views/HostsPage.tsx";
 import { KeysPage } from "@/components/views/KeysPage.tsx";
 import { SettingsPage } from "@/components/views/SettingsPage.tsx";
+import { PortForwardingPage } from "@/components/views/PortForwardingPage.tsx";
 
 export function ContentView() {
     const {activeView} = useUIStore();
@@ -12,6 +13,7 @@ export function ContentView() {
 
             {activeView === ViewType.Hosts && <HostsPage/>}
             {activeView === ViewType.Keys && <KeysPage/>}
+            {activeView === ViewType.PortForwarding && <PortForwardingPage/>}
             {activeView === ViewType.Settings && <SettingsPage/>}
 
             <TerminalStack isVisible={activeView === ViewType.Terminal}/>

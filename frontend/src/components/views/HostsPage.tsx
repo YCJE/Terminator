@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useRef } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { Plus, Search, Server, ChevronRight, FolderOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -7,6 +7,7 @@ import { HostCard } from "@/components/views/HostCard";
 import { HostForm } from "@/components/views/HostForm";
 import { PasswordPromptDialog } from "@/components/views/PasswordPromptDialog";
 import { ConfirmModal } from "@/components/ui/confirm-modal";
+import { SlidePanel, panelMarginStyle } from "@/components/ui/slide-panel";
 import { useHosts, useSaveHost, useDeleteHost } from "@/hooks/useHosts";
 import { useKeys } from "@/hooks/useKeys";
 import { useSessionStore } from "@/store/sessionStore";
@@ -26,7 +27,6 @@ export function HostsPage() {
 
     const [showForm, setShowForm] = useState(false);
     const [editingHost, setEditingHost] = useState<Host | null>(null);
-    const scrollContainerRef = useRef<HTMLDivElement>(null);
     const [hostToDelete, setHostToDelete] = useState<Host | null>(null);
     const [searchQuery, setSearchQuery] = useState("");
     const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
@@ -37,13 +37,11 @@ export function HostsPage() {
     const handleCreateNew = () => {
         setEditingHost(null);
         setShowForm(true);
-        scrollContainerRef.current?.scrollTo({top: 0, behavior: "smooth"});
     };
 
     const handleEdit = (host: Host) => {
         setEditingHost(host);
         setShowForm(true);
-        scrollContainerRef.current?.scrollTo({top: 0, behavior: "smooth"});
     };
 
     const handleDeletePrompt = (host: Host) => {
@@ -137,7 +135,7 @@ export function HostsPage() {
     const hasGroups = groupedHosts.length > 1 || (groupedHosts.length === 1 && groupedHosts[0][0] !== UNGROUPED);
 
     return (
-        <div ref={scrollContainerRef} className="lazy-fade-in flex h-full w-full flex-col overflow-y-auto p-8">
+        <div className="lazy-fade-in relative flex h-full w-full flex-col overflow-y-auto p-8" style={panelMarginStyle(showForm)}>
             <div className="mb-8 flex w-full items-center gap-4">
                 <h1 className="shrink-0 text-2xl font-bold tracking-tight text-foreground">
                     {t("page_title")}
@@ -156,18 +154,6 @@ export function HostsPage() {
                     {t("new_host")}
                 </Button>
             </div>
-
-            {/* 内联展开式主机表单 */}
-            {showForm && (
-                <div className="mb-6 lazy-fade-in">
-                    <HostForm
-                        initialData={editingHost}
-                        isSaving={saveMutation.isPending}
-                        onSave={handleSave}
-                        onCancel={() => setShowForm(false)}
-                    />
-                </div>
-            )}
 
             {isLoading && <div className="text-sm text-muted-foreground">{t("loading_hosts")}</div>}
 
@@ -274,6 +260,20 @@ export function HostsPage() {
                 confirmText={t("delete", {ns: "common"})}
                 isDestructive={true}
             />
+
+            <SlidePanel
+                open={showForm}
+                onClose={() => setShowForm(false)}
+                title={editingHost ? t("edit_title") : t("new_title")}
+                width={400}
+            >
+                <HostForm
+                    initialData={editingHost}
+                    isSaving={saveMutation.isPending}
+                    onSave={handleSave}
+                    onCancel={() => setShowForm(false)}
+                />
+            </SlidePanel>
         </div>
     );
 }

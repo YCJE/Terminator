@@ -3,6 +3,7 @@ import { create } from "zustand";
 export enum ViewType {
     Hosts = "hosts",
     Keys = "keys",
+    PortForwarding = "port-forwarding",
     Settings = "settings",
     Terminal = "terminal",
 }

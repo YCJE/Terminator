@@ -3,7 +3,6 @@ import {useTranslation} from "react-i18next";
 import {
     Server,
     KeyRound,
-    X,
     Tag,
     FolderOpen,
     Globe,
@@ -117,221 +116,196 @@ export function HostForm({initialData, isSaving, onSave, onCancel}: HostFormProp
         onSave(finalHost);
     };
 
-    const isEditing = !!initialData;
-
     return (
-        <div className="soft-card lazy-fade-in overflow-hidden rounded-2xl border border-border/60">
-            {/* 头部：标题 + 关闭按钮 */}
-            <div className="flex items-center justify-between gap-3 border-b border-border/60 bg-muted/20 px-6 py-4">
-                <div className="flex items-center gap-3">
-                    <div className="flex size-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                        <Server className="size-5"/>
-                    </div>
-                    <h2 className="text-base font-semibold text-foreground">
-                        {isEditing ? t("edit_title") : t("new_title")}
-                    </h2>
+        <form onSubmit={handleSubmit} className="flex flex-col gap-6 p-6">
+            {/* 连接信息区 */}
+            <section className="flex flex-col gap-4">
+                <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                    <Server className="size-4 text-primary"/>
+                    {t("section_connection")}
                 </div>
-                <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    onClick={onCancel}
-                    disabled={isSaving}
-                    aria-label={t("close", {ns: "common"})}
-                >
-                    <X className="size-4"/>
-                </Button>
-            </div>
 
-            <form onSubmit={handleSubmit} className="flex max-h-[70vh] flex-col gap-6 overflow-y-auto p-6">
-                {/* 连接信息区 */}
-                <section className="flex flex-col gap-4">
-                    <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-                        <Server className="size-4 text-primary"/>
-                        {t("section_connection")}
-                    </div>
-
-                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                        <div className="grid gap-2">
-                            <Label htmlFor="name">{t("label_optional", {ns: "common"})}</Label>
-                            <div className="relative">
-                                <Tag
-                                    className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"/>
-                                <Input
-                                    id="name"
-                                    className="pl-9"
-                                    placeholder={t("label_placeholder")}
-                                    value={formData.name || ""}
-                                    onChange={(e) =>
-                                        setFormData(prev => ({...prev, name: e.target.value}))}
-                                />
-                            </div>
-                        </div>
-                        <div className="grid gap-2">
-                            <Label htmlFor="group">{t("group_label")}</Label>
-                            <div className="relative">
-                                <FolderOpen
-                                    className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"/>
-                                <Input
-                                    id="group"
-                                    list="existing-groups"
-                                    className="pl-9"
-                                    placeholder={t("group_placeholder")}
-                                    value={formData.group || ""}
-                                    onChange={(e) =>
-                                        setFormData(prev => ({...prev, group: e.target.value}))}
-                                />
-                                <datalist id="existing-groups">
-                                    {existingGroups.map((g) => (
-                                        <option key={g} value={g}/>
-                                    ))}
-                                </datalist>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">
-                        <div className="grid gap-2 sm:col-span-3">
-                            <Label htmlFor="host">{t("host_ip", {ns: "common"})}</Label>
-                            <div className="relative">
-                                <Globe
-                                    className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"/>
-                                <Input
-                                    id="host"
-                                    className="pl-9"
-                                    placeholder={t("host_placeholder")}
-                                    required
-                                    value={formData.host || ""}
-                                    onChange={(e) =>
-                                        setFormData(prev => ({...prev, host: e.target.value}))}
-                                />
-                            </div>
-                        </div>
-                        <div className="grid gap-2 sm:col-span-1">
-                            <Label htmlFor="port">{t("port", {ns: "common"})}</Label>
-                            <div className="relative">
-                                <Hash
-                                    className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"/>
-                                <Input
-                                    id="port"
-                                    type="number"
-                                    min={1}
-                                    max={65535}
-                                    required
-                                    className="pl-9"
-                                    value={formData.port === undefined ? "" : formData.port}
-                                    onChange={(e) => {
-                                        const val = parseInt(e.target.value);
-                                        setFormData(prev => ({...prev, port: isNaN(val) ? undefined : val}));
-                                    }}
-                                />
-                            </div>
-                        </div>
-                    </div>
-
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                     <div className="grid gap-2">
-                        <Label htmlFor="username">{t("username", {ns: "common"})}</Label>
+                        <Label htmlFor="name">{t("label_optional", {ns: "common"})}</Label>
                         <div className="relative">
-                            <User
+                            <Tag
                                 className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"/>
                             <Input
-                                id="username"
-                                required
+                                id="name"
                                 className="pl-9"
-                                value={formData.username || ""}
+                                placeholder={t("label_placeholder")}
+                                value={formData.name || ""}
                                 onChange={(e) =>
-                                    setFormData(prev => ({...prev, username: e.target.value}))}
+                                    setFormData(prev => ({...prev, name: e.target.value}))}
                             />
                         </div>
                     </div>
-                </section>
-
-                <div className="h-px w-full bg-border/60"/>
-
-                {/* 身份认证区 */}
-                <section className="flex flex-col gap-4">
-                    <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-                        <KeyRound className="size-4 text-primary"/>
-                        {t("section_authentication")}
-                    </div>
-
-                    {/* 认证方式选择 */}
                     <div className="grid gap-2">
-                        <Label>{t("auth_method_label")}</Label>
+                        <Label htmlFor="group">{t("group_label")}</Label>
+                        <div className="relative">
+                            <FolderOpen
+                                className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"/>
+                            <Input
+                                id="group"
+                                list="existing-groups"
+                                className="pl-9"
+                                placeholder={t("group_placeholder")}
+                                value={formData.group || ""}
+                                onChange={(e) =>
+                                    setFormData(prev => ({...prev, group: e.target.value}))}
+                            />
+                            <datalist id="existing-groups">
+                                {existingGroups.map((g) => (
+                                    <option key={g} value={g}/>
+                                ))}
+                            </datalist>
+                        </div>
+                    </div>
+                </div>
+
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">
+                    <div className="grid gap-2 sm:col-span-3">
+                        <Label htmlFor="host">{t("host_ip", {ns: "common"})}</Label>
+                        <div className="relative">
+                            <Globe
+                                className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"/>
+                            <Input
+                                id="host"
+                                className="pl-9"
+                                placeholder={t("host_placeholder")}
+                                required
+                                value={formData.host || ""}
+                                onChange={(e) =>
+                                    setFormData(prev => ({...prev, host: e.target.value}))}
+                            />
+                        </div>
+                    </div>
+                    <div className="grid gap-2 sm:col-span-1">
+                        <Label htmlFor="port">{t("port", {ns: "common"})}</Label>
+                        <div className="relative">
+                            <Hash
+                                className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"/>
+                            <Input
+                                id="port"
+                                type="number"
+                                min={1}
+                                max={65535}
+                                required
+                                className="pl-9"
+                                value={formData.port === undefined ? "" : formData.port}
+                                onChange={(e) => {
+                                    const val = parseInt(e.target.value);
+                                    setFormData(prev => ({...prev, port: isNaN(val) ? undefined : val}));
+                                }}
+                            />
+                        </div>
+                    </div>
+                </div>
+
+                <div className="grid gap-2">
+                    <Label htmlFor="username">{t("username", {ns: "common"})}</Label>
+                    <div className="relative">
+                        <User
+                            className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"/>
+                        <Input
+                            id="username"
+                            required
+                            className="pl-9"
+                            value={formData.username || ""}
+                            onChange={(e) =>
+                                setFormData(prev => ({...prev, username: e.target.value}))}
+                        />
+                    </div>
+                </div>
+            </section>
+
+            <div className="h-px w-full bg-border/60"/>
+
+            {/* 身份认证区 */}
+            <section className="flex flex-col gap-4">
+                <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                    <KeyRound className="size-4 text-primary"/>
+                    {t("section_authentication")}
+                </div>
+
+                {/* 认证方式选择 */}
+                <div className="grid gap-2">
+                    <Label>{t("auth_method_label")}</Label>
+                    <Select
+                        value={authMethod}
+                        onValueChange={(v) => handleAuthMethodChange(v as AuthMethod)}
+                    >
+                        <SelectTrigger className="w-full">
+                            <SelectValue/>
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="password">{t("auth_save_password")}</SelectItem>
+                            <SelectItem value="ask">{t("auth_ask_on_connect")}</SelectItem>
+                            <SelectItem value="key">{t("auth_use_key")}</SelectItem>
+                        </SelectContent>
+                    </Select>
+                </div>
+
+                {/* 根据认证方式显示不同输入框 */}
+                {authMethod === "password" && (
+                    <div className="grid gap-2">
+                        <Label htmlFor="password">{t("password_optional")}</Label>
+                        <div className="relative">
+                            <Lock
+                                className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"/>
+                            <Input
+                                id="password"
+                                type="password"
+                                className="pl-9"
+                                placeholder={t("password_placeholder")}
+                                value={formData.password || ""}
+                                onChange={(e) =>
+                                    setFormData(prev => ({...prev, password: e.target.value}))}
+                            />
+                        </div>
+                    </div>
+                )}
+
+                {authMethod === "ask" && (
+                    <p className="rounded-lg bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                        {t("ask_on_connect_hint")}
+                    </p>
+                )}
+
+                {authMethod === "key" && (
+                    <div className="grid gap-2">
+                        <Label>{t("ssh_key_label")}</Label>
                         <Select
-                            value={authMethod}
-                            onValueChange={(v) => handleAuthMethodChange(v as AuthMethod)}
+                            value={formData.keyId || "none"}
+                            onValueChange={(val) =>
+                                setFormData(prev => ({...prev, keyId: val === "none" ? undefined : val}))}
                         >
                             <SelectTrigger className="w-full">
-                                <SelectValue/>
+                                <SelectValue placeholder={t("select_key_placeholder")}/>
                             </SelectTrigger>
                             <SelectContent>
-                                <SelectItem value="password">{t("auth_save_password")}</SelectItem>
-                                <SelectItem value="ask">{t("auth_ask_on_connect")}</SelectItem>
-                                <SelectItem value="key">{t("auth_use_key")}</SelectItem>
+                                <SelectItem value="none">{t("none_use_password")}</SelectItem>
+                                {keys?.map((key) => (
+                                    <SelectItem key={key.id} value={key.id}>
+                                        {key.name}
+                                    </SelectItem>
+                                ))}
                             </SelectContent>
                         </Select>
                     </div>
+                )}
+            </section>
 
-                    {/* 根据认证方式显示不同输入框 */}
-                    {authMethod === "password" && (
-                        <div className="grid gap-2">
-                            <Label htmlFor="password">{t("password_optional")}</Label>
-                            <div className="relative">
-                                <Lock
-                                    className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"/>
-                                <Input
-                                    id="password"
-                                    type="password"
-                                    className="pl-9"
-                                    placeholder={t("password_placeholder")}
-                                    value={formData.password || ""}
-                                    onChange={(e) =>
-                                        setFormData(prev => ({...prev, password: e.target.value}))}
-                                />
-                            </div>
-                        </div>
-                    )}
-
-                    {authMethod === "ask" && (
-                        <p className="rounded-lg bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-                            {t("ask_on_connect_hint")}
-                        </p>
-                    )}
-
-                    {authMethod === "key" && (
-                        <div className="grid gap-2">
-                            <Label>{t("ssh_key_label")}</Label>
-                            <Select
-                                value={formData.keyId || "none"}
-                                onValueChange={(val) =>
-                                    setFormData(prev => ({...prev, keyId: val === "none" ? undefined : val}))}
-                            >
-                                <SelectTrigger className="w-full">
-                                    <SelectValue placeholder={t("select_key_placeholder")}/>
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value="none">{t("none_use_password")}</SelectItem>
-                                    {keys?.map((key) => (
-                                        <SelectItem key={key.id} value={key.id}>
-                                            {key.name}
-                                        </SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
-                        </div>
-                    )}
-                </section>
-
-                {/* 底部操作按钮 */}
-                <div className="flex items-center justify-end gap-2 border-t border-border/60 pt-4">
-                    <Button type="button" variant="outline" onClick={onCancel} disabled={isSaving}>
-                        {t("cancel", {ns: "common"})}
-                    </Button>
-                    <Button type="submit" disabled={isSaving}>
-                        {isSaving ? t("saving", {ns: "common"}) : t("save_host")}
-                    </Button>
-                </div>
-            </form>
-        </div>
+            {/* 底部操作按钮 */}
+            <div className="flex items-center justify-end gap-2 border-t border-border/60 pt-4">
+                <Button type="button" variant="outline" onClick={onCancel} disabled={isSaving}>
+                    {t("cancel", {ns: "common"})}
+                </Button>
+                <Button type="submit" disabled={isSaving}>
+                    {isSaving ? t("saving", {ns: "common"}) : t("save_host")}
+                </Button>
+            </div>
+        </form>
     );
 }

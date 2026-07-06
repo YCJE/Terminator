@@ -1,4 +1,4 @@
-import { Server, Key, Settings } from "lucide-react";
+import { Server, Key, Settings, ArrowRightLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useUIStore, ViewType } from "@/store/uiStore";
 import { cn } from "@/lib/utils";
@@ -8,7 +8,7 @@ import { useTranslation } from "react-i18next";
 import { UpdatePopover } from "@/components/layout/UpdatePopover.tsx";
 
 export function Sidebar() {
-    const {t} = useTranslation(["hosts", "update"]);
+    const {t} = useTranslation(["hosts", "keys", "portForwarding", "update"]);
     const {activeView, setActiveView, isSidebarVisible} = useUIStore();
     const {status} = useSyncStore();
 
@@ -47,6 +47,16 @@ export function Sidebar() {
                     title={t("page_title", { ns: "keys" })}
                 >
                     <Key className="size-5"/>
+                </Button>
+
+                <Button
+                    variant={activeView === ViewType.PortForwarding ? "secondary" : "ghost"}
+                    size="icon"
+                    onClick={() => setActiveView(ViewType.PortForwarding)}
+                    className={cn("wails-no-drag transition-all duration-200", activeView === ViewType.PortForwarding && "nav-item-active")}
+                    title={t("title", { ns: "portForwarding" })}
+                >
+                    <ArrowRightLeft className="size-5"/>
                 </Button>
             </nav>
 

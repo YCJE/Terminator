@@ -16,6 +16,7 @@ void i18n
                 "errors",
                 "hosts",
                 "keys",
+                "portForwarding",
                 "settings",
                 "sftp",
                 "terminal",

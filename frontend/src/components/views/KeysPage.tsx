@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef } from "react";
+import { useState, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { Plus, Search, Key } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -6,9 +6,9 @@ import { Input } from "@/components/ui/input";
 import { KeyCard } from "@/components/views/KeyCard";
 import { KeyForm } from "@/components/views/KeyForm";
 import { ConfirmModal } from "@/components/ui/confirm-modal";
+import { SlidePanel, panelMarginStyle } from "@/components/ui/slide-panel";
 import { useKeys, useSaveKey, useDeleteKey } from "@/hooks/useKeys";
 import { SavedKey } from "../../../bindings/terminator-desktop/backend/internal/services/blob";
-import { cn } from "@/lib/utils";
 
 export function KeysPage() {
     const {t} = useTranslation(["keys", "common"]);
@@ -19,19 +19,16 @@ export function KeysPage() {
     const [searchQuery, setSearchQuery] = useState("");
     const [showForm, setShowForm] = useState(false);
     const [editingKey, setEditingKey] = useState<SavedKey | null>(null);
-    const scrollContainerRef = useRef<HTMLDivElement>(null);
     const [keyToDelete, setKeyToDelete] = useState<SavedKey | null>(null);
 
     const handleCreateNew = () => {
         setEditingKey(null);
         setShowForm(true);
-        scrollContainerRef.current?.scrollTo({top: 0, behavior: "smooth"});
     };
 
     const handleEdit = (key: SavedKey) => {
         setEditingKey(key);
         setShowForm(true);
-        scrollContainerRef.current?.scrollTo({top: 0, behavior: "smooth"});
     };
 
     const handleDeletePrompt = (key: SavedKey) => {
@@ -53,7 +50,10 @@ export function KeysPage() {
     }, [keys, searchQuery]);
 
     return (
-        <div ref={scrollContainerRef} className="lazy-fade-in flex h-full w-full flex-col overflow-y-auto p-8">
+        <div
+            className="lazy-fade-in relative flex h-full w-full flex-col overflow-y-auto p-8"
+            style={panelMarginStyle(showForm)}
+        >
 
             <div className="mb-8 flex w-full items-center gap-4">
                 <h1 className="shrink-0 text-2xl font-bold tracking-tight text-foreground">
@@ -73,18 +73,6 @@ export function KeysPage() {
                     {t("new_key")}
                 </Button>
             </div>
-
-            {/* 内联展开式密钥表单 */}
-            {showForm && (
-                <div className="mb-6 lazy-fade-in">
-                    <KeyForm
-                        initialData={editingKey}
-                        isSaving={saveMutation.isPending}
-                        onSave={handleSave}
-                        onCancel={() => setShowForm(false)}
-                    />
-                </div>
-            )}
 
             {isLoading && <div className="text-sm text-muted-foreground">{t("loading_keys")}</div>}
 
@@ -124,6 +112,20 @@ export function KeysPage() {
                 confirmText={t("delete", {ns: "common"})}
                 isDestructive={true}
             />
+
+            <SlidePanel
+                open={showForm}
+                onClose={() => setShowForm(false)}
+                title={editingKey ? t("edit_title") : t("new_title")}
+                width={400}
+            >
+                <KeyForm
+                    initialData={editingKey}
+                    isSaving={saveMutation.isPending}
+                    onSave={handleSave}
+                    onCancel={() => setShowForm(false)}
+                />
+            </SlidePanel>
         </div>
     );
 }

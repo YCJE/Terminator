@@ -437,6 +437,14 @@
     to   { opacity: 1; transform: translateY(0)   scale(1); }
 }
 
+.slide-panel-enter {
+    animation: slide-panel-enter 280ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes slide-panel-enter {
+    from { opacity: 0; transform: translateX(24px); }
+    to   { opacity: 1; transform: translateX(0); }
+}
+
 .stagger-in {
     animation: stagger-card 360ms cubic-bezier(0.22, 1, 0.36, 1) both;
     animation-delay: calc(var(--stagger-index, 0) * 45ms);
