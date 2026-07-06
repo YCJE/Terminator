@@ -107,7 +107,7 @@ export function KeyForm({initialData, isSaving, onSave, onCancel}: KeyFormProps)
                 </Button>
             </div>
 
-            <form onSubmit={handleSubmit} className="flex flex-col gap-6 p-6">
+            <form onSubmit={handleSubmit} className="flex max-h-[70vh] flex-col gap-6 overflow-y-auto p-6">
                 {/* 密钥详情区 */}
                 <section className="flex flex-col gap-4">
                     <div className="flex items-center gap-2 text-sm font-semibold text-foreground">

@@ -75,15 +75,8 @@ export function KeysPage() {
             </div>
 
             {/* 内联展开式密钥表单 */}
-            <div
-                className={cn(
-                    "grid overflow-hidden transition-[grid-template-rows,opacity,margin] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]",
-                    showForm
-                        ? "mb-6 grid-rows-[1fr] opacity-100"
-                        : "mb-0 grid-rows-[0fr] opacity-0"
-                )}
-            >
-                <div className="min-h-0 overflow-hidden" inert={!showForm}>
+            {showForm && (
+                <div className="mb-6 lazy-fade-in">
                     <KeyForm
                         initialData={editingKey}
                         isSaving={saveMutation.isPending}
@@ -91,7 +84,7 @@ export function KeysPage() {
                         onCancel={() => setShowForm(false)}
                     />
                 </div>
-            </div>
+            )}
 
             {isLoading && <div className="text-sm text-muted-foreground">{t("loading_keys")}</div>}
 
