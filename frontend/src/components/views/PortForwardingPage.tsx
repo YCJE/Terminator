@@ -408,8 +408,8 @@ function PortForwardForm({formData, onChange, connectedSessions}: PortForwardFor
             </div>
 
             {/* 本地地址 / 端口 */}
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-                <div className="grid gap-2 sm:col-span-2">
+            <div className="grid grid-cols-3 gap-3">
+                <div className="col-span-2 grid gap-2">
                     <Label htmlFor="localHost">{t("label_local_host")}</Label>
                     <div className="relative">
                         <Globe
@@ -443,8 +443,8 @@ function PortForwardForm({formData, onChange, connectedSessions}: PortForwardFor
             </div>
 
             {/* 远程地址 / 端口 */}
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-                <div className="grid gap-2 sm:col-span-2">
+            <div className="grid grid-cols-3 gap-3">
+                <div className="col-span-2 grid gap-2">
                     <Label htmlFor="remoteHost">{t("label_remote_host")}</Label>
                     <div className="relative">
                         <Globe

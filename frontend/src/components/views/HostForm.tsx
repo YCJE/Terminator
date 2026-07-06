@@ -117,7 +117,7 @@ export function HostForm({initialData, isSaving, onSave, onCancel}: HostFormProp
     };
 
     return (
-        <form onSubmit={handleSubmit} className="flex flex-col gap-6 p-6">
+        <form onSubmit={handleSubmit} className="flex flex-col gap-5">
             {/* 连接信息区 */}
             <section className="flex flex-col gap-4">
                 <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
@@ -125,7 +125,7 @@ export function HostForm({initialData, isSaving, onSave, onCancel}: HostFormProp
                     {t("section_connection")}
                 </div>
 
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className="grid grid-cols-2 gap-3">
                     <div className="grid gap-2">
                         <Label htmlFor="name">{t("label_optional", {ns: "common"})}</Label>
                         <div className="relative">
@@ -164,8 +164,8 @@ export function HostForm({initialData, isSaving, onSave, onCancel}: HostFormProp
                     </div>
                 </div>
 
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">
-                    <div className="grid gap-2 sm:col-span-3">
+                <div className="grid grid-cols-3 gap-3">
+                    <div className="col-span-2 grid gap-2">
                         <Label htmlFor="host">{t("host_ip", {ns: "common"})}</Label>
                         <div className="relative">
                             <Globe
@@ -181,7 +181,7 @@ export function HostForm({initialData, isSaving, onSave, onCancel}: HostFormProp
                             />
                         </div>
                     </div>
-                    <div className="grid gap-2 sm:col-span-1">
+                    <div className="grid gap-2">
                         <Label htmlFor="port">{t("port", {ns: "common"})}</Label>
                         <div className="relative">
                             <Hash

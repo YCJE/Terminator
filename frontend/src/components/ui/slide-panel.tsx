@@ -1,9 +1,15 @@
 // 右侧侧滑面板 — 借鉴 Netcatty AsidePanel inline 模式
 // 作为 flex 子元素，shrink-0 固定宽度，自然挤压主内容区
-// 解决小窗口下表单被遮挡、Select 下拉框被裁剪的问题
+// 支持左边缘拖拽调整宽度
 
+import { useState, useRef, useCallback, useEffect } from "react";
 import { X, ArrowLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
+
+const MIN_WIDTH = 360;
+const MAX_WIDTH = 720;
+const DEFAULT_WIDTH = 420;
+const STORAGE_KEY = "slide-panel-width";
 
 interface SlidePanelProps {
     open: boolean;
@@ -15,7 +21,7 @@ interface SlidePanelProps {
     actions?: React.ReactNode;
     footer?: React.ReactNode;
     children: React.ReactNode;
-    width?: number; // 面板宽度 px，默认 400
+    width?: number;
 }
 
 export function SlidePanel({
@@ -28,8 +34,47 @@ export function SlidePanel({
     actions,
     footer,
     children,
-    width = 400,
 }: SlidePanelProps) {
+    const [width, setWidth] = useState(() => {
+        const saved = localStorage.getItem(STORAGE_KEY);
+        const parsed = saved ? parseInt(saved, 10) : NaN;
+        return isNaN(parsed) ? DEFAULT_WIDTH : Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, parsed));
+    });
+    const draggingRef = useRef(false);
+
+    const handleMouseDown = useCallback((e: React.MouseEvent) => {
+        e.preventDefault();
+        draggingRef.current = true;
+        document.body.style.cursor = "col-resize";
+        document.body.style.userSelect = "none";
+    }, []);
+
+    useEffect(() => {
+        if (!open) return;
+
+        const handleMouseMove = (e: MouseEvent) => {
+            if (!draggingRef.current) return;
+            // 面板贴右边缘，向左拖增大宽度
+            const newWidth = Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, window.innerWidth - e.clientX));
+            setWidth(newWidth);
+        };
+
+        const handleMouseUp = () => {
+            if (!draggingRef.current) return;
+            draggingRef.current = false;
+            document.body.style.cursor = "";
+            document.body.style.userSelect = "";
+            localStorage.setItem(STORAGE_KEY, String(width));
+        };
+
+        window.addEventListener("mousemove", handleMouseMove);
+        window.addEventListener("mouseup", handleMouseUp);
+        return () => {
+            window.removeEventListener("mousemove", handleMouseMove);
+            window.removeEventListener("mouseup", handleMouseUp);
+        };
+    }, [open, width]);
+
     if (!open) return null;
 
     return (
@@ -41,6 +86,12 @@ export function SlidePanel({
             )}
             style={{ width: `${width}px` }}
         >
+            {/* 左边缘拖拽手柄 */}
+            <div
+                onMouseDown={handleMouseDown}
+                className="absolute left-0 top-0 z-40 h-full w-1 cursor-col-resize hover:bg-primary/30 transition-colors"
+            />
+
             {/* Header — 固定高度 */}
             <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border/60 px-4 py-3">
                 <div className="flex min-w-0 items-center gap-2">
