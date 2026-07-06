@@ -17,6 +17,11 @@ func saveItem[T any](ctx context.Context, q *dbgen.Queries, v *vault.Vault, id s
 	if err != nil {
 		return "", err
 	}
+	defer func() {
+		for i := range mk {
+			mk[i] = 0
+		}
+	}()
 
 	if id == "" {
 		id = uuid.New().String()
@@ -50,6 +55,11 @@ func getAllItems[T any](ctx context.Context, q *dbgen.Queries, v *vault.Vault, e
 	if err != nil {
 		return nil, err
 	}
+	defer func() {
+		for i := range mk {
+			mk[i] = 0
+		}
+	}()
 
 	blobs, err := q.GetActiveBlobs(ctx)
 	if err != nil {

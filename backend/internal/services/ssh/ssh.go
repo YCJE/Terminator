@@ -4,9 +4,11 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"sort"
 	"strings"
 	"sync"
@@ -89,7 +91,7 @@ func (s *SshService) Connect(config *SSHConnectionConfig) error {
 	if config.PrivateKey != "" {
 		signer, err := ssh.ParsePrivateKey([]byte(config.PrivateKey))
 		if err != nil {
-			return apperror.DecryptionFailed(err)
+			return apperror.SSHConnectionFailed("failed to parse private key", err)
 		}
 		authMethods = append(authMethods, ssh.PublicKeys(signer))
 	} else if config.Password != "" {
@@ -384,6 +386,12 @@ func (s *SshService) ResetSFTPClient(sessionID string) {
 }
 
 func (s *SshService) streamOutput(sessionID string, stdout io.Reader, current *activeSession) {
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("streamOutput panic", "session", sessionID, "panic", r, "stack", string(debug.Stack()))
+		}
+	}()
+
 	buf := make([]byte, 32*1024)
 	dataChan := make(chan []byte)
 
@@ -424,6 +432,12 @@ func (s *SshService) streamOutput(sessionID string, stdout io.Reader, current *a
 }
 
 func readOutput(stdout io.Reader, buf []byte, dataChan chan []byte) {
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("readOutput panic", "panic", r, "stack", string(debug.Stack()))
+			close(dataChan)
+		}
+	}()
 	for {
 		n, err := stdout.Read(buf)
 		if n > 0 {

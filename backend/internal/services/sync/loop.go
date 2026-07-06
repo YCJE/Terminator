@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"runtime/debug"
 	"time"
 )
 
@@ -26,6 +27,12 @@ func (s *SyncService) StartAutoSync() {
 	}
 
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Error("sync goroutine panic", "panic", r, "stack", string(debug.Stack()))
+				s.emitter.EmitStatus(SyncStatusError)
+			}
+		}()
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 

@@ -47,6 +47,11 @@ func (s *SyncService) syncWebDAV(ctx context.Context, cfg WebDAVConfig) error {
 	if err != nil {
 		return err
 	}
+	defer func() {
+		for i := range masterKey {
+			masterKey[i] = 0
+		}
+	}()
 
 	syncFileURL, err := buildSyncFileURL(cfg.URL)
 	if err != nil {

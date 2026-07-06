@@ -101,7 +101,10 @@ func (s *UpdaterService) CheckGitHubReleases() (*GitHubReleaseInfo, error) {
 	if err != nil {
 		return nil, fmt.Errorf("请求 GitHub API 失败: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_, _ = io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("GitHub API 返回状态码: %d", resp.StatusCode)

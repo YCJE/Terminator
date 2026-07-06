@@ -82,6 +82,11 @@ func (s *SyncService) Authenticate(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	defer func() {
+		for i := range loginKey {
+			loginKey[i] = 0
+		}
+	}()
 
 	loginKeyBase64 := base64.StdEncoding.EncodeToString(loginKey)
 

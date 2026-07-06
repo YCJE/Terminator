@@ -293,6 +293,11 @@ func (s *AuthService) RegisterOnServer(ctx context.Context, serverURL string) er
 	if err != nil {
 		return err
 	}
+	defer func() {
+		for i := range loginKey {
+			loginKey[i] = 0
+		}
+	}()
 
 	authRes, err := s.client.Register(ctx, serverURL, &api.RegisterRequest{
 		Username:           user.Username,
