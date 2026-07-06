@@ -210,6 +210,9 @@ export function FilePanel({ sessionId }: FilePanelProps) {
         setEntries([]);
         setCurrentPath("/");
         setLoading(true);
+        // 重置目录树状态，避免残留旧主机的目录结构
+        setTreeChildren({});
+        setTreeExpanded({ "/": true });
         HomeDir(sessionId)
             .then((home) => {
                 if (cancelled) return;
@@ -275,6 +278,8 @@ export function FilePanel({ sessionId }: FilePanelProps) {
     }, [treeExpanded, treeChildren]);
 
     // 拖拽调整左侧目录树面板宽度
+    const treeResizeCleanupRef = useRef<(() => void) | null>(null);
+
     const startTreeResize = (e: React.MouseEvent) => {
         e.preventDefault();
         const startX = e.clientX;
@@ -288,10 +293,16 @@ export function FilePanel({ sessionId }: FilePanelProps) {
             document.removeEventListener("mousemove", onMove);
             document.removeEventListener("mouseup", onUp);
             document.body.style.cursor = "";
+            treeResizeCleanupRef.current = null;
         };
         document.body.style.cursor = "col-resize";
         document.addEventListener("mousemove", onMove);
         document.addEventListener("mouseup", onUp);
+        treeResizeCleanupRef.current = () => {
+            document.removeEventListener("mousemove", onMove);
+            document.removeEventListener("mouseup", onUp);
+            document.body.style.cursor = "";
+        };
     };
 
     // 面包屑导航分段
@@ -507,6 +518,9 @@ export function FilePanel({ sessionId }: FilePanelProps) {
         return () => {
             if (resizeCleanupRef.current) {
                 resizeCleanupRef.current();
+            }
+            if (treeResizeCleanupRef.current) {
+                treeResizeCleanupRef.current();
             }
         };
     }, []);

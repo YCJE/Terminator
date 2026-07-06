@@ -128,14 +128,14 @@ func (s *SshService) Connect(config *SSHConnectionConfig) error {
 
 	session, err := client.NewSession()
 	if err != nil {
-		s.releaseClient(config)
+		s.releaseClient(config, client)
 		return apperror.SSHConnectionFailed("failed to create session", err)
 	}
 
 	stdin, err := session.StdinPipe()
 	if err != nil {
 		_ = session.Close()
-		s.releaseClient(config)
+		s.releaseClient(config, client)
 		return err
 	}
 
@@ -151,13 +151,13 @@ func (s *SshService) Connect(config *SSHConnectionConfig) error {
 
 	if err = session.RequestPty("xterm-256color", 24, 80, modes); err != nil {
 		_ = session.Close()
-		s.releaseClient(config)
+		s.releaseClient(config, client)
 		return apperror.SSHConnectionFailed("failed to request PTY", err)
 	}
 
 	if err = session.Shell(); err != nil {
 		_ = session.Close()
-		s.releaseClient(config)
+		s.releaseClient(config, client)
 		return apperror.SSHConnectionFailed("failed to start shell", err)
 	}
 
@@ -195,7 +195,7 @@ func (s *SshService) Connect(config *SSHConnectionConfig) error {
 			_ = old.session.Close()
 		}
 		if old.connConfig != nil {
-			s.releaseClient(old.connConfig)
+			s.releaseClient(old.connConfig, old.client)
 		} else if old.client != nil {
 			_ = old.client.Close()
 		}
@@ -257,13 +257,19 @@ func (s *SshService) acquireClient(config *SSHConnectionConfig) (*ssh.Client, er
 			}
 			s.connPoolMu.Unlock()
 		} else {
-			// 连接已死，从池中移除
+			// 连接已死，从池中移除。
+			// 仅当 refCount==0 时才关闭，避免关闭正在被其他 session 使用的连接。
+			// refCount>0 时由各 session 断开时通过 releaseClient 自行关闭。
+			var shouldClose bool
 			s.connPoolMu.Lock()
 			if pc2, ok := s.connPool[key]; ok && pc2.client == client {
 				delete(s.connPool, key)
-				_ = pc2.client.Close()
+				shouldClose = pc2.refCount <= 0
 			}
 			s.connPoolMu.Unlock()
+			if shouldClose {
+				_ = client.Close()
+			}
 		}
 	} else {
 		s.connPoolMu.Unlock()
@@ -287,22 +293,31 @@ func (s *SshService) acquireClient(config *SSHConnectionConfig) (*ssh.Client, er
 	return client, nil
 }
 
-// releaseClient 释放连接池引用
-func (s *SshService) releaseClient(config *SSHConnectionConfig) {
+// releaseClient 释放连接池引用。
+// 传入 client 参数确保只递减/关闭该特定连接，避免按 key 操作时
+// 误关池中已被替换的新连接。
+func (s *SshService) releaseClient(config *SSHConnectionConfig, client *ssh.Client) {
 	key := connKey(config)
 
 	s.connPoolMu.Lock()
-	defer s.connPoolMu.Unlock()
-
 	pc, ok := s.connPool[key]
-	if !ok {
+	if !ok || pc.client != client {
+		// 池中条目已被替换或移除（如健康检查剔除了死连接），
+		// 直接关闭传入的 client 即可
+		s.connPoolMu.Unlock()
+		_ = client.Close()
 		return
 	}
 
 	pc.refCount--
-	if pc.refCount <= 0 {
+	shouldClose := pc.refCount <= 0
+	if shouldClose {
 		delete(s.connPool, key)
-		_ = pc.client.Close()
+	}
+	// Close 在锁外执行，避免网络 I/O 阻塞连接池
+	s.connPoolMu.Unlock()
+	if shouldClose {
+		_ = client.Close()
 	}
 }
 
@@ -525,7 +540,7 @@ func (s *SshService) Disconnect(sessionID string) {
 			_ = active.session.Close()
 		}
 		if active.connConfig != nil {
-			s.releaseClient(active.connConfig)
+			s.releaseClient(active.connConfig, active.client)
 		} else if active.client != nil {
 			_ = active.client.Close()
 		}
@@ -631,6 +646,13 @@ func (s *SshService) startLocalForward(spec *PortForwardSpec, client *ssh.Client
 				}
 				defer remoteConn.Close()
 
+				// 任意方向的 io.Copy 结束时关闭双端，避免单向阻塞泄漏
+				var once sync.Once
+				closeBoth := func() {
+					conn.Close()
+					remoteConn.Close()
+				}
+
 				go func() {
 					defer func() {
 						if r := recover(); r != nil {
@@ -638,8 +660,10 @@ func (s *SshService) startLocalForward(spec *PortForwardSpec, client *ssh.Client
 						}
 					}()
 					io.Copy(remoteConn, conn)
+					once.Do(closeBoth)
 				}()
 				io.Copy(conn, remoteConn)
+				once.Do(closeBoth)
 			}(localConn)
 		}
 	}()
@@ -686,6 +710,13 @@ func (s *SshService) startRemoteForward(spec *PortForwardSpec, client *ssh.Clien
 				}
 				defer localConn.Close()
 
+				// 任意方向的 io.Copy 结束时关闭双端，避免单向阻塞泄漏
+				var once sync.Once
+				closeBoth := func() {
+					conn.Close()
+					localConn.Close()
+				}
+
 				go func() {
 					defer func() {
 						if r := recover(); r != nil {
@@ -693,8 +724,10 @@ func (s *SshService) startRemoteForward(spec *PortForwardSpec, client *ssh.Clien
 						}
 					}()
 					io.Copy(localConn, conn)
+					once.Do(closeBoth)
 				}()
 				io.Copy(conn, localConn)
+				once.Do(closeBoth)
 			}(remoteConn)
 		}
 	}()
@@ -838,7 +871,7 @@ func (s *SshService) cleanupSession(sessionID string, current *activeSession) {
 			_ = current.session.Close()
 		}
 		if current.connConfig != nil {
-			s.releaseClient(current.connConfig)
+			s.releaseClient(current.connConfig, current.client)
 		} else if current.client != nil {
 			_ = current.client.Close()
 		}

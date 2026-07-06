@@ -47,6 +47,9 @@ export function TerminalInstance({sessionId, isActive, config, disconnected}: Te
     const [showSearch, setShowSearch] = useState(false);
     const [searchQuery, setSearchQuery] = useState("");
     const searchInputRef = useRef<HTMLInputElement>(null);
+    // 用 ref 跟踪 showSearch 最新值，供 attachCustomKeyEventHandler 闭包使用
+    const showSearchRef = useRef(showSearch);
+    showSearchRef.current = showSearch;
 
     const printErrorToTerminal = (error: unknown) => {
         if (!terminalRef.current) return;
@@ -132,7 +135,7 @@ export function TerminalInstance({sessionId, isActive, config, disconnected}: Te
                 }
 
                 // Esc 关闭搜索面板
-                if (arg.code === "Escape" && showSearch) {
+                if (arg.code === "Escape" && showSearchRef.current) {
                     setShowSearch(false);
                     return false;
                 }

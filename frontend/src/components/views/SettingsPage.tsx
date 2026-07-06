@@ -75,12 +75,12 @@ export function SettingsPage() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    // 主题变化时重新应用终端配色联动
+    // 主题变化或强调色变化时重新应用终端配色联动
     useEffect(() => {
         if (terminalColorLink) {
             applyTerminalColorLink(theme, true);
         }
-    }, [theme, terminalColorLink]);
+    }, [theme, terminalColorLink, accentColor]);
 
     const handleLockVault = async () => {
         try {

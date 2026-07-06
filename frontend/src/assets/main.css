@@ -222,13 +222,13 @@
    ============================================================ */
 
 /* Sky（默认天蓝） */
-[data-accent="sky"] {
+.dark[data-accent="sky"] {
     --primary: oklch(0.715 0.168 238);
     --ring: oklch(0.715 0.168 238);
     --sidebar-primary: oklch(0.715 0.168 238);
     --sidebar-ring: oklch(0.715 0.168 238);
 }
-:root[data-accent="sky"] {
+:root:not(.dark)[data-accent="sky"] {
     --primary: oklch(0.546 0.215 263);
     --ring: oklch(0.546 0.215 263);
     --sidebar-primary: oklch(0.546 0.215 263);
@@ -236,13 +236,13 @@
 }
 
 /* Emerald（翡翠绿） */
-[data-accent="emerald"] {
+.dark[data-accent="emerald"] {
     --primary: oklch(0.72 0.19 160);
     --ring: oklch(0.72 0.19 160);
     --sidebar-primary: oklch(0.72 0.19 160);
     --sidebar-ring: oklch(0.72 0.19 160);
 }
-:root[data-accent="emerald"] {
+:root:not(.dark)[data-accent="emerald"] {
     --primary: oklch(0.55 0.17 160);
     --ring: oklch(0.55 0.17 160);
     --sidebar-primary: oklch(0.55 0.17 160);
@@ -250,13 +250,13 @@
 }
 
 /* Violet（紫罗兰） */
-[data-accent="violet"] {
+.dark[data-accent="violet"] {
     --primary: oklch(0.65 0.22 300);
     --ring: oklch(0.65 0.22 300);
     --sidebar-primary: oklch(0.65 0.22 300);
     --sidebar-ring: oklch(0.65 0.22 300);
 }
-:root[data-accent="violet"] {
+:root:not(.dark)[data-accent="violet"] {
     --primary: oklch(0.5 0.22 300);
     --ring: oklch(0.5 0.22 300);
     --sidebar-primary: oklch(0.5 0.22 300);
@@ -264,13 +264,13 @@
 }
 
 /* Amber（琥珀橙） */
-[data-accent="amber"] {
+.dark[data-accent="amber"] {
     --primary: oklch(0.75 0.18 60);
     --ring: oklch(0.75 0.18 60);
     --sidebar-primary: oklch(0.75 0.18 60);
     --sidebar-ring: oklch(0.75 0.18 60);
 }
-:root[data-accent="amber"] {
+:root:not(.dark)[data-accent="amber"] {
     --primary: oklch(0.6 0.18 60);
     --ring: oklch(0.6 0.18 60);
     --sidebar-primary: oklch(0.6 0.18 60);
@@ -278,13 +278,13 @@
 }
 
 /* Rose（玫瑰红） */
-[data-accent="rose"] {
+.dark[data-accent="rose"] {
     --primary: oklch(0.67 0.22 15);
     --ring: oklch(0.67 0.22 15);
     --sidebar-primary: oklch(0.67 0.22 15);
     --sidebar-ring: oklch(0.67 0.22 15);
 }
-:root[data-accent="rose"] {
+:root:not(.dark)[data-accent="rose"] {
     --primary: oklch(0.55 0.22 15);
     --ring: oklch(0.55 0.22 15);
     --sidebar-primary: oklch(0.55 0.22 15);
@@ -292,13 +292,13 @@
 }
 
 /* Cyan（青色） */
-[data-accent="cyan"] {
+.dark[data-accent="cyan"] {
     --primary: oklch(0.72 0.15 200);
     --ring: oklch(0.72 0.15 200);
     --sidebar-primary: oklch(0.72 0.15 200);
     --sidebar-ring: oklch(0.72 0.15 200);
 }
-:root[data-accent="cyan"] {
+:root:not(.dark)[data-accent="cyan"] {
     --primary: oklch(0.55 0.15 200);
     --ring: oklch(0.55 0.15 200);
     --sidebar-primary: oklch(0.55 0.15 200);

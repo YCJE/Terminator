@@ -51,6 +51,8 @@ export function TerminalTab({
             draggable
             onDragStart={(e) => {
                 e.dataTransfer.effectAllowed = "move";
+                // Firefox 等浏览器要求 setData 才能正常触发拖拽
+                e.dataTransfer.setData("text/plain", String(index));
                 onDragStart(index);
             }}
             onDragOver={(e) => {
