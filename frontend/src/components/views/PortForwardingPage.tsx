@@ -6,7 +6,6 @@ import {
     Network,
     Trash2,
     Globe,
-    Hash,
     Server,
     ArrowRight,
 } from "lucide-react";
@@ -27,6 +26,9 @@ import {SshService} from "../../../bindings/terminator-desktop/backend/internal/
 import {PortForwardSpec} from "../../../bindings/terminator-desktop/backend/internal/services/ssh/models";
 import {cn} from "@/lib/utils";
 import {toast} from "sonner";
+import {Events} from "@wailsio/runtime";
+import {AppEvent} from "@/lib/events";
+import {useEffect} from "react";
 
 type ForwardType = "local" | "remote";
 
@@ -70,6 +72,25 @@ export function PortForwardingPage() {
         [sessions]
     );
 
+    // 监听会话断开事件，同步更新转发状态
+    useEffect(() => {
+        const unsubscribe = Events.On(AppEvent.SshClosed, (event) => {
+            const data = event?.data as { id?: string } | null;
+            if (data?.id) {
+                setForwards((prev) =>
+                    prev.map((f) =>
+                        f.sessionId === data.id
+                            ? { ...f, status: "stopped" as const }
+                            : f
+                    )
+                );
+            }
+        });
+        return () => {
+            unsubscribe();
+        };
+    }, []);
+
     const handleOpenForm = () => {
         // 默认选中第一个可用会话
         const defaultSession = connectedSessions[0]?.id || "";
@@ -84,10 +105,16 @@ export function PortForwardingPage() {
     };
 
     const handleSave = async () => {
-        if (!formData.sessionId) return;
+        if (!formData.sessionId) {
+            toast.error(t("placeholder_select_session"));
+            return;
+        }
         const localPort = clampPort(formData.localPort);
         const remotePort = clampPort(formData.remotePort);
-        if (localPort <= 0 || remotePort <= 0) return;
+        if (localPort <= 0 || remotePort <= 0) {
+            toast.error(t("invalid_port"));
+            return;
+        }
 
         const id = crypto.randomUUID();
         const sessionTitle =
@@ -233,7 +260,6 @@ export function PortForwardingPage() {
                 open={showForm}
                 onClose={() => setShowForm(false)}
                 title={t("panel_title_new")}
-                width={400}
                 footer={
                     <div className="flex items-center justify-end gap-2">
                         <Button

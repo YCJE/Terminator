@@ -12,7 +12,7 @@ import { KEYS_QUERY_KEY } from "@/hooks/useKeys.ts";
 import { SettingsService } from "../bindings/terminator-desktop/backend/internal/services/settings";
 import { useTranslation } from "react-i18next";
 import { AppEvent } from "@/lib/events.ts";
-import { useUIStore, Theme } from "@/store/uiStore.ts";
+import { useUIStore, Theme, AccentColor, Spaciness } from "@/store/uiStore.ts";
 import { useSessionStore } from "@/store/sessionStore.ts";
 import { UpdaterService } from "../bindings/terminator-desktop/backend/internal/services/updater";
 
@@ -45,10 +45,10 @@ export default function App() {
 
                 // 恢复外观偏好
                 if (settings.accent_color) {
-                    setAccentColor(settings.accent_color);
+                    setAccentColor(settings.accent_color as AccentColor);
                 }
                 if (settings.spaciness && settings.spaciness > 0) {
-                    setSpaciness(settings.spaciness);
+                    setSpaciness(settings.spaciness as Spaciness);
                 }
                 setTerminalColorLink(settings.terminal_color_link);
             })

@@ -20,5 +20,6 @@
   "desc_local": "将本地端口的流量通过 SSH 隧道转发到远程主机",
   "desc_remote": "将远程主机端口的流量通过 SSH 隧道转发到本地",
   "forward_active": "活跃",
-  "forward_stopped": "已停止"
+  "forward_stopped": "已停止",
+  "invalid_port": "端口号无效，请输入 1-65535 之间的数字"
 }

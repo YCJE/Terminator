@@ -40,6 +40,9 @@ export function SlidePanel({
         return isNaN(parsed) ? DEFAULT_WIDTH : Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, parsed));
     });
     const draggingRef = useRef(false);
+    // 用 ref 跟踪最新宽度，避免闭包过期 + 减少 effect 重建
+    const widthRef = useRef(width);
+    widthRef.current = width;
 
     const handleMouseDown = useCallback((e: React.MouseEvent) => {
         e.preventDefault();
@@ -55,6 +58,7 @@ export function SlidePanel({
             if (!draggingRef.current) return;
             const newWidth = Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, window.innerWidth - e.clientX));
             setWidth(newWidth);
+            widthRef.current = newWidth;
         };
 
         const handleMouseUp = () => {
@@ -62,7 +66,8 @@ export function SlidePanel({
             draggingRef.current = false;
             document.body.style.cursor = "";
             document.body.style.userSelect = "";
-            localStorage.setItem(STORAGE_KEY, String(width));
+            // 从 ref 读取最新宽度，避免闭包过期
+            localStorage.setItem(STORAGE_KEY, String(widthRef.current));
         };
 
         window.addEventListener("mousemove", handleMouseMove);
@@ -71,7 +76,7 @@ export function SlidePanel({
             window.removeEventListener("mousemove", handleMouseMove);
             window.removeEventListener("mouseup", handleMouseUp);
         };
-    }, [open, width]);
+    }, [open]); // 仅依赖 open，拖拽期间不重建监听器
 
     if (!open) return null;
 
@@ -84,7 +89,7 @@ export function SlidePanel({
             )}
             style={{ width: `${width}px` }}
         >
-            {/* 左边缘拖拽手柄 — 需要 relative 父元素才能正确定位 */}
+            {/* 左边缘拖拽手柄 */}
             <div
                 onMouseDown={handleMouseDown}
                 className="absolute left-0 top-0 z-40 h-full w-1.5 cursor-col-resize hover:bg-primary/40 transition-colors"

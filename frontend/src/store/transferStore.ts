@@ -33,7 +33,7 @@ const THROTTLE_MS = 200;
 // 尾帧刷新定时器：每 200ms 检查是否有被节流的更新需要补发
 let flushTimer: ReturnType<typeof setInterval> | null = null;
 
-function ensureFlushTimer(set: (fn: (s: TransferState) => TransferState) => void) {
+function ensureFlushTimer(set: (fn: (s: TransferState) => Partial<TransferState>) => void) {
     if (flushTimer) return;
     flushTimer = setInterval(() => {
         if (pendingUpdates.size === 0) {

@@ -119,7 +119,7 @@ export function getTerminalTheme(theme: TerminalThemeName, accentColor?: AccentC
     let baseTheme: ITheme = isDark ? DARK_THEME : LIGHT_THEME;
 
     // 如果指定了强调色，替换终端蓝色系 ANSI 色
-    if (accentColor) {
+    if (accentColor && ACCENT_TERMINAL_COLORS[accentColor]) {
         const accentColors = ACCENT_TERMINAL_COLORS[accentColor][isDark ? "dark" : "light"];
         baseTheme = {
             ...baseTheme,

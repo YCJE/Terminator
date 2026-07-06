@@ -84,6 +84,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     removeSession: (id) => {
         SshService.Disconnect(id).catch(console.error);
 
+        let shouldGoToHosts = false;
+
         set((state) => {
             const newSessions = state.sessions.filter((s) => s.id !== id);
             let newActiveId = state.activeSessionId;
@@ -95,7 +97,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
                     newActiveId = fallbackSession.id;
                 } else {
                     newActiveId = null;
-                    useUIStore.getState().setActiveView(ViewType.Hosts);
+                    shouldGoToHosts = true;
                 }
             }
 
@@ -104,6 +106,11 @@ export const useSessionStore = create<SessionState>((set, get) => ({
                 activeSessionId: newActiveId,
             };
         });
+
+        // 在 set 之外触发其他 store 的状态变更，避免更新顺序不确定
+        if (shouldGoToHosts) {
+            useUIStore.getState().setActiveView(ViewType.Hosts);
+        }
     },
 
     markSessionDisconnected: (id) => {

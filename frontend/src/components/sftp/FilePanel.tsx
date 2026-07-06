@@ -396,7 +396,7 @@ export function FilePanel({ sessionId }: FilePanelProps) {
             paths.forEach((p) => startUpload(p));
         } catch (err) {
             // 用户取消文件选择不是错误，静默忽略
-            const msg = String(err?.message ?? err ?? "");
+            const msg = String((err as Error)?.message ?? err ?? "");
             if (!/cancel/i.test(msg)) {
                 handleAppError(err);
             }

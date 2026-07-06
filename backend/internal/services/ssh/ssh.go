@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"runtime/debug"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"terminator-desktop/backend/internal/apperror"
@@ -638,7 +639,7 @@ func (s *SshService) startLocalForward(spec *PortForwardSpec, client *ssh.Client
 					}
 				}()
 				defer conn.Close()
-				remoteAddr := fmt.Sprintf("%s:%d", spec.RemoteHost, spec.RemotePort)
+				remoteAddr := net.JoinHostPort(spec.RemoteHost, strconv.Itoa(spec.RemotePort))
 				remoteConn, err := client.Dial("tcp", remoteAddr)
 				if err != nil {
 					slog.Error("local forward dial failed", "remote", remoteAddr, "error", err)
@@ -702,7 +703,7 @@ func (s *SshService) startRemoteForward(spec *PortForwardSpec, client *ssh.Clien
 					}
 				}()
 				defer conn.Close()
-				localAddr := fmt.Sprintf("%s:%d", spec.LocalHost, spec.LocalPort)
+				localAddr := net.JoinHostPort(spec.LocalHost, strconv.Itoa(spec.LocalPort))
 				localConn, err := net.Dial("tcp", localAddr)
 				if err != nil {
 					slog.Error("remote forward dial failed", "local", localAddr, "error", err)
@@ -793,7 +794,8 @@ func (s *SshService) streamOutput(sessionID string, stdout io.Reader, current *a
 	}()
 
 	buf := make([]byte, 32*1024)
-	dataChan := make(chan []byte)
+	// 带缓冲的 channel，防止 streamOutput panic 时 readOutput 阻塞在发送上导致 goroutine 泄漏
+	dataChan := make(chan []byte, 4)
 
 	go readOutput(stdout, buf, dataChan)
 

@@ -102,36 +102,91 @@ func (s *SettingsService) SaveSettings(settings AppSettings) error {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
-	// ConfigProxy 默认值擦除：等于默认值的字段不写入配置文件
-	// 这样 settings.json 只包含用户实际修改的项，保持精简
-	def := defaultSettings()
-	sanitized := AppSettings{
-		Language:       "",
-		Theme:          "",
-		SyncMethod:     "",
-		WebDAVURL:      settings.WebDAVURL,
-		WebDAVUsername: settings.WebDAVUsername,
-		WebDAVPassword: settings.WebDAVPassword,
+	// 先读取磁盘上的现有配置，与传入值合并
+	// 防止调用方发送部分设置时覆盖未包含的字段（如 WebDAV 凭据）
+	var existing AppSettings
+	if data, err := os.ReadFile(s.configPath); err == nil {
+		_ = json.Unmarshal(data, &existing)
 	}
-	if settings.Language != def.Language {
-		sanitized.Language = settings.Language
+	merged := AppSettings{
+		Language:          settings.Language,
+		Theme:             settings.Theme,
+		SyncMethod:        settings.SyncMethod,
+		WebDAVURL:         settings.WebDAVURL,
+		WebDAVUsername:    settings.WebDAVUsername,
+		WebDAVPassword:    settings.WebDAVPassword,
+		AccentColor:       settings.AccentColor,
+		Spaciness:         settings.Spaciness,
+		TerminalColorLink: settings.TerminalColorLink,
 	}
-	if settings.Theme != def.Theme {
-		sanitized.Theme = settings.Theme
+	// 如果调用方传入空字符串/零值，保留现有值
+	if merged.Language == "" && existing.Language != "" {
+		merged.Language = existing.Language
 	}
-	if settings.SyncMethod != def.SyncMethod {
-		sanitized.SyncMethod = settings.SyncMethod
+	if merged.Theme == "" && existing.Theme != "" {
+		merged.Theme = existing.Theme
+	}
+	if merged.SyncMethod == "" && existing.SyncMethod != "" {
+		merged.SyncMethod = existing.SyncMethod
+	}
+	if merged.WebDAVURL == "" && existing.WebDAVURL != "" {
+		merged.WebDAVURL = existing.WebDAVURL
+	}
+	if merged.WebDAVUsername == "" && existing.WebDAVUsername != "" {
+		merged.WebDAVUsername = existing.WebDAVUsername
+	}
+	if merged.WebDAVPassword == "" && existing.WebDAVPassword != "" {
+		merged.WebDAVPassword = existing.WebDAVPassword
+	}
+	if merged.AccentColor == "" && existing.AccentColor != "" {
+		merged.AccentColor = existing.AccentColor
+	}
+	if merged.Spaciness == 0 && existing.Spaciness != 0 {
+		merged.Spaciness = existing.Spaciness
 	}
 
-	// 外观偏好
-	if settings.AccentColor != def.AccentColor {
-		sanitized.AccentColor = settings.AccentColor
+	// 值合法性校验：非法值回退为默认值
+	def := defaultSettings()
+	validThemes := map[string]bool{"dark": true, "light": true}
+	validAccents := map[string]bool{"sky": true, "emerald": true, "violet": true, "amber": true, "rose": true, "cyan": true}
+	validSync := map[string]bool{"server": true, "webdav": true}
+
+	if !validThemes[merged.Theme] {
+		merged.Theme = def.Theme
 	}
-	if settings.Spaciness != def.Spaciness {
-		sanitized.Spaciness = settings.Spaciness
+	if !validAccents[merged.AccentColor] {
+		merged.AccentColor = def.AccentColor
 	}
-	if settings.TerminalColorLink != def.TerminalColorLink {
-		sanitized.TerminalColorLink = settings.TerminalColorLink
+	if !validSync[merged.SyncMethod] {
+		merged.SyncMethod = def.SyncMethod
+	}
+	if merged.Spaciness != 0.8 && merged.Spaciness != 1 && merged.Spaciness != 1.2 {
+		merged.Spaciness = def.Spaciness
+	}
+
+	// ConfigProxy 默认值擦除：等于默认值的字段不写入配置文件
+	sanitized := AppSettings{
+		WebDAVURL:         merged.WebDAVURL,
+		WebDAVUsername:    merged.WebDAVUsername,
+		WebDAVPassword:    merged.WebDAVPassword,
+	}
+	if merged.Language != def.Language {
+		sanitized.Language = merged.Language
+	}
+	if merged.Theme != def.Theme {
+		sanitized.Theme = merged.Theme
+	}
+	if merged.SyncMethod != def.SyncMethod {
+		sanitized.SyncMethod = merged.SyncMethod
+	}
+	if merged.AccentColor != def.AccentColor {
+		sanitized.AccentColor = merged.AccentColor
+	}
+	if merged.Spaciness != def.Spaciness {
+		sanitized.Spaciness = merged.Spaciness
+	}
+	if merged.TerminalColorLink != def.TerminalColorLink {
+		sanitized.TerminalColorLink = merged.TerminalColorLink
 	}
 
 	data, err := json.MarshalIndent(sanitized, "", "  ")

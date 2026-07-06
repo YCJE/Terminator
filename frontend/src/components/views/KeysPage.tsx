@@ -118,7 +118,6 @@ export function KeysPage() {
                 open={showForm}
                 onClose={() => setShowForm(false)}
                 title={editingKey ? t("edit_title") : t("new_title")}
-                width={400}
             >
                 <KeyForm
                     initialData={editingKey}

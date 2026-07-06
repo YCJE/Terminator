@@ -267,7 +267,6 @@ export function HostsPage() {
                 open={showForm}
                 onClose={() => setShowForm(false)}
                 title={editingHost ? t("edit_title") : t("new_title")}
-                width={400}
             >
                 <HostForm
                     initialData={editingHost}
