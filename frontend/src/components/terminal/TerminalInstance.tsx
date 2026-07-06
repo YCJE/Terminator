@@ -2,10 +2,13 @@ import { useEffect, useRef } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
+import { WebglAddon } from "@xterm/addon-webgl";
+import { SerializeAddon } from "@xterm/addon-serialize";
 import { Events, Clipboard } from "@wailsio/runtime";
 import { getTerminalTheme } from "@/lib/terminalTheme";
 import { parseAppError } from "@/lib/error";
 import { cn, decodeBase64ToUint8Array } from "@/lib/utils";
+import { createFlowControlledWriter, setupScrollAnchoring } from "@/lib/terminalFlowControl";
 import "@xterm/xterm/css/xterm.css";
 import { SSHConnectionConfig, SshService } from "../../../bindings/terminator-desktop/backend/internal/services/ssh";
 import { useTranslation } from "react-i18next";
@@ -27,6 +30,9 @@ export function TerminalInstance({sessionId, isActive, config, disconnected}: Te
     const containerRef = useRef<HTMLDivElement>(null);
     const terminalRef = useRef<Terminal | null>(null);
     const fitAddonRef = useRef<FitAddon | null>(null);
+    const serializeRef = useRef<SerializeAddon | null>(null);
+    const flowWriterRef = useRef<ReturnType<typeof createFlowControlledWriter> | null>(null);
+    const scrollAnchorRef = useRef<ReturnType<typeof setupScrollAnchoring> | null>(null);
     const hasConnectedRef = useRef(false);
     const isReadyRef = useRef(false);
     const isActiveRef = useRef(isActive);
@@ -44,20 +50,43 @@ export function TerminalInstance({sessionId, isActive, config, disconnected}: Te
         if (!containerRef.current || terminalRef.current) return;
         const container = containerRef.current;
 
-        // cancelled flag 防止旧 Connect Promise 在 cleanup 后修改 ref
         let cancelled = false;
 
         const term = new Terminal(getTerminalTheme(theme));
         const fitAddon = new FitAddon();
         const unicode11Addon = new Unicode11Addon();
+        const serializeAddon = new SerializeAddon();
 
         term.loadAddon(fitAddon);
         term.loadAddon(unicode11Addon);
+        term.loadAddon(serializeAddon);
         term.unicode.activeVersion = "11";
         term.open(container);
 
+        // 尝试加载 WebGL 渲染器，失败时回退到默认 canvas 渲染器
+        try {
+            const webglAddon = new WebglAddon();
+            webglAddon.onContextLoss(() => {
+                webglAddon.dispose();
+                // WebGL 上下文丢失后刷新终端，回退到 canvas 渲染
+                try {
+                    term.refresh(0, term.rows - 1);
+                } catch {
+                    // 终端可能已销毁
+                }
+            });
+            term.loadAddon(webglAddon);
+        } catch {
+            // WebGL 不可用时静默回退到 canvas 渲染
+        }
+
         terminalRef.current = term;
         fitAddonRef.current = fitAddon;
+        serializeRef.current = serializeAddon;
+
+        // 初始化流控写入器和滚动锚定
+        flowWriterRef.current = createFlowControlledWriter(term);
+        scrollAnchorRef.current = setupScrollAnchoring(term, container);
 
         term.attachCustomKeyEventHandler((arg) => {
             if (arg.type === "keydown") {
@@ -104,7 +133,7 @@ export function TerminalInstance({sessionId, isActive, config, disconnected}: Te
                 .then(() => {
                     if (cancelled) return;
                     isReadyRef.current = true;
-                    hasConnectedRef.current = true; // 仅成功后才标记，允许失败后重试
+                    hasConnectedRef.current = true;
                     if (terminalRef.current && fitAddonRef.current) {
                         fitAddonRef.current.fit();
                         SshService.Resize(sessionId, terminalRef.current.rows, terminalRef.current.cols)
@@ -124,20 +153,15 @@ export function TerminalInstance({sessionId, isActive, config, disconnected}: Te
             });
         });
 
-        // ResizeObserver：监听容器尺寸变化
-        // fit() 立即执行（视觉即时更新），SshService.Resize 防抖（避免频繁请求远端）
         let resizeTimer: ReturnType<typeof setTimeout> | null = null;
         const resizeObserver = new ResizeObserver(() => {
             if (!fitAddonRef.current || !terminalRef.current) return;
-            // 容器隐藏时（display:none）尺寸为 0，跳过 fit 避免异常
             if (container.offsetWidth === 0 || container.offsetHeight === 0) return;
-            // 立即 fit，让本地终端尺寸与容器同步
             try {
                 fitAddonRef.current.fit();
             } catch (e) {
                 return;
             }
-            // 防抖发送远端 PTY resize，只在用户停止调整后发送最终尺寸
             if (resizeTimer) clearTimeout(resizeTimer);
             resizeTimer = setTimeout(() => {
                 if (!isReadyRef.current || !terminalRef.current) return;
@@ -155,10 +179,15 @@ export function TerminalInstance({sessionId, isActive, config, disconnected}: Te
             resizeObserver.disconnect();
             container.removeEventListener("contextmenu", handleContextMenu);
             onDataDisposable.dispose();
+            scrollAnchorRef.current?.cleanup();
+            scrollAnchorRef.current = null;
+            // 重置流控状态，防止销毁后写入器仍持有待处理 Promise
+            flowWriterRef.current?.reset();
+            flowWriterRef.current = null;
             term.dispose();
             terminalRef.current = null;
             fitAddonRef.current = null;
-            // 重置连接状态，允许 config 变化时重新连接
+            serializeRef.current = null;
             hasConnectedRef.current = false;
             isReadyRef.current = false;
             SshService.Disconnect(sessionId).catch(() => {});
@@ -175,14 +204,22 @@ export function TerminalInstance({sessionId, isActive, config, disconnected}: Te
         term.refresh(0, term.rows - 1);
     }, [theme]);
 
-    // SSH 数据事件
+    // SSH 数据事件 — 使用流控写入器 + 滚动锚定
     useEffect(() => {
         const unsubscribe = Events.On(AppEvent.SshData, (event) => {
             const data = event?.data as { id?: string; data?: string } | null;
-            if (!data || data.id !== sessionId || !terminalRef.current) return;
+            if (!data || data.id !== sessionId || !terminalRef.current || !flowWriterRef.current) return;
             try {
                 const rawBytes = decodeBase64ToUint8Array(data.data || "");
-                terminalRef.current.write(rawBytes);
+                // 流控写入：高水位时自动背压，防止高速输出压垮渲染
+                flowWriterRef.current.write(rawBytes).then(() => {
+                    // 滚动锚定：仅在用户位于底部时自动滚动
+                    if (scrollAnchorRef.current?.shouldScrollToBottom()) {
+                        scrollAnchorRef.current.forceScrollToBottom();
+                    }
+                }).catch(() => {
+                    // 终端可能已销毁，忽略写入错误
+                });
             } catch {
                 // base64 解码失败时忽略该数据包
             }
@@ -191,7 +228,6 @@ export function TerminalInstance({sessionId, isActive, config, disconnected}: Te
     }, [sessionId]);
 
     // 当文件面板显示/隐藏时，等布局稳定后强制 fit + refresh
-    // xterm canvas 在容器尺寸突变时可能被清空，需要主动重绘
     useEffect(() => {
         if (!isActive || !isReadyRef.current) return;
         const timer = setTimeout(() => {
@@ -199,7 +235,6 @@ export function TerminalInstance({sessionId, isActive, config, disconnected}: Te
             try {
                 fitAddonRef.current.fit();
                 SshService.Resize(sessionId, terminalRef.current.rows, terminalRef.current.cols).catch(() => {});
-                // 强制重绘整个终端，防止 canvas 被清空后显示黑屏
                 terminalRef.current.refresh(0, terminalRef.current.rows - 1);
             } catch (e) {
                 // 忽略

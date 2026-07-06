@@ -103,8 +103,37 @@ export function parseAppError(error: unknown): AppClientError {
     return fallback;
 }
 
+// 错误去抖：同一错误码在 5 秒内只弹窗一次
+// 借鉴 Netcatty 的运行时保护窗口机制
+const ERROR_DEBOUNCE_MS = 5000;
+const recentErrors = new Map<string, number>();
+
+function shouldShowError(errorCode: string): boolean {
+    const now = Date.now();
+    const lastShown = recentErrors.get(errorCode);
+    if (lastShown && now - lastShown < ERROR_DEBOUNCE_MS) {
+        return false; // 去抖窗口内，不重复弹窗
+    }
+    recentErrors.set(errorCode, now);
+    // 清理过期条目，防止 Map 无限增长
+    if (recentErrors.size > 50) {
+        for (const [key, ts] of recentErrors) {
+            if (now - ts > ERROR_DEBOUNCE_MS) {
+                recentErrors.delete(key);
+            }
+        }
+    }
+    return true;
+}
+
 export function handleAppError(rawError: unknown, fallbackCode: string = ErrorCode.UNKNOWN_ERROR) {
     const appError = parseAppError(rawError);
+
+    // 去抖检查：同一错误码在保护窗口内不重复弹窗
+    if (!shouldShowError(appError.code)) {
+        console.warn("Suppressed duplicate error:", { code: appError.code });
+        return;
+    }
 
     const safeTitle = i18n.t(`errors:${appError.code}`, {
         defaultValue: i18n.t(`errors:${fallbackCode}`),

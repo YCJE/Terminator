@@ -38,32 +38,75 @@ func (s *SettingsService) GetSettings() (AppSettings, error) {
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
 
-	settings := AppSettings{
-		Language: "zh",
-		Theme:    "dark",
-	}
+	def := defaultSettings()
 
 	data, err := os.ReadFile(s.configPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return settings, nil
+			return def, nil
 		}
-		return settings, err
+		return def, err
 	}
 
-	err = json.Unmarshal(data, &settings)
+	var raw AppSettings
+	err = json.Unmarshal(data, &raw)
 	if err != nil {
-		return settings, err
+		return def, err
 	}
 
-	return settings, nil
+	// 合并：空字符串字段使用默认值（ConfigProxy 擦除后空字段表示"使用默认"）
+	if raw.Language != "" {
+		def.Language = raw.Language
+	}
+	if raw.Theme != "" {
+		def.Theme = raw.Theme
+	}
+	if raw.SyncMethod != "" {
+		def.SyncMethod = raw.SyncMethod
+	}
+	def.WebDAVURL = raw.WebDAVURL
+	def.WebDAVUsername = raw.WebDAVUsername
+	def.WebDAVPassword = raw.WebDAVPassword
+
+	return def, nil
+}
+
+// defaultSettings 返回默认设置值
+// 借鉴 Tabby 的 ConfigProxy：保存时自动擦除等于默认值的字段，配置文件只保留用户实际修改项
+func defaultSettings() AppSettings {
+	return AppSettings{
+		Language:   "zh",
+		Theme:      "dark",
+		SyncMethod: "server",
+	}
 }
 
 func (s *SettingsService) SaveSettings(settings AppSettings) error {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
-	data, err := json.MarshalIndent(settings, "", "  ")
+	// ConfigProxy 默认值擦除：等于默认值的字段不写入配置文件
+	// 这样 settings.json 只包含用户实际修改的项，保持精简
+	def := defaultSettings()
+	sanitized := AppSettings{
+		Language:       "",
+		Theme:          "",
+		SyncMethod:     "",
+		WebDAVURL:      settings.WebDAVURL,
+		WebDAVUsername: settings.WebDAVUsername,
+		WebDAVPassword: settings.WebDAVPassword,
+	}
+	if settings.Language != def.Language {
+		sanitized.Language = settings.Language
+	}
+	if settings.Theme != def.Theme {
+		sanitized.Theme = settings.Theme
+	}
+	if settings.SyncMethod != def.SyncMethod {
+		sanitized.SyncMethod = settings.SyncMethod
+	}
+
+	data, err := json.MarshalIndent(sanitized, "", "  ")
 	if err != nil {
 		return err
 	}

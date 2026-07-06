@@ -5,6 +5,26 @@
 // @ts-ignore: Unused imports
 import { Create as $Create } from "@wailsio/runtime";
 
+export class JumpHostConfig {
+    "host": string;
+    "port": number;
+    "username": string;
+    "password"?: string;
+    "privateKey"?: string;
+
+    constructor($$source: Partial<JumpHostConfig> = {}) {
+        if (!("host" in $$source)) { this["host"] = ""; }
+        if (!("port" in $$source)) { this["port"] = 0; }
+        if (!("username" in $$source)) { this["username"] = ""; }
+        Object.assign(this, $$source);
+    }
+
+    static createFrom($$source: any = {}): JumpHostConfig {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new JumpHostConfig($$parsedSource as Partial<JumpHostConfig>);
+    }
+}
+
 export class SSHConnectionConfig {
     "id": string;
     "host": string;
@@ -12,30 +32,44 @@ export class SSHConnectionConfig {
     "username": string;
     "password"?: string;
     "privateKey"?: string;
+    "jumpHost"?: JumpHostConfig;
 
-    /** Creates a new SSHConnectionConfig instance. */
     constructor($$source: Partial<SSHConnectionConfig> = {}) {
-        if (!("id" in $$source)) {
-            this["id"] = "";
-        }
-        if (!("host" in $$source)) {
-            this["host"] = "";
-        }
-        if (!("port" in $$source)) {
-            this["port"] = 0;
-        }
-        if (!("username" in $$source)) {
-            this["username"] = "";
-        }
-
+        if (!("id" in $$source)) { this["id"] = ""; }
+        if (!("host" in $$source)) { this["host"] = ""; }
+        if (!("port" in $$source)) { this["port"] = 0; }
+        if (!("username" in $$source)) { this["username"] = ""; }
         Object.assign(this, $$source);
     }
 
-    /**
-     * Creates a new SSHConnectionConfig instance from a string or object.
-     */
     static createFrom($$source: any = {}): SSHConnectionConfig {
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         return new SSHConnectionConfig($$parsedSource as Partial<SSHConnectionConfig>);
+    }
+}
+
+export class PortForwardSpec {
+    "id": string;
+    "sessionId": string;
+    "type": string;
+    "localHost": string;
+    "localPort": number;
+    "remoteHost": string;
+    "remotePort": number;
+
+    constructor($$source: Partial<PortForwardSpec> = {}) {
+        if (!("id" in $$source)) { this["id"] = ""; }
+        if (!("sessionId" in $$source)) { this["sessionId"] = ""; }
+        if (!("type" in $$source)) { this["type"] = ""; }
+        if (!("localHost" in $$source)) { this["localHost"] = ""; }
+        if (!("localPort" in $$source)) { this["localPort"] = 0; }
+        if (!("remoteHost" in $$source)) { this["remoteHost"] = ""; }
+        if (!("remotePort" in $$source)) { this["remotePort"] = 0; }
+        Object.assign(this, $$source);
+    }
+
+    static createFrom($$source: any = {}): PortForwardSpec {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new PortForwardSpec($$parsedSource as Partial<PortForwardSpec>);
     }
 }

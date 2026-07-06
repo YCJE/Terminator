@@ -31,6 +31,28 @@ type SSHConnectionConfig struct {
 	Username   string `json:"username"`
 	Password   string `json:"password,omitempty"`
 	PrivateKey string `json:"privateKey,omitempty"`
+	// JumpHost 跳板机配置（可选），通过跳板机建立到目标的 SSH 隧道
+	JumpHost *JumpHostConfig `json:"jumpHost,omitempty"`
+}
+
+// JumpHostConfig 跳板机配置
+type JumpHostConfig struct {
+	Host       string `json:"host"`
+	Port       int    `json:"port"`
+	Username   string `json:"username"`
+	Password   string `json:"password,omitempty"`
+	PrivateKey string `json:"privateKey,omitempty"`
+}
+
+// PortForwardSpec 端口转发规格
+type PortForwardSpec struct {
+	ID         string `json:"id"`
+	SessionID  string `json:"sessionId"`
+	Type       string `json:"type"` // "local" 或 "remote"
+	LocalHost  string `json:"localHost"`
+	LocalPort  int    `json:"localPort"`
+	RemoteHost string `json:"remoteHost"`
+	RemotePort int    `json:"remotePort"`
 }
 
 type activeSession struct {
@@ -39,7 +61,8 @@ type activeSession struct {
 	stdin      io.WriteCloser
 	stdout     io.Reader
 	pipeCloser io.Closer
-	sftpClient *sftp.Client // 懒加载，首次使用时创建
+	sftpClient *sftp.Client            // 懒加载，首次使用时创建
+	connConfig *SSHConnectionConfig    // 保存配置用于连接池释放
 }
 
 type SshService struct {
@@ -48,29 +71,44 @@ type SshService struct {
 	sessions map[string]*activeSession
 
 	// knownHostsPath is the location of the known_hosts file used for
-	// Trust-On-First-Use host key verification. Storing pinned host keys
+	// Trust-On-First-use host key verification. Storing pinned host keys
 	// prevents man-in-the-middle attacks on subsequent connections.
 	knownHostsPath string
 	hostsMu        sync.Mutex
+
+	// 连接池：按 connKey 复用 *ssh.Client，多个 session 共享同一 SSH 连接
+	connPool   map[string]*pooledConn
+	connPoolMu sync.Mutex
+
+	// 端口转发管理
+	forwards   map[string]net.Listener // key = forward ID
+	forwardsMu sync.Mutex
+
+	// sessionID → forwardID[] 反向索引，用于会话断开时批量清理端口转发
+	sessionForwards map[string][]string
 }
 
-// TODO: configurable timeout?
+// pooledConn 池化 SSH 连接，引用计数管理生命周期
+type pooledConn struct {
+	client   *ssh.Client
+	refCount int
+}
+
 const timeout = 15 * time.Second
 
 const batchRatePerSecond = 60
 
 func NewSshService(emitter SSHEmitter) *SshService {
 	return &SshService{
-		emitter:        emitter,
-		sessions:       make(map[string]*activeSession),
-		knownHostsPath: defaultKnownHostsPath(),
+		emitter:         emitter,
+		sessions:        make(map[string]*activeSession),
+		knownHostsPath:  defaultKnownHostsPath(),
+		connPool:        make(map[string]*pooledConn),
+		forwards:        make(map[string]net.Listener),
+		sessionForwards: make(map[string][]string),
 	}
 }
 
-// defaultKnownHostsPath resolves a known_hosts file inside the user's
-// per-app config directory. It never fails: if the directory cannot be
-// resolved the file is placed next to nothing and verification falls back
-// to per-session TOFU without persistence.
 func defaultKnownHostsPath() string {
 	if dir, err := os.UserConfigDir(); err == nil {
 		return filepath.Join(dir, "Terminator", "known_hosts")
@@ -78,81 +116,51 @@ func defaultKnownHostsPath() string {
 	return "known_hosts"
 }
 
-// Connect establishes an SSH session.
+// Connect establishes an SSH session with connection pooling and optional Jump Host support.
 //
-// Security note: host keys are verified using a Trust-On-First-Use policy.
-// The first connection to a host records its public key; any later
-// connection whose key differs is rejected as a potential man-in-the-middle.
-// This replaces the previous ssh.InsecureIgnoreHostKey() call which
-// silently accepted every key and left connections wide open to MITM.
+// 连接复用：同一 host:port:user 的多个 session 共享 *ssh.Client（引用计数）
+// Jump Host：通过跳板机建立 TCP 隧道，再在隧道上建立到目标的 SSH 连接
 func (s *SshService) Connect(config *SSHConnectionConfig) error {
-	var authMethods []ssh.AuthMethod
-
-	if config.PrivateKey != "" {
-		signer, err := ssh.ParsePrivateKey([]byte(config.PrivateKey))
-		if err != nil {
-			return apperror.SSHConnectionFailed("failed to parse private key", err)
-		}
-		authMethods = append(authMethods, ssh.PublicKeys(signer))
-	} else if config.Password != "" {
-		authMethods = append(authMethods, ssh.Password(config.Password))
-	}
-
-	hostKeyCallback := s.makeHostKeyCallback(config.Host, config.Port)
-
-	clientConfig := &ssh.ClientConfig{
-		User:            config.Username,
-		Auth:            authMethods,
-		HostKeyCallback: hostKeyCallback,
-		Timeout:         timeout,
-	}
-
-	addr := fmt.Sprintf("%s:%d", config.Host, config.Port)
-	client, err := ssh.Dial("tcp", addr, clientConfig)
+	client, err := s.acquireClient(config)
 	if err != nil {
-		return apperror.SSHConnectionFailed(fmt.Sprintf("failed to connect to %s", addr), err)
+		return err
 	}
 
 	session, err := client.NewSession()
 	if err != nil {
-		_ = client.Close()
+		s.releaseClient(config)
 		return apperror.SSHConnectionFailed("failed to create session", err)
 	}
 
 	stdin, err := session.StdinPipe()
 	if err != nil {
 		_ = session.Close()
-		_ = client.Close()
+		s.releaseClient(config)
 		return err
 	}
 
-	// Use a pipe so both stdout and stderr feed into the same reader,
-	// ensuring the remote error stream is not silently discarded.
 	pr, pw := io.Pipe()
 	session.Stdout = pw
 	session.Stderr = pw
 
 	modes := ssh.TerminalModes{
 		ssh.ECHO:          1,
-		ssh.TTY_OP_ISPEED: 115200, // baud rate
+		ssh.TTY_OP_ISPEED: 115200,
 		ssh.TTY_OP_OSPEED: 115200,
 	}
 
-	// 24x80 is just the default
 	if err = session.RequestPty("xterm-256color", 24, 80, modes); err != nil {
 		_ = session.Close()
-		_ = client.Close()
+		s.releaseClient(config)
 		return apperror.SSHConnectionFailed("failed to request PTY", err)
 	}
 
 	if err = session.Shell(); err != nil {
 		_ = session.Close()
-		_ = client.Close()
+		s.releaseClient(config)
 		return apperror.SSHConnectionFailed("failed to start shell", err)
 	}
 
-	// 启动 goroutine 等待 session 结束后关闭 pipe 写端
-	// 这样 pr.Read 会返回 EOF，触发 streamOutput → cleanupSession 清理资源
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
@@ -164,7 +172,6 @@ func (s *SshService) Connect(config *SSHConnectionConfig) error {
 	}()
 
 	s.mu.Lock()
-	// 原子地取出旧 session 指针并写入新 session，避免并发 Connect 的 TOCTOU 竞态
 	old := s.sessions[config.ID]
 	currentSession := &activeSession{
 		client:     client,
@@ -172,12 +179,11 @@ func (s *SshService) Connect(config *SSHConnectionConfig) error {
 		stdin:      stdin,
 		stdout:     pr,
 		pipeCloser: pw,
+		connConfig: config,
 	}
 	s.sessions[config.ID] = currentSession
 	s.mu.Unlock()
 
-	// 锁外关闭旧 session 的资源（不调 cleanupSession，避免 EmitClosed 干扰新连接）
-	// 旧 session 的 streamOutput 调用 cleanupSession 时会因 active != current 而 no-op
 	if old != nil {
 		if old.sftpClient != nil {
 			_ = old.sftpClient.Close()
@@ -188,7 +194,9 @@ func (s *SshService) Connect(config *SSHConnectionConfig) error {
 		if old.session != nil {
 			_ = old.session.Close()
 		}
-		if old.client != nil {
+		if old.connConfig != nil {
+			s.releaseClient(old.connConfig)
+		} else if old.client != nil {
 			_ = old.client.Close()
 		}
 	}
@@ -198,10 +206,199 @@ func (s *SshService) Connect(config *SSHConnectionConfig) error {
 	return nil
 }
 
+// connKey 生成连接池的键
+func connKey(config *SSHConnectionConfig) string {
+	base := fmt.Sprintf("%s:%d:%s", config.Host, config.Port, config.Username)
+	if config.JumpHost != nil {
+		base += fmt.Sprintf("->%s:%d:%s", config.JumpHost.Host, config.JumpHost.Port, config.JumpHost.Username)
+	}
+	return base
+}
+
+// isConnectionAlive 发送 keepalive 请求检测连接是否存活
+// 3 秒超时，避免阻塞太久
+func isConnectionAlive(client *ssh.Client) bool {
+	done := make(chan error, 1)
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				done <- fmt.Errorf("keepalive panic: %v", r)
+			}
+		}()
+		_, _, err := client.SendRequest("keepalive@openssh.com", true, nil)
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		return err == nil
+	case <-time.After(3 * time.Second):
+		return false
+	}
+}
+
+// acquireClient 从连接池获取或创建 SSH 客户端
+// 复用前进行 keepalive 健康检查，剔除已断开的死连接
+func (s *SshService) acquireClient(config *SSHConnectionConfig) (*ssh.Client, error) {
+	key := connKey(config)
+
+	s.connPoolMu.Lock()
+	if pc, ok := s.connPool[key]; ok && pc.client != nil {
+		// 健康检查：发送 keepalive 验证连接是否存活
+		client := pc.client
+		s.connPoolMu.Unlock()
+
+		if isConnectionAlive(client) {
+			s.connPoolMu.Lock()
+			// 二次确认池中条目未被其他 goroutine 移除
+			if pc2, ok := s.connPool[key]; ok && pc2.client == client {
+				pc2.refCount++
+				s.connPoolMu.Unlock()
+				return client, nil
+			}
+			s.connPoolMu.Unlock()
+		} else {
+			// 连接已死，从池中移除
+			s.connPoolMu.Lock()
+			if pc2, ok := s.connPool[key]; ok && pc2.client == client {
+				delete(s.connPool, key)
+				_ = pc2.client.Close()
+			}
+			s.connPoolMu.Unlock()
+		}
+	} else {
+		s.connPoolMu.Unlock()
+	}
+
+	client, err := s.dialSSH(config)
+	if err != nil {
+		return nil, err
+	}
+
+	s.connPoolMu.Lock()
+	if pc, ok := s.connPool[key]; ok && pc.client != nil {
+		_ = client.Close()
+		pc.refCount++
+		client = pc.client
+	} else {
+		s.connPool[key] = &pooledConn{client: client, refCount: 1}
+	}
+	s.connPoolMu.Unlock()
+
+	return client, nil
+}
+
+// releaseClient 释放连接池引用
+func (s *SshService) releaseClient(config *SSHConnectionConfig) {
+	key := connKey(config)
+
+	s.connPoolMu.Lock()
+	defer s.connPoolMu.Unlock()
+
+	pc, ok := s.connPool[key]
+	if !ok {
+		return
+	}
+
+	pc.refCount--
+	if pc.refCount <= 0 {
+		delete(s.connPool, key)
+		_ = pc.client.Close()
+	}
+}
+
+// dialSSH 建立 SSH 连接，支持直连和 Jump Host
+func (s *SshService) dialSSH(config *SSHConnectionConfig) (*ssh.Client, error) {
+	authMethods := buildAuthMethods(config.PrivateKey, config.Password)
+	hostKeyCallback := s.makeHostKeyCallback(config.Host, config.Port)
+
+	clientConfig := &ssh.ClientConfig{
+		User:            config.Username,
+		Auth:            authMethods,
+		HostKeyCallback: hostKeyCallback,
+		Timeout:         timeout,
+	}
+
+	targetAddr := fmt.Sprintf("%s:%d", config.Host, config.Port)
+
+	if config.JumpHost != nil {
+		return s.dialThroughJumpHost(config, clientConfig, targetAddr)
+	}
+
+	client, err := ssh.Dial("tcp", targetAddr, clientConfig)
+	if err != nil {
+		return nil, apperror.SSHConnectionFailed(fmt.Sprintf("failed to connect to %s", targetAddr), err)
+	}
+	return client, nil
+}
+
+// dialThroughJumpHost 通过跳板机建立 SSH 隧道
+func (s *SshService) dialThroughJumpHost(config *SSHConnectionConfig, targetConfig *ssh.ClientConfig, targetAddr string) (*ssh.Client, error) {
+	jh := config.JumpHost
+	jumpAddr := fmt.Sprintf("%s:%d", jh.Host, jh.Port)
+
+	jumpAuth := buildAuthMethods(jh.PrivateKey, jh.Password)
+	jumpCallback := s.makeHostKeyCallback(jh.Host, jh.Port)
+
+	jumpConfig := &ssh.ClientConfig{
+		User:            jh.Username,
+		Auth:            jumpAuth,
+		HostKeyCallback: jumpCallback,
+		Timeout:         timeout,
+	}
+
+	jumpClient, err := ssh.Dial("tcp", jumpAddr, jumpConfig)
+	if err != nil {
+		return nil, apperror.SSHConnectionFailed(fmt.Sprintf("failed to connect to jump host %s", jumpAddr), err)
+	}
+
+	conn, err := jumpClient.Dial("tcp", targetAddr)
+	if err != nil {
+		_ = jumpClient.Close()
+		return nil, apperror.SSHConnectionFailed(fmt.Sprintf("failed to tunnel to %s via jump host", targetAddr), err)
+	}
+
+	ncc, chans, reqs, err := ssh.NewClientConn(conn, targetAddr, targetConfig)
+	if err != nil {
+		_ = conn.Close()
+		_ = jumpClient.Close()
+		return nil, apperror.SSHConnectionFailed(fmt.Sprintf("failed to establish SSH via jump host to %s", targetAddr), err)
+	}
+
+	targetClient := ssh.NewClient(ncc, chans, reqs)
+
+	// 监控目标连接状态，断开时清理跳板机资源
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Error("jump host monitor panic", "panic", r, "stack", string(debug.Stack()))
+			}
+		}()
+		_ = targetClient.Wait()
+		_ = conn.Close()
+		_ = jumpClient.Close()
+	}()
+
+	return targetClient, nil
+}
+
+// buildAuthMethods 构建认证方法列表
+func buildAuthMethods(privateKey, password string) []ssh.AuthMethod {
+	var authMethods []ssh.AuthMethod
+	if privateKey != "" {
+		signer, err := ssh.ParsePrivateKey([]byte(privateKey))
+		if err == nil {
+			authMethods = append(authMethods, ssh.PublicKeys(signer))
+		} else {
+			slog.Warn("private key parse failed, falling back to password if available", "error", err)
+		}
+	}
+	if password != "" && len(authMethods) == 0 {
+		authMethods = append(authMethods, ssh.Password(password))
+	}
+	return authMethods
+}
+
 // makeHostKeyCallback returns a callback that enforces Trust-On-First-Use.
-// On the first connection the host key is recorded to the known_hosts file;
-// on every subsequent connection the presented key must match the recorded
-// one or the connection is rejected.
 func (s *SshService) makeHostKeyCallback(host string, port int) ssh.HostKeyCallback {
 	addr := fmt.Sprintf("%s:%d", host, port)
 	return func(hostname string, remote net.Addr, key ssh.PublicKey) error {
@@ -210,8 +407,6 @@ func (s *SshService) makeHostKeyCallback(host string, port int) ssh.HostKeyCallb
 
 		known, err := s.loadKnownHosts()
 		if err != nil {
-			// A corrupt/unreadable file should not silently disable
-			// verification: fail closed.
 			return fmt.Errorf("could not read known hosts: %w", err)
 		}
 
@@ -220,22 +415,15 @@ func (s *SshService) makeHostKeyCallback(host string, port int) ssh.HostKeyCallb
 
 		if recorded, ok := known[addr]; ok {
 			if recorded == entry {
-				return nil // key matches the pinned value
+				return nil
 			}
-			// Key mismatch -> potential man-in-the-middle. Refuse to connect.
 			return fmt.Errorf("SECURITY: host key for %s has changed; possible man-in-the-middle attack. "+
 				"If this is intentional (e.g. server reinstall), remove the old entry from %s",
 				addr, s.knownHostsPath)
 		}
 
-		// First time seeing this host: trust and persist (TOFU).
 		known[addr] = entry
 		if err := s.saveKnownHosts(known); err != nil {
-			// Fail-closed: if we cannot persist the key, the next connection
-			// would re-enter this branch and treat the host as "first time"
-			// again, effectively disabling TOFU. That would allow a MITM to
-			// intercept future connections without detection. Refuse to
-			// connect instead.
 			return fmt.Errorf("SECURITY: failed to persist host key for %s: %w; "+
 				"check write permissions for %s",
 				addr, err, s.knownHostsPath)
@@ -244,8 +432,6 @@ func (s *SshService) makeHostKeyCallback(host string, port int) ssh.HostKeyCallb
 	}
 }
 
-// loadKnownHosts parses the known_hosts file into a map keyed by "host:port".
-// A missing file is treated as empty (not an error).
 func (s *SshService) loadKnownHosts() (map[string]string, error) {
 	known := make(map[string]string)
 
@@ -271,14 +457,12 @@ func (s *SshService) loadKnownHosts() (map[string]string, error) {
 	return known, nil
 }
 
-// saveKnownHosts atomically writes the known_hosts map back to disk.
 func (s *SshService) saveKnownHosts(known map[string]string) error {
 	if err := os.MkdirAll(filepath.Dir(s.knownHostsPath), 0700); err != nil {
 		return err
 	}
 
 	var b strings.Builder
-	// stable ordering for readable diffs
 	addrs := make([]string, 0, len(known))
 	for a := range known {
 		addrs = append(addrs, a)
@@ -295,7 +479,6 @@ func (s *SshService) saveKnownHosts(known map[string]string) error {
 	return os.Rename(tmp, s.knownHostsPath)
 }
 
-// Input writes data to SSH stdin
 func (s *SshService) Input(sessionID string, data string) error {
 	s.mu.RLock()
 	active, exists := s.sessions[sessionID]
@@ -330,24 +513,28 @@ func (s *SshService) Disconnect(sessionID string) {
 	s.mu.Unlock()
 
 	if exists {
+		// 清理该会话的所有端口转发监听器
+		s.cleanupForwards(sessionID)
 		if active.sftpClient != nil {
 			_ = active.sftpClient.Close()
 		}
 		if active.pipeCloser != nil {
 			_ = active.pipeCloser.Close()
 		}
-		_ = active.session.Close()
-		_ = active.client.Close()
+		if active.session != nil {
+			_ = active.session.Close()
+		}
+		if active.connConfig != nil {
+			s.releaseClient(active.connConfig)
+		} else if active.client != nil {
+			_ = active.client.Close()
+		}
 		s.emitter.EmitClosed(sessionID)
 	}
 }
 
-// GetSFTPClient 懒加载 SFTP 客户端，复用现有 SSH 连接。
-// 首次调用时基于现有 *ssh.Client 创建 SFTP 子系统客户端并缓存到 session，
-// 后续调用直接返回缓存的实例，避免重复建立 SFTP 通道。
-// 并发安全：使用双检锁保证同一 session 只创建一次 sftpClient。
+// GetSFTPClient 懒加载 SFTP 客户端，复用现有 SSH 连接
 func (s *SshService) GetSFTPClient(sessionID string) (*sftp.Client, error) {
-	// 快路径：若已存在缓存的客户端则直接返回
 	s.mu.RLock()
 	active, exists := s.sessions[sessionID]
 	if exists && active.sftpClient != nil {
@@ -357,20 +544,17 @@ func (s *SshService) GetSFTPClient(sessionID string) (*sftp.Client, error) {
 	}
 	s.mu.RUnlock()
 
-	// 慢路径：需要创建 SFTP 客户端
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	// 重新获取 session，防止在升级锁期间被断开
 	active, exists = s.sessions[sessionID]
 	if !exists {
 		return nil, apperror.SSHSessionNotFound()
 	}
-	// 双检：可能已被其它 goroutine 创建
 	if active.sftpClient != nil {
 		return active.sftpClient, nil
 	}
 	client, err := sftp.NewClient(active.client,
-		sftp.MaxConcurrentRequestsPerFile(8), // 每文件 8 个并发读请求，加速大文件预览
+		sftp.MaxConcurrentRequestsPerFile(8),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("创建 SFTP 客户端失败: %w", err)
@@ -379,8 +563,6 @@ func (s *SshService) GetSFTPClient(sessionID string) (*sftp.Client, error) {
 	return client, nil
 }
 
-// ResetSFTPClient 重置 SFTP 客户端缓存，下次 GetSFTPClient 时重新创建
-// 用于 SFTP 连接异常后恢复
 func (s *SshService) ResetSFTPClient(sessionID string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -390,11 +572,186 @@ func (s *SshService) ResetSFTPClient(sessionID string) {
 	}
 }
 
+// AddPortForward 添加端口转发
+func (s *SshService) AddPortForward(spec *PortForwardSpec) error {
+	s.mu.RLock()
+	active, exists := s.sessions[spec.SessionID]
+	s.mu.RUnlock()
+
+	if !exists {
+		return apperror.SSHSessionNotFound()
+	}
+
+	switch spec.Type {
+	case "local":
+		return s.startLocalForward(spec, active.client)
+	case "remote":
+		return s.startRemoteForward(spec, active.client)
+	default:
+		return fmt.Errorf("unsupported forward type: %s", spec.Type)
+	}
+}
+
+func (s *SshService) startLocalForward(spec *PortForwardSpec, client *ssh.Client) error {
+	localAddr := fmt.Sprintf("%s:%d", spec.LocalHost, spec.LocalPort)
+	listener, err := net.Listen("tcp", localAddr)
+	if err != nil {
+		return fmt.Errorf("failed to listen on %s: %w", localAddr, err)
+	}
+
+	s.forwardsMu.Lock()
+	s.forwards[spec.ID] = listener
+	s.sessionForwards[spec.SessionID] = append(s.sessionForwards[spec.SessionID], spec.ID)
+	s.forwardsMu.Unlock()
+
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Error("local forward panic", "spec", spec.ID, "panic", r, "stack", string(debug.Stack()))
+			}
+		}()
+		for {
+			localConn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+
+			go func(conn net.Conn) {
+				defer func() {
+					if r := recover(); r != nil {
+						slog.Error("local forward conn panic", "panic", r)
+					}
+				}()
+				defer conn.Close()
+				remoteAddr := fmt.Sprintf("%s:%d", spec.RemoteHost, spec.RemotePort)
+				remoteConn, err := client.Dial("tcp", remoteAddr)
+				if err != nil {
+					slog.Error("local forward dial failed", "remote", remoteAddr, "error", err)
+					return
+				}
+				defer remoteConn.Close()
+
+				go func() {
+					defer func() {
+						if r := recover(); r != nil {
+							slog.Error("local forward io.Copy panic", "panic", r)
+						}
+					}()
+					io.Copy(remoteConn, conn)
+				}()
+				io.Copy(conn, remoteConn)
+			}(localConn)
+		}
+	}()
+
+	return nil
+}
+
+func (s *SshService) startRemoteForward(spec *PortForwardSpec, client *ssh.Client) error {
+	remoteAddr := fmt.Sprintf("%s:%d", spec.RemoteHost, spec.RemotePort)
+	listener, err := client.Listen("tcp", remoteAddr)
+	if err != nil {
+		return fmt.Errorf("failed to listen on remote %s: %w", remoteAddr, err)
+	}
+
+	s.forwardsMu.Lock()
+	s.forwards[spec.ID] = listener
+	s.sessionForwards[spec.SessionID] = append(s.sessionForwards[spec.SessionID], spec.ID)
+	s.forwardsMu.Unlock()
+
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Error("remote forward panic", "spec", spec.ID, "panic", r, "stack", string(debug.Stack()))
+			}
+		}()
+		for {
+			remoteConn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+
+			go func(conn net.Conn) {
+				defer func() {
+					if r := recover(); r != nil {
+						slog.Error("remote forward conn panic", "panic", r)
+					}
+				}()
+				defer conn.Close()
+				localAddr := fmt.Sprintf("%s:%d", spec.LocalHost, spec.LocalPort)
+				localConn, err := net.Dial("tcp", localAddr)
+				if err != nil {
+					slog.Error("remote forward dial failed", "local", localAddr, "error", err)
+					return
+				}
+				defer localConn.Close()
+
+				go func() {
+					defer func() {
+						if r := recover(); r != nil {
+							slog.Error("remote forward io.Copy panic", "panic", r)
+						}
+					}()
+					io.Copy(localConn, conn)
+				}()
+				io.Copy(conn, localConn)
+			}(remoteConn)
+		}
+	}()
+
+	return nil
+}
+
+// RemovePortForward 移除并停止端口转发
+func (s *SshService) RemovePortForward(forwardID string) error {
+	s.forwardsMu.Lock()
+	listener, ok := s.forwards[forwardID]
+	if ok {
+		delete(s.forwards, forwardID)
+	}
+	// 从 sessionForwards 反向索引中移除
+	for sid, ids := range s.sessionForwards {
+		for i, id := range ids {
+			if id == forwardID {
+				s.sessionForwards[sid] = append(ids[:i], ids[i+1:]...)
+				if len(s.sessionForwards[sid]) == 0 {
+					delete(s.sessionForwards, sid)
+				}
+				break
+			}
+		}
+	}
+	s.forwardsMu.Unlock()
+
+	if ok && listener != nil {
+		_ = listener.Close()
+	}
+	return nil
+}
+
+// cleanupForwards 清理指定会话的所有端口转发监听器
+func (s *SshService) cleanupForwards(sessionID string) {
+	s.forwardsMu.Lock()
+	forwardIDs := s.sessionForwards[sessionID]
+	delete(s.sessionForwards, sessionID)
+	var listeners []net.Listener
+	for _, id := range forwardIDs {
+		if listener, ok := s.forwards[id]; ok {
+			delete(s.forwards, id)
+			listeners = append(listeners, listener)
+		}
+	}
+	s.forwardsMu.Unlock()
+
+	for _, listener := range listeners {
+		_ = listener.Close()
+	}
+}
+
 func (s *SshService) streamOutput(sessionID string, stdout io.Reader, current *activeSession) {
 	defer func() {
 		if r := recover(); r != nil {
 			slog.Error("streamOutput panic", "session", sessionID, "panic", r, "stack", string(debug.Stack()))
-			// 尝试清理 session 资源（独立 recover 防止 cleanupSession 内 panic 逃逸）
 			func() {
 				defer func() { recover() }()
 				s.cleanupSession(sessionID, current)
@@ -469,6 +826,8 @@ func (s *SshService) cleanupSession(sessionID string, current *activeSession) {
 		delete(s.sessions, sessionID)
 		s.mu.Unlock()
 
+		// 清理该会话的所有端口转发监听器
+		s.cleanupForwards(sessionID)
 		if current.sftpClient != nil {
 			_ = current.sftpClient.Close()
 		}
@@ -478,7 +837,9 @@ func (s *SshService) cleanupSession(sessionID string, current *activeSession) {
 		if current.session != nil {
 			_ = current.session.Close()
 		}
-		if current.client != nil {
+		if current.connConfig != nil {
+			s.releaseClient(current.connConfig)
+		} else if current.client != nil {
 			_ = current.client.Close()
 		}
 		s.emitter.EmitClosed(sessionID)

@@ -1,7 +1,8 @@
 // SFTP 文件列表表格：展示 FileEntry[]，支持排序，双击进入目录
-// 窄面板时优先显示文件名，大小/权限/时间列依次隐藏
+// 虚拟滚动：仅渲染可见区域 + 上下缓冲行，支持万级文件列表
+// 借鉴 Netcatty 的自建虚拟列表方案（二分查找可见区间）
 
-import { memo, useMemo, useState, useRef, useEffect } from "react";
+import { memo, useMemo, useState, useRef, useEffect, useCallback } from "react";
 import {
     Folder,
     FileText,
@@ -19,7 +20,10 @@ import { useTranslation } from "react-i18next";
 type SortKey = "name" | "size" | "modTime";
 type SortDir = "asc" | "desc";
 
-// 排序图标：定义在组件外部避免每次 render 创建新类型
+// 虚拟滚动参数
+const ROW_HEIGHT = 32; // 每行高度（px），与 py-1.5 + text-sm 对应
+const BUFFER_ROWS = 3; // 上下各多渲染的缓冲行数
+
 function SortIcon({ sortKey, sortDir, target }: { sortKey: SortKey; sortDir: SortDir; target: SortKey }) {
     if (sortKey !== target) return <ChevronsUpDown className="size-3 text-muted-foreground/40" />;
     return sortDir === "asc"
@@ -41,9 +45,11 @@ function FileTableImpl({ entries, loading, onOpen, onContextMenu }: FileTablePro
     const [selectedName, setSelectedName] = useState<string | null>(null);
 
     // 容器宽度检测：根据宽度决定显示哪些列
-    // 文件名始终显示，大小>400px 显示，权限>500px 显示，时间>600px 显示
     const containerRef = useRef<HTMLDivElement>(null);
+    const scrollRef = useRef<HTMLDivElement>(null);
     const [containerWidth, setContainerWidth] = useState(400);
+    const [scrollTop, setScrollTop] = useState(0);
+    const [viewportHeight, setViewportHeight] = useState(400);
 
     useEffect(() => {
         if (!containerRef.current) return;
@@ -56,13 +62,34 @@ function FileTableImpl({ entries, loading, onOpen, onContextMenu }: FileTablePro
         return () => observer.disconnect();
     }, [loading, entries.length]);
 
+    // 监听滚动容器尺寸变化
+    // 依赖 loading 和 entries.length：loading 时组件提前返回不渲染 scrollRef，
+    // entries 为空时同理，需要在恢复正常显示后重新挂载 observer
+    useEffect(() => {
+        if (!scrollRef.current) return;
+        const observer = new ResizeObserver((resizeEntries) => {
+            for (const entry of resizeEntries) {
+                setViewportHeight(entry.contentRect.height);
+            }
+        });
+        observer.observe(scrollRef.current);
+        return () => observer.disconnect();
+    }, [loading, entries.length]);
+
+    // 目录切换时重置滚动位置，防止从大目录切到小目录时 scrollTop 残留导致空白
+    useEffect(() => {
+        setScrollTop(0);
+        if (scrollRef.current) {
+            scrollRef.current.scrollTop = 0;
+        }
+    }, [entries]);
+
     const showSize = containerWidth > 360;
     const showPerm = containerWidth > 480;
     const showTime = containerWidth > 600;
 
-    // 动态生成 grid 模板列
     const gridCols = [
-        "minmax(0,1fr)",  // 文件名：始终显示，占用剩余空间
+        "minmax(0,1fr)",
         showSize ? "60px" : "0px",
         showPerm ? "80px" : "0px",
         showTime ? "100px" : "0px",
@@ -95,6 +122,18 @@ function FileTableImpl({ entries, loading, onOpen, onContextMenu }: FileTablePro
             setSortDir("asc");
         }
     };
+
+    // 虚拟滚动：计算可见区间
+    const totalHeight = sorted.length * ROW_HEIGHT;
+    const startIndex = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - BUFFER_ROWS);
+    const visibleCount = Math.ceil(viewportHeight / ROW_HEIGHT) + BUFFER_ROWS * 2;
+    const endIndex = Math.min(sorted.length, startIndex + visibleCount);
+    const visibleItems = sorted.slice(startIndex, endIndex);
+    const offsetY = startIndex * ROW_HEIGHT;
+
+    const onScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+        setScrollTop(e.currentTarget.scrollTop);
+    }, []);
 
     if (loading) {
         return (
@@ -150,60 +189,69 @@ function FileTableImpl({ entries, loading, onOpen, onContextMenu }: FileTablePro
                 )}
             </div>
 
-            {/* 列表 */}
-            <div className="flex-1 overflow-y-auto overflow-x-hidden">
-                {sorted.map((entry) => {
-                    const isSelected = entry.name === selectedName;
-                    return (
-                        <div
-                            key={entry.name}
-                            onClick={() => setSelectedName(entry.name)}
-                            onDoubleClick={() => onOpen(entry)}
-                            onContextMenu={(e) => {
-                                e.preventDefault();
-                                onContextMenu(entry, e);
-                            }}
-                            className={cn(
-                                "grid cursor-default items-center gap-2 px-3 py-1.5 text-sm overflow-hidden",
-                                "transition-colors hover:bg-accent/60",
-                                isSelected && "bg-accent"
-                            )}
-                            style={{ gridTemplateColumns: gridCols }}
-                            title={entry.name}
-                        >
-                            {/* 名称 + 图标 — 优先显示，占用全部剩余空间 */}
-                            <div className="flex min-w-0 items-center gap-2 overflow-hidden">
-                                <span className="shrink-0">
-                                    {entry.isDir ? (
-                                        <Folder className="size-4 text-primary" />
-                                    ) : entry.isSymlink ? (
-                                        <FileSymlink className="size-4 text-muted-foreground" />
-                                    ) : (
-                                        <FileText className="size-4 text-muted-foreground" />
+            {/* 虚拟滚动列表 */}
+            <div
+                ref={scrollRef}
+                className="flex-1 overflow-y-auto overflow-x-hidden"
+                onScroll={onScroll}
+            >
+                {/* 撑高容器以产生正确的滚动条 */}
+                <div style={{ height: totalHeight, position: "relative" }}>
+                    {/* 偏移定位到可见区域 */}
+                    <div style={{ transform: `translateY(${offsetY}px)` }}>
+                        {visibleItems.map((entry) => {
+                            const isSelected = entry.name === selectedName;
+                            return (
+                                <div
+                                    key={entry.name}
+                                    onClick={() => setSelectedName(entry.name)}
+                                    onDoubleClick={() => onOpen(entry)}
+                                    onContextMenu={(e) => {
+                                        e.preventDefault();
+                                        onContextMenu(entry, e);
+                                    }}
+                                    className={cn(
+                                        "grid cursor-default items-center gap-2 px-3 py-1.5 text-sm overflow-hidden",
+                                        "transition-colors hover:bg-accent/60",
+                                        isSelected && "bg-accent"
                                     )}
-                                </span>
-                                <span className={cn("truncate", entry.isDir && "font-medium")}>
-                                    {entry.name}
-                                </span>
-                            </div>
-                            {showSize && (
-                                <span className="truncate text-right text-muted-foreground">
-                                    {entry.isDir ? "-" : formatFileSize(entry.size)}
-                                </span>
-                            )}
-                            {showPerm && (
-                                <span className="truncate text-center font-mono text-xs text-muted-foreground">
-                                    {entry.mode || "-"}
-                                </span>
-                            )}
-                            {showTime && (
-                                <span className="truncate text-muted-foreground">
-                                    {formatDateTime(entry.modTime)}
-                                </span>
-                            )}
-                        </div>
-                    );
-                })}
+                                    style={{ gridTemplateColumns: gridCols, height: ROW_HEIGHT }}
+                                    title={entry.name}
+                                >
+                                    <div className="flex min-w-0 items-center gap-2 overflow-hidden">
+                                        <span className="shrink-0">
+                                            {entry.isDir ? (
+                                                <Folder className="size-4 text-primary" />
+                                            ) : entry.isSymlink ? (
+                                                <FileSymlink className="size-4 text-muted-foreground" />
+                                            ) : (
+                                                <FileText className="size-4 text-muted-foreground" />
+                                            )}
+                                        </span>
+                                        <span className={cn("truncate", entry.isDir && "font-medium")}>
+                                            {entry.name}
+                                        </span>
+                                    </div>
+                                    {showSize && (
+                                        <span className="truncate text-right text-muted-foreground">
+                                            {entry.isDir ? "-" : formatFileSize(entry.size)}
+                                        </span>
+                                    )}
+                                    {showPerm && (
+                                        <span className="truncate text-center font-mono text-xs text-muted-foreground">
+                                            {entry.mode || "-"}
+                                        </span>
+                                    )}
+                                    {showTime && (
+                                        <span className="truncate text-muted-foreground">
+                                            {formatDateTime(entry.modTime)}
+                                        </span>
+                                    )}
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
             </div>
         </div>
     );

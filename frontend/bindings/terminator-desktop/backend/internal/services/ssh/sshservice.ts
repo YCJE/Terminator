@@ -27,3 +27,17 @@ export function Input(sessionID: string, data: string): $CancellablePromise<void
 export function Resize(sessionID: string, rows: number, cols: number): $CancellablePromise<void> {
     return $Call.ByID(639676773, sessionID, rows, cols);
 }
+
+/**
+ * AddPortForward 添加端口转发
+ */
+export function AddPortForward(spec: $models.PortForwardSpec | null): $CancellablePromise<void> {
+    return $Call.ByID(46514128, spec);
+}
+
+/**
+ * RemovePortForward 移除并停止端口转发
+ */
+export function RemovePortForward(forwardID: string): $CancellablePromise<void> {
+    return $Call.ByID(2328052775, forwardID);
+}
