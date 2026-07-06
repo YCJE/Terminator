@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"terminator-desktop/backend/internal/services/settings"
 	"terminator-desktop/backend/internal/webdav"
@@ -22,7 +23,7 @@ func (s *WebDAVService) TestWebDAVConnection(url, username, password string) err
 	if url == "" {
 		return errors.New("WebDAV URL 不能为空")
 	}
-	return webdav.TestConnection(url, username, password)
+	return webdav.TestConnection(context.Background(), url, username, password)
 }
 
 // SaveWebDAVConfig 保存 WebDAV 配置到 settings.json，并将同步方式切换为 webdav。

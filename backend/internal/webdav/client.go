@@ -2,6 +2,7 @@ package webdav
 
 import (
 	"bytes"
+	"context"
 	"encoding/xml"
 	"fmt"
 	"io"
@@ -30,10 +31,10 @@ func setBasicAuth(req *http.Request, username, password string) {
 }
 
 // GetFile 通过 GET 请求下载文件，返回文件内容和 ETag
-func GetFile(url, username, password string) (data []byte, etag string, err error) {
+func GetFile(ctx context.Context, url, username, password string) (data []byte, etag string, err error) {
 	client := newClient()
 
-	req, err := http.NewRequest(http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, "", fmt.Errorf("创建 GET 请求失败: %w", err)
 	}
@@ -47,10 +48,12 @@ func GetFile(url, username, password string) (data []byte, etag string, err erro
 
 	// 404 表示远端文件还不存在，属于正常情况，用空 etag 表示
 	if resp.StatusCode == http.StatusNotFound {
+		_, _ = io.Copy(io.Discard, resp.Body)
 		return nil, "", nil
 	}
 
 	if resp.StatusCode >= 400 {
+		_, _ = io.Copy(io.Discard, resp.Body)
 		return nil, "", fmt.Errorf("WebDAV GET 返回错误状态码: %d", resp.StatusCode)
 	}
 
@@ -67,10 +70,10 @@ func GetFile(url, username, password string) (data []byte, etag string, err erro
 // ifMatchETag 为空时表示新建文件（不带 If-Match 头）；
 // 非空时表示更新已有文件，若服务端 ETag 不匹配会返回 412 Precondition Failed。
 // 返回上传成功后的新 ETag。
-func PutFile(url, username, password string, data []byte, ifMatchETag string) (newETag string, err error) {
+func PutFile(ctx context.Context, url, username, password string, data []byte, ifMatchETag string) (newETag string, err error) {
 	client := newClient()
 
-	req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader(data))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, url, bytes.NewReader(data))
 	if err != nil {
 		return "", fmt.Errorf("创建 PUT 请求失败: %w", err)
 	}
@@ -103,10 +106,10 @@ func PutFile(url, username, password string, data []byte, ifMatchETag string) (n
 }
 
 // DeleteFile 通过 DELETE 删除远端文件
-func DeleteFile(url, username, password string) error {
+func DeleteFile(ctx context.Context, url, username, password string) error {
 	client := newClient()
 
-	req, err := http.NewRequest(http.MethodDelete, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, url, nil)
 	if err != nil {
 		return fmt.Errorf("创建 DELETE 请求失败: %w", err)
 	}
@@ -132,7 +135,7 @@ func DeleteFile(url, username, password string) error {
 }
 
 // TestConnection 通过 PROPFIND 请求测试 WebDAV 连接是否可用
-func TestConnection(url, username, password string) error {
+func TestConnection(ctx context.Context, url, username, password string) error {
 	client := newClient()
 
 	// 最小的 PROPFIND 请求体，仅请求 resourcetype 属性
@@ -143,7 +146,7 @@ func TestConnection(url, username, password string) error {
   </D:prop>
 </D:propfind>`
 
-	req, err := http.NewRequest("PROPFIND", url, bytes.NewReader([]byte(propfindBody)))
+	req, err := http.NewRequestWithContext(ctx, "PROPFIND", url, bytes.NewReader([]byte(propfindBody)))
 	if err != nil {
 		return fmt.Errorf("创建 PROPFIND 请求失败: %w", err)
 	}
@@ -159,6 +162,7 @@ func TestConnection(url, username, password string) error {
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode >= 400 {
+		_, _ = io.Copy(io.Discard, resp.Body)
 		return fmt.Errorf("WebDAV 连接测试失败，状态码: %d", resp.StatusCode)
 	}
 

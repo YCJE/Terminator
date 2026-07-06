@@ -170,11 +170,14 @@ export function FilePanel({ sessionId }: FilePanelProps) {
 
     // 加载目录树的子节点（仅目录），用于双面板左侧导航
     const loadTreeChildren = useCallback(async (path: string) => {
+        const myId = loadIdRef.current;
         try {
             const list = await ListDir(sessionId, path);
+            if (myId !== loadIdRef.current) return; // 会话已切换，丢弃旧数据
             const dirs = (list || []).filter((e) => e.isDir);
             setTreeChildren((prev) => ({ ...prev, [path]: dirs }));
         } catch {
+            if (myId !== loadIdRef.current) return;
             // 静默处理树节点加载错误，不打断文件列表操作
         }
     }, [sessionId]);

@@ -65,7 +65,7 @@ func (s *SyncService) syncWebDAV(ctx context.Context, cfg WebDAVConfig) error {
 	}
 
 	// 2. GET 远端文件
-	remoteCiphertext, remoteETag, err := webdav.GetFile(syncFileURL, cfg.Username, cfg.Password)
+	remoteCiphertext, remoteETag, err := webdav.GetFile(ctx, syncFileURL, cfg.Username, cfg.Password)
 	if err != nil {
 		return fmt.Errorf("获取远端同步文件失败: %w", err)
 	}
@@ -191,7 +191,7 @@ func (s *SyncService) syncWebDAV(ctx context.Context, cfg WebDAVConfig) error {
 		return fmt.Errorf("加密同步数据失败: %w", err)
 	}
 
-	_, err = webdav.PutFile(syncFileURL, cfg.Username, cfg.Password, []byte(packedBase64), remoteETag)
+	_, err = webdav.PutFile(ctx, syncFileURL, cfg.Username, cfg.Password, []byte(packedBase64), remoteETag)
 	if err != nil {
 		var pfErr *webdav.PreconditionFailedError
 		if errors.As(err, &pfErr) {

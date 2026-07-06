@@ -66,7 +66,10 @@ export function TerminalTab({
             onDragLeave={() => {
                 isDraggedOver.current = false;
             }}
-            onDragEnd={onDragEnd}
+            onDragEnd={() => {
+                isDraggedOver.current = false;
+                onDragEnd();
+            }}
             onDrop={(e) => {
                 e.preventDefault();
                 isDraggedOver.current = false;
