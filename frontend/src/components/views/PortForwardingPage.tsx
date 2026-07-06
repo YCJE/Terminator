@@ -20,7 +20,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
-import {SlidePanel, panelMarginStyle} from "@/components/ui/slide-panel";
+import {SlidePanel} from "@/components/ui/slide-panel";
 import {ConfirmModal} from "@/components/ui/confirm-modal";
 import {useSessionStore} from "@/store/sessionStore";
 import {SshService} from "../../../bindings/terminator-desktop/backend/internal/services/ssh";
@@ -141,10 +141,9 @@ export function PortForwardingPage() {
     };
 
     return (
-        <div className="relative h-full w-full">
+        <div className="flex h-full w-full overflow-hidden">
         <div
-            className="lazy-fade-in flex h-full w-full flex-col overflow-y-auto p-8"
-            style={panelMarginStyle(showForm)}
+            className="lazy-fade-in flex h-full min-w-0 flex-1 flex-col overflow-y-auto p-8"
         >
             {/* 头部：标题 + 添加按钮 */}
             <div className="mb-8 flex w-full items-center gap-4">

@@ -7,7 +7,7 @@ import { HostCard } from "@/components/views/HostCard";
 import { HostForm } from "@/components/views/HostForm";
 import { PasswordPromptDialog } from "@/components/views/PasswordPromptDialog";
 import { ConfirmModal } from "@/components/ui/confirm-modal";
-import { SlidePanel, panelMarginStyle } from "@/components/ui/slide-panel";
+import { SlidePanel } from "@/components/ui/slide-panel";
 import { useHosts, useSaveHost, useDeleteHost } from "@/hooks/useHosts";
 import { useKeys } from "@/hooks/useKeys";
 import { useSessionStore } from "@/store/sessionStore";
@@ -135,8 +135,8 @@ export function HostsPage() {
     const hasGroups = groupedHosts.length > 1 || (groupedHosts.length === 1 && groupedHosts[0][0] !== UNGROUPED);
 
     return (
-        <div className="relative h-full w-full">
-        <div className="lazy-fade-in flex h-full w-full flex-col overflow-y-auto p-8" style={panelMarginStyle(showForm)}>
+        <div className="flex h-full w-full overflow-hidden">
+        <div className="lazy-fade-in flex h-full min-w-0 flex-1 flex-col overflow-y-auto p-8">
             <div className="mb-8 flex w-full items-center gap-4">
                 <h1 className="shrink-0 text-2xl font-bold tracking-tight text-foreground">
                     {t("page_title")}

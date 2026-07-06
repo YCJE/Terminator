@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { KeyCard } from "@/components/views/KeyCard";
 import { KeyForm } from "@/components/views/KeyForm";
 import { ConfirmModal } from "@/components/ui/confirm-modal";
-import { SlidePanel, panelMarginStyle } from "@/components/ui/slide-panel";
+import { SlidePanel } from "@/components/ui/slide-panel";
 import { useKeys, useSaveKey, useDeleteKey } from "@/hooks/useKeys";
 import { SavedKey } from "../../../bindings/terminator-desktop/backend/internal/services/blob";
 
@@ -50,10 +50,9 @@ export function KeysPage() {
     }, [keys, searchQuery]);
 
     return (
-        <div className="relative h-full w-full">
+        <div className="flex h-full w-full overflow-hidden">
         <div
-            className="lazy-fade-in flex h-full w-full flex-col overflow-y-auto p-8"
-            style={panelMarginStyle(showForm)}
+            className="lazy-fade-in flex h-full min-w-0 flex-1 flex-col overflow-y-auto p-8"
         >
 
             <div className="mb-8 flex w-full items-center gap-4">
