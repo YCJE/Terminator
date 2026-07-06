@@ -7,13 +7,14 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/store/authStore.ts";
 import { useTranslation } from "react-i18next";
-import React, { useRef } from "react";
+import React, { useRef, useState } from "react";
 
 export function TitleBar() {
     const sessions = useSessionStore((s) => s.sessions);
     const activeSessionId = useSessionStore((s) => s.activeSessionId);
     const setActiveSession = useSessionStore((s) => s.setActiveSession);
     const removeSession = useSessionStore((s) => s.removeSession);
+    const reorderSessions = useSessionStore((s) => s.reorderSessions);
     const activeView = useUIStore((s) => s.activeView);
     const isSidebarVisible = useUIStore((s) => s.isSidebarVisible);
     const toggleSidebar = useUIStore((s) => s.toggleSidebar);
@@ -27,16 +28,16 @@ export function TitleBar() {
     const {t} = useTranslation("sftp");
 
     const scrollRef = useRef<HTMLDivElement>(null);
+    const [dragIndex, setDragIndex] = useState<number | null>(null);
 
     const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {
         if (scrollRef.current && e.deltaY !== 0) {
-            const scrollAmount = e.deltaY;
-            scrollRef.current.scrollLeft += scrollAmount;
+            scrollRef.current.scrollLeft += e.deltaY;
         }
     };
 
     return (
-        <header className="titlebar wails-drag flex h-10 shrink-0 items-end justify-between pr-0">
+        <header className="titlebar wails-drag flex h-8 shrink-0 items-end justify-between pr-0">
 
             {isUnlocked && (
                 <div
@@ -53,8 +54,8 @@ export function TitleBar() {
                             className="wails-no-drag text-muted-foreground hover:text-foreground"
                         >
                             {isSidebarVisible
-                                ? <PanelLeftClose className="size-5"/>
-                                : <PanelLeftOpen className="size-5"/>
+                                ? <PanelLeftClose className="size-4"/>
+                                : <PanelLeftOpen className="size-4"/>
                             }
                         </Button>
                     ) : (
@@ -72,19 +73,30 @@ export function TitleBar() {
                  className="terminal-tab-bar flex h-full flex-1 items-center gap-0.5 pl-2
                             overflow-x-auto overflow-y-hidden [&::-webkit-scrollbar]:hidden"
             >
-                {sessions.map((session) => (
+                {sessions.map((session, index) => (
                     <TerminalTab
                         key={session.id}
                         session={session}
+                        index={index}
                         isActive={isTerminalView && session.id === activeSessionId}
                         onClick={() => setActiveSession(session.id)}
                         onClose={() => removeSession(session.id)}
+                        onDragStart={(i) => setDragIndex(i)}
+                        onDragOver={(i) => { /* visual feedback could go here */ }}
+                        onDragEnd={() => {
+                            setDragIndex(null);
+                        }}
+                        onDrop={(i) => {
+                            if (dragIndex !== null && dragIndex !== i) {
+                                reorderSessions(dragIndex, i);
+                            }
+                            setDragIndex(null);
+                        }}
                     />
                 ))}
             </div>
 
-            {/* 文件管理面板切换按钮 + 窗口控制按钮
-                用 flex 容器包裹，垂直居中对齐，紧靠右侧 */}
+            {/* 文件管理面板切换按钮 + 窗口控制按钮 */}
             <div className="flex h-full items-center gap-1 pr-1">
                 {isTerminalView && activeSessionId && (
                     <Button

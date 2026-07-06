@@ -2,11 +2,14 @@ import { create } from "zustand";
 import { SSHConnectionConfig, SshService } from "../../bindings/terminator-desktop/backend/internal/services/ssh";
 import { useUIStore, ViewType } from "@/store/uiStore";
 
+export type SessionStatus = "connecting" | "connected" | "disconnected";
+
 export interface TerminalSession {
     id: string;
     title: string;
     config: SSHConnectionConfig;
     disconnected?: boolean;
+    status: SessionStatus;
 }
 
 export interface CreateSessionParams {
@@ -25,6 +28,8 @@ interface SessionState {
     removeSession: (id: string) => void;
     setActiveSession: (id: string) => void;
     markSessionDisconnected: (id: string) => void;
+    setSessionStatus: (id: string, status: SessionStatus) => void;
+    reorderSessions: (fromIndex: number, toIndex: number) => void;
     clearSessions: () => void;
 }
 
@@ -36,7 +41,6 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         const state = get();
 
         // 检查是否已有相同主机+端口+用户名的活跃会话
-        // 如果有且未断开，直接切换到该会话，不另开标签
         const existing = state.sessions.find(
             (s) =>
                 s.config.host === params.host &&
@@ -46,13 +50,11 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         );
 
         if (existing) {
-            // 切换到已有会话
             useUIStore.getState().setActiveView(ViewType.Terminal);
             set({ activeSessionId: existing.id });
             return;
         }
 
-        // 创建新会话
         const newId = crypto.randomUUID();
 
         const fullConfig = new SSHConnectionConfig({
@@ -68,6 +70,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
             id: newId,
             title: params.title || params.host,
             config: fullConfig,
+            status: "connecting",
         };
 
         useUIStore.getState().setActiveView(ViewType.Terminal);
@@ -79,7 +82,6 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     },
 
     removeSession: (id) => {
-        // 显式断开后端连接，不依赖组件卸载副作用
         SshService.Disconnect(id).catch(console.error);
 
         set((state) => {
@@ -104,13 +106,29 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         });
     },
 
-    // 标记会话为已断开（不移除标签），终端会显示断开提示
     markSessionDisconnected: (id) => {
         set((state) => ({
             sessions: state.sessions.map((s) =>
-                s.id === id ? { ...s, disconnected: true } : s
+                s.id === id ? { ...s, disconnected: true, status: "disconnected" as const } : s
             ),
         }));
+    },
+
+    setSessionStatus: (id, status) => {
+        set((state) => ({
+            sessions: state.sessions.map((s) =>
+                s.id === id ? { ...s, status, disconnected: status === "disconnected" } : s
+            ),
+        }));
+    },
+
+    reorderSessions: (fromIndex, toIndex) => {
+        set((state) => {
+            const sessions = [...state.sessions];
+            const [moved] = sessions.splice(fromIndex, 1);
+            sessions.splice(toIndex, 0, moved);
+            return { sessions };
+        });
     },
 
     setActiveSession: (id) => {
@@ -124,7 +142,6 @@ export const useSessionStore = create<SessionState>((set, get) => ({
             SshService.Disconnect(session.id).catch(console.error);
         });
 
-        // Wipe the local state and return to hosts
         useUIStore.getState().setActiveView(ViewType.Hosts);
         set({sessions: [], activeSessionId: null});
     }

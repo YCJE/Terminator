@@ -1,4 +1,5 @@
 {
   "error_message": "Error: {{message}}\r\n{{error}}",
-  "session_disconnected": "── SSH session disconnected ──"
+  "session_disconnected": "── SSH session disconnected ──",
+  "search_placeholder": "Search terminal output..."
 }

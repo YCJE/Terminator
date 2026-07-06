@@ -8,6 +8,10 @@ import {
     Upload,
     FolderPlus,
     ChevronRight,
+    ChevronDown,
+    Columns,
+    Folder,
+    FolderOpen,
     Download,
     Pencil,
     FileText,
@@ -127,6 +131,11 @@ export function FilePanel({ sessionId }: FilePanelProps) {
     const currentPathRef = useRef(currentPath);
     currentPathRef.current = currentPath;
 
+    // ref 跟踪最新 dualPanel，供 loadDir 等异步回调使用
+    const [dualPanel, setDualPanel] = useState(false);
+    const dualPanelRef = useRef(dualPanel);
+    dualPanelRef.current = dualPanel;
+
     // 右键菜单状态
     const [contextMenu, setContextMenu] = useState<{ entry: FileEntry; x: number; y: number } | null>(null);
 
@@ -149,8 +158,26 @@ export function FilePanel({ sessionId }: FilePanelProps) {
     const [isDragOver, setIsDragOver] = useState(false);
     const [width, setWidth] = useState(360);
 
+    // 双面板模式：左侧目录树 + 右侧文件列表
+    const [treeWidth, setTreeWidth] = useState(240);
+    // 目录树展开状态：path -> 是否展开（根目录默认展开）
+    const [treeExpanded, setTreeExpanded] = useState<Record<string, boolean>>({ "/": true });
+    // 目录树子节点缓存：path -> 子目录列表（仅目录，文件已过滤）
+    const [treeChildren, setTreeChildren] = useState<Record<string, FileEntry[]>>({});
+
     // 请求序列号，防止快速切换目录时的竞态条件
     const loadIdRef = useRef(0);
+
+    // 加载目录树的子节点（仅目录），用于双面板左侧导航
+    const loadTreeChildren = useCallback(async (path: string) => {
+        try {
+            const list = await ListDir(sessionId, path);
+            const dirs = (list || []).filter((e) => e.isDir);
+            setTreeChildren((prev) => ({ ...prev, [path]: dirs }));
+        } catch {
+            // 静默处理树节点加载错误，不打断文件列表操作
+        }
+    }, [sessionId]);
 
     // 加载指定目录的文件列表（带竞态保护）
     const loadDir = useCallback(async (path: string) => {
@@ -162,13 +189,17 @@ export function FilePanel({ sessionId }: FilePanelProps) {
             if (myId !== loadIdRef.current) return;
             setCurrentPath(path);
             setEntries(list || []);
+            // 双面板模式下同步刷新目录树（确保新建/删除的目录及时反映）
+            if (dualPanelRef.current) {
+                loadTreeChildren(path);
+            }
         } catch (err) {
             if (myId !== loadIdRef.current) return;
             handleAppError(err);
         } finally {
             if (myId === loadIdRef.current) setLoading(false);
         }
-    }, [sessionId]);
+    }, [sessionId, loadTreeChildren]);
 
     // 初始化：sessionId 变化时重置状态并加载新主机的文件
     useEffect(() => {
@@ -193,6 +224,75 @@ export function FilePanel({ sessionId }: FilePanelProps) {
             });
         return () => { cancelled = true; };
     }, [sessionId, loadDir]);
+
+    // 双面板模式同步：开启时或当前路径变化时，自动展开并加载当前路径的祖先目录
+    useEffect(() => {
+        if (!dualPanel) return;
+        // 构建当前路径的所有祖先路径，全部展开
+        const parts = currentPath.split("/").filter(Boolean);
+        const toExpand: Record<string, boolean> = { "/": true };
+        let acc = "";
+        parts.forEach((p) => {
+            acc += "/" + p;
+            toExpand[acc] = true;
+        });
+        setTreeExpanded((prev) => ({ ...prev, ...toExpand }));
+        // 懒加载根目录及所有祖先目录的子节点
+        loadTreeChildren("/");
+        let path = "";
+        parts.forEach((p) => {
+            path += "/" + p;
+            loadTreeChildren(path);
+        });
+    }, [dualPanel, currentPath, loadTreeChildren]);
+
+    // 展开/折叠目录树节点（首次展开时懒加载子目录）
+    const toggleTreeNode = useCallback((path: string) => {
+        const willExpand = !treeExpanded[path];
+        if (willExpand && !treeChildren[path]) {
+            loadTreeChildren(path);
+        }
+        setTreeExpanded((prev) => ({ ...prev, [path]: willExpand }));
+    }, [treeExpanded, treeChildren, loadTreeChildren]);
+
+    // 扁平化可见树节点列表（DFS 遍历，带层级深度用于缩进）
+    const visibleTreeNodes = useMemo(() => {
+        const nodes: { path: string; name: string; depth: number; expanded: boolean }[] = [];
+        const traverse = (path: string, name: string, depth: number) => {
+            const expanded = !!treeExpanded[path];
+            nodes.push({ path, name, depth, expanded });
+            if (expanded) {
+                const children = treeChildren[path];
+                if (children) {
+                    children.forEach((child) => {
+                        traverse(joinPath(path, child.name), child.name, depth + 1);
+                    });
+                }
+            }
+        };
+        traverse("/", "/", 0);
+        return nodes;
+    }, [treeExpanded, treeChildren]);
+
+    // 拖拽调整左侧目录树面板宽度
+    const startTreeResize = (e: React.MouseEvent) => {
+        e.preventDefault();
+        const startX = e.clientX;
+        const startWidth = treeWidth;
+        const onMove = (ev: MouseEvent) => {
+            const delta = ev.clientX - startX;
+            const newWidth = Math.min(Math.max(startWidth + delta, 160), 480);
+            setTreeWidth(newWidth);
+        };
+        const onUp = () => {
+            document.removeEventListener("mousemove", onMove);
+            document.removeEventListener("mouseup", onUp);
+            document.body.style.cursor = "";
+        };
+        document.body.style.cursor = "col-resize";
+        document.addEventListener("mousemove", onMove);
+        document.addEventListener("mouseup", onUp);
+    };
 
     // 面包屑导航分段
     const crumbs = useMemo(() => {
@@ -454,6 +554,15 @@ export function FilePanel({ sessionId }: FilePanelProps) {
             {/* 头部标题 */}
             <div className="flex items-center justify-between border-b border-border px-3 py-2">
                 <span className="text-sm font-medium">{t("file_panel_title")}</span>
+                <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    onClick={() => setDualPanel((d) => !d)}
+                    title={t("toggle_dual_panel")}
+                    className={cn(dualPanel && "bg-accent text-accent-foreground")}
+                >
+                    <Columns className="size-4" />
+                </Button>
             </div>
 
             {/* 工具栏：返回上级 + 面包屑 + 操作按钮 */}
@@ -507,14 +616,68 @@ export function FilePanel({ sessionId }: FilePanelProps) {
                 {currentPath}
             </div>
 
-            {/* 文件列表 */}
-            <div className="flex-1 overflow-hidden">
-                <FileTable
-                    entries={entries}
-                    loading={loading}
-                    onOpen={handleOpen}
-                    onContextMenu={(entry, e) => setContextMenu({ entry, x: e.clientX, y: e.clientY })}
-                />
+            {/* 文件列表区域：双面板模式下左侧显示目录树 */}
+            <div className="flex flex-1 overflow-hidden">
+                {dualPanel && (
+                    <>
+                        {/* 左侧目录树导航 */}
+                        <div
+                            className="flex flex-col overflow-hidden border-r border-border bg-muted/10"
+                            style={{ width: treeWidth, flexShrink: 0 }}
+                        >
+                            <div className="border-b border-border px-2 py-1.5 text-[0.625rem] font-medium uppercase tracking-wide text-muted-foreground">
+                                {t("directory_tree")}
+                            </div>
+                            <div className="flex-1 overflow-auto py-1 select-none">
+                                {visibleTreeNodes.map((node) => (
+                                    <div
+                                        key={node.path}
+                                        className={cn(
+                                            "flex items-center gap-1 cursor-pointer rounded-sm py-0.5 pr-1 text-xs hover:bg-accent",
+                                            currentPath === node.path
+                                                ? "bg-accent text-accent-foreground font-medium"
+                                                : "text-muted-foreground"
+                                        )}
+                                        style={{ paddingLeft: node.depth * 12 + 4 }}
+                                        onClick={() => loadDir(node.path)}
+                                        title={node.path}
+                                    >
+                                        <button
+                                            type="button"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                toggleTreeNode(node.path);
+                                            }}
+                                            className="flex shrink-0 items-center hover:text-foreground"
+                                        >
+                                            {node.expanded
+                                                ? <ChevronDown className="size-3" />
+                                                : <ChevronRight className="size-3" />}
+                                        </button>
+                                        {node.expanded
+                                            ? <FolderOpen className="size-3.5 shrink-0 text-primary/70" />
+                                            : <Folder className="size-3.5 shrink-0 text-primary/70" />}
+                                        <span className="truncate">{node.name}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                        {/* 可拖拽分隔条 */}
+                        <div
+                            onMouseDown={startTreeResize}
+                            className="w-1 shrink-0 cursor-col-resize bg-border transition-colors hover:bg-primary/40"
+                        />
+                    </>
+                )}
+                {/* 右侧文件列表 */}
+                <div className="flex-1 overflow-hidden">
+                    <FileTable
+                        entries={entries}
+                        loading={loading}
+                        onOpen={handleOpen}
+                        onContextMenu={(entry, e) => setContextMenu({ entry, x: e.clientX, y: e.clientY })}
+                    />
+                </div>
             </div>
 
             {/* 拖拽上传提示遮罩 */}

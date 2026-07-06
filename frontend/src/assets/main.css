@@ -56,8 +56,19 @@
 }
 
 /* ============================================================
+   SPACINESS — 全局密度控制（借鉴 Tabby）
+   --spaciness 默认 1，所有关键尺寸通过乘法关联
+   ============================================================ */
+:root {
+    --spaciness: 1;
+    --tabs-height: calc(32px * var(--spaciness));
+    --titlebar-height: calc(32px * var(--spaciness));
+    --sidebar-width: calc(56px * var(--spaciness));
+    --terminal-padding: calc(8px * var(--spaciness));
+}
+
+/* ============================================================
    LIGHT THEME (default :root) — "Frost" palette
-   Clean whites with subtle cool tints, sky-blue accent.
    ============================================================ */
 :root {
     font-synthesis: none;
@@ -119,7 +130,7 @@
     --card-shadow-1: oklch(0.21 0.02 255 / 0.04);
     --card-shadow-2: oklch(0.21 0.02 255 / 0.07);
     --glass-bg: oklch(1 0 0 / 0.92);
-    --glass-border: oklch(0 0 0 / 8%);
+    --glass-border: oklch(0 0 0 /8%);
     --glass-shadow: oklch(0.21 0.02 255 / 0.08);
     --tab-bar-bg: oklch(0.968 0.004 250);
     --tab-bar-border: oklch(0 0 0 / 7%);
@@ -132,11 +143,14 @@
     --elevate-shadow-1: oklch(0.21 0.02 255 / 0.06);
     --elevate-shadow-2: oklch(0.21 0.02 255 / 0.1);
     --focus-ring: oklch(0.546 0.215 263 / 0.35);
+
+    /* 终端面板失焦变暗（借鉴 Netcatty/Tabby） */
+    --terminal-focused-opacity: 1;
+    --terminal-unfocused-opacity: 0.82;
 }
 
 /* ============================================================
    DARK THEME (.dark) — "Abyss" palette
-   Deep background, luminous sky-blue accent.
    ============================================================ */
 .dark {
     --background: oklch(0.145 0.012 250);
@@ -202,6 +216,107 @@
     --focus-ring: oklch(0.715 0.168 238 / 0.35);
 }
 
+/* ============================================================
+   ACCENT COLOR PRESETS — 强调色预设（借鉴 Netcatty）
+   通过 [data-accent] 属性切换，覆盖 --primary 及关联变量
+   ============================================================ */
+
+/* Sky（默认天蓝） */
+[data-accent="sky"] {
+    --primary: oklch(0.715 0.168 238);
+    --ring: oklch(0.715 0.168 238);
+    --sidebar-primary: oklch(0.715 0.168 238);
+    --sidebar-ring: oklch(0.715 0.168 238);
+}
+:root[data-accent="sky"] {
+    --primary: oklch(0.546 0.215 263);
+    --ring: oklch(0.546 0.215 263);
+    --sidebar-primary: oklch(0.546 0.215 263);
+    --sidebar-ring: oklch(0.546 0.215 263);
+}
+
+/* Emerald（翡翠绿） */
+[data-accent="emerald"] {
+    --primary: oklch(0.72 0.19 160);
+    --ring: oklch(0.72 0.19 160);
+    --sidebar-primary: oklch(0.72 0.19 160);
+    --sidebar-ring: oklch(0.72 0.19 160);
+}
+:root[data-accent="emerald"] {
+    --primary: oklch(0.55 0.17 160);
+    --ring: oklch(0.55 0.17 160);
+    --sidebar-primary: oklch(0.55 0.17 160);
+    --sidebar-ring: oklch(0.55 0.17 160);
+}
+
+/* Violet（紫罗兰） */
+[data-accent="violet"] {
+    --primary: oklch(0.65 0.22 300);
+    --ring: oklch(0.65 0.22 300);
+    --sidebar-primary: oklch(0.65 0.22 300);
+    --sidebar-ring: oklch(0.65 0.22 300);
+}
+:root[data-accent="violet"] {
+    --primary: oklch(0.5 0.22 300);
+    --ring: oklch(0.5 0.22 300);
+    --sidebar-primary: oklch(0.5 0.22 300);
+    --sidebar-ring: oklch(0.5 0.22 300);
+}
+
+/* Amber（琥珀橙） */
+[data-accent="amber"] {
+    --primary: oklch(0.75 0.18 60);
+    --ring: oklch(0.75 0.18 60);
+    --sidebar-primary: oklch(0.75 0.18 60);
+    --sidebar-ring: oklch(0.75 0.18 60);
+}
+:root[data-accent="amber"] {
+    --primary: oklch(0.6 0.18 60);
+    --ring: oklch(0.6 0.18 60);
+    --sidebar-primary: oklch(0.6 0.18 60);
+    --sidebar-ring: oklch(0.6 0.18 60);
+}
+
+/* Rose（玫瑰红） */
+[data-accent="rose"] {
+    --primary: oklch(0.67 0.22 15);
+    --ring: oklch(0.67 0.22 15);
+    --sidebar-primary: oklch(0.67 0.22 15);
+    --sidebar-ring: oklch(0.67 0.22 15);
+}
+:root[data-accent="rose"] {
+    --primary: oklch(0.55 0.22 15);
+    --ring: oklch(0.55 0.22 15);
+    --sidebar-primary: oklch(0.55 0.22 15);
+    --sidebar-ring: oklch(0.55 0.22 15);
+}
+
+/* Cyan（青色） */
+[data-accent="cyan"] {
+    --primary: oklch(0.72 0.15 200);
+    --ring: oklch(0.72 0.15 200);
+    --sidebar-primary: oklch(0.72 0.15 200);
+    --sidebar-ring: oklch(0.72 0.15 200);
+}
+:root[data-accent="cyan"] {
+    --primary: oklch(0.55 0.15 200);
+    --ring: oklch(0.55 0.15 200);
+    --sidebar-primary: oklch(0.55 0.15 200);
+    --sidebar-ring: oklch(0.55 0.15 200);
+}
+
+/* ============================================================
+   REDUCED MOTION — 无障碍降级（借鉴 Netcatty）
+   ============================================================ */
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+    }
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
@@ -212,11 +327,6 @@
   html {
     @apply font-sans;
     }
-}
-
-@theme {
-    --text-2xs: 0.625rem;
-    --text-2xs--line-height: 1.4;
 }
 
 .wails-drag {
@@ -425,7 +535,7 @@
 .terminal-tab-active {
     background: var(--background);
     color: var(--foreground);
-    border-radius: 8px 8px 0 0;
+    border-radius: 6px 6px 0 0;
     border-bottom: 2px solid var(--primary);
 }
 .terminal-tab-inactive {
@@ -435,6 +545,21 @@
 .terminal-tab-inactive:hover {
     background: var(--tab-inactive-hover);
     color: var(--foreground);
+}
+
+/* ============================================================
+   Terminal panel focus dimming（借鉴 Netcatty/Tabby）
+   非活动终端面板透明度降低，快速识别焦点
+   ============================================================ */
+
+.terminal-pane {
+    transition: opacity 200ms ease;
+}
+.terminal-pane-unfocused {
+    opacity: var(--terminal-unfocused-opacity);
+}
+.terminal-pane-focused {
+    opacity: var(--terminal-focused-opacity);
 }
 
 /* ============================================================

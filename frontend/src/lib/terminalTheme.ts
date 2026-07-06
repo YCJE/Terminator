@@ -119,3 +119,27 @@ export function getTerminalTheme(theme: TerminalThemeName) {
 
 /** 兼容旧引用 — 默认深色 */
 export const TERMINAL_THEME = getTerminalTheme("dark");
+
+/**
+ * 终端配色 → UI primary 色联动（借鉴 Tabby "Follow the color scheme"）
+ * 提取终端主题的蓝色（ANSI color 4），设为 UI --primary CSS 变量
+ * 使整个应用的强调色跟随终端配色方案变化
+ */
+export function applyTerminalColorLink(theme: TerminalThemeName, enabled: boolean): void {
+    const termTheme = theme !== "light" ? DARK_THEME : LIGHT_THEME;
+    const blue = termTheme.blue || "#58a6ff";
+
+    if (enabled) {
+        // 将终端蓝色设为 UI primary
+        document.documentElement.style.setProperty("--primary", blue);
+        document.documentElement.style.setProperty("--ring", blue);
+        document.documentElement.style.setProperty("--sidebar-primary", blue);
+        document.documentElement.style.setProperty("--sidebar-ring", blue);
+    } else {
+        // 恢复为 CSS 变量默认值（移除内联覆盖）
+        document.documentElement.style.removeProperty("--primary");
+        document.documentElement.style.removeProperty("--ring");
+        document.documentElement.style.removeProperty("--sidebar-primary");
+        document.documentElement.style.removeProperty("--sidebar-ring");
+    }
+}

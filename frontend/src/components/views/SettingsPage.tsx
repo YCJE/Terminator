@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
-import { User, Server, Lock, Trash2, Globe, AlertTriangle, Palette, Moon, Sun, Unplug, FolderSync, ScrollText, Download, ExternalLink, Loader2, CheckCircle2 } from "lucide-react";
+import { User, Server, Lock, Trash2, Globe, AlertTriangle, Palette, Moon, Sun, Unplug, FolderSync, ScrollText, Download, ExternalLink, Loader2, CheckCircle2, type LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SwitchServerModal } from "@/components/views/SwitchServerModal";
 import { WebDAVModal } from "@/components/views/WebDAVModal";
@@ -24,7 +24,19 @@ import {
     SelectValue,
 } from "@/components/ui/select";
 import { useSyncStore } from "@/store/syncStore.ts";
-import { useUIStore, Theme } from "@/store/uiStore.ts";
+import { useUIStore, Theme, ACCENT_PRESETS, SPACINESS_PRESETS, type AccentColor, type Spaciness } from "@/store/uiStore.ts";
+import { applyTerminalColorLink } from "@/lib/terminalTheme";
+import { cn } from "@/lib/utils";
+
+type SettingsCategory = "appearance" | "terminal" | "sync" | "security" | "about";
+
+const NAV_ITEMS: { id: SettingsCategory; labelKey: string; icon: LucideIcon }[] = [
+    { id: "appearance", labelKey: "nav_appearance", icon: Palette },
+    { id: "terminal", labelKey: "nav_terminal", icon: ScrollText },
+    { id: "sync", labelKey: "nav_sync", icon: Server },
+    { id: "security", labelKey: "nav_security", icon: Lock },
+    { id: "about", labelKey: "nav_about", icon: Download },
+];
 
 export function SettingsPage() {
     const {t, i18n} = useTranslation(["settings", "common", "errors"]);
@@ -32,8 +44,9 @@ export function SettingsPage() {
     const {setUnlocked, setHasUser} = useAuthStore();
     const {clearSessions} = useSessionStore();
     const {lastError} = useSyncStore();
-    const {theme, setTheme} = useUIStore();
+    const {theme, setTheme, accentColor, setAccentColor, spaciness, setSpaciness, terminalColorLink, setTerminalColorLink} = useUIStore();
 
+    const [activeCategory, setActiveCategory] = useState<SettingsCategory>("appearance");
     const [isServerModalOpen, setIsServerModalOpen] = useState(false);
     const [isWipeModalOpen, setIsWipeModalOpen] = useState(false);
     const [isDisconnectModalOpen, setIsDisconnectModalOpen] = useState(false);
@@ -54,6 +67,20 @@ export function SettingsPage() {
             })
             .catch(() => {});
     }, [isWebDAVModalOpen, isServerModalOpen]);
+
+    // 挂载时将 store 中的强调色 / 密度同步到 DOM
+    useEffect(() => {
+        document.documentElement.setAttribute("data-accent", accentColor);
+        document.documentElement.style.setProperty("--spaciness", String(spaciness));
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    // 主题变化时重新应用终端配色联动
+    useEffect(() => {
+        if (terminalColorLink) {
+            applyTerminalColorLink(theme, true);
+        }
+    }, [theme, terminalColorLink]);
 
     const handleLockVault = async () => {
         try {
@@ -146,255 +173,390 @@ export function SettingsPage() {
         }
     };
 
+    const handleAccentChange = (color: AccentColor) => {
+        setAccentColor(color);
+        document.documentElement.setAttribute("data-accent", color);
+    };
+
+    const handleSpacinessChange = (s: Spaciness) => {
+        setSpaciness(s);
+        document.documentElement.style.setProperty("--spaciness", String(s));
+    };
+
+    const handleTerminalColorLinkChange = (enabled: boolean) => {
+        setTerminalColorLink(enabled);
+        applyTerminalColorLink(theme, enabled);
+    };
+
     return (
-        <div className="lazy-fade-in flex h-full w-full flex-col overflow-y-auto p-8">
+        <div className="lazy-fade-in flex h-full w-full">
 
-            <div className="mx-auto flex w-full max-w-2xl flex-col gap-6">
-                <h1 className="text-2xl font-bold tracking-tight text-foreground">{t("page_title")}</h1>
-
-                <SettingsCard title={t("profile_sync_title")} description={t("profile_sync_desc")}>
-                    {/* 账户信息 */}
-                    <div className="flex items-center gap-4">
-                        <div
-                            className="flex size-12 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
-                            <User className="size-6"/>
-                        </div>
-                        <div className="flex flex-col">
-                            <span
-                                className="text-sm font-medium text-muted-foreground">{t("username", {ns: "common"})}</span>
-                            <span className="text-lg font-semibold text-foreground">
-                                {user?.username || t("loading", {ns: "common"})}
-                            </span>
-                        </div>
-                    </div>
-
-                    {lastError && (
-                        <div className="p-4 flex items-start gap-3 text-destructive
-                                        border border-destructive/20 bg-destructive/10 rounded-lg">
-                            <AlertTriangle className="mt-0.5 size-5 shrink-0" />
-                            <div className="flex flex-col">
-                                <span className="text-sm font-medium">{t("sync_offline")}</span>
-                                <span className="text-xs opacity-90">
-                                    {t(`errors:${lastError.code}`, { defaultValue: lastError.message })}
-                                </span>
-                                {lastError.detailsString && (
-                                    <span className="mt-1 text-2xs font-mono opacity-75">
-                                        {lastError.detailsString}
-                                    </span>
-                                )}
-                            </div>
-                        </div>
-                    )}
-
-                    {/* 同步方式分隔线 */}
-                    <div className="my-2 h-px w-full bg-border"/>
-
-                    {/* 服务器同步 */}
-                    <div className="flex items-center justify-between
-                                   rounded-lg border border-border bg-background p-4">
-                        <div className="flex items-center gap-4">
-                            <div className="flex size-10 shrink-0 items-center justify-center
-                                           rounded-lg bg-primary/10 text-primary">
-                                <Server className="size-5"/>
-                            </div>
-                            <div className="flex flex-col">
-                                <span className="text-sm font-medium text-foreground">
-                                    {t("sync_server_title")}
-                                </span>
-                                <span className="text-xs text-muted-foreground">
-                                    {syncMethod === "server" && user?.serverUrl
-                                        ? user.serverUrl
-                                        : t("sync_server_desc")}
-                                </span>
-                            </div>
-                        </div>
-                        <Button variant={syncMethod === "server" ? "secondary" : "outline"}
-                                onClick={() => setIsServerModalOpen(true)}>
-                            {user?.serverUrl ? t("switch_server_btn") : t("connect_btn")}
-                        </Button>
-                    </div>
-
-                    {syncMethod === "server" && user?.serverUrl && (
-                        <div className="flex justify-end">
-                            <Button variant="ghost" size="sm" onClick={() => setIsDisconnectModalOpen(true)}>
-                                <Unplug className="mr-2 size-4"/>
-                                {t("disconnect_btn")}
-                            </Button>
-                        </div>
-                    )}
-
-                    {/* WebDAV 同步 */}
-                    <div className="mt-2 flex items-center justify-between
-                                   rounded-lg border border-border bg-background p-4">
-                        <div className="flex items-center gap-4">
-                            <div className="flex size-10 shrink-0 items-center justify-center
-                                           rounded-lg bg-accent/10 text-accent">
-                                <FolderSync className="size-5"/>
-                            </div>
-                            <div className="flex flex-col">
-                                <span className="text-sm font-medium text-foreground">
-                                    {t("webdav_title")}
-                                </span>
-                                <span className="text-xs text-muted-foreground">
-                                    {syncMethod === "webdav" && webdavUrl
-                                        ? webdavUrl
-                                        : t("webdav_card_desc")}
-                                </span>
-                            </div>
-                        </div>
-                        <Button variant={syncMethod === "webdav" ? "secondary" : "outline"}
-                                onClick={() => setIsWebDAVModalOpen(true)}>
-                            {syncMethod === "webdav" ? t("webdav_edit_btn") : t("webdav_setup_btn")}
-                        </Button>
-                    </div>
-                </SettingsCard>
-
-                <SettingsCard title={t("preferences_title")}>
-                    <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-4">
-                            <div
-                                className="flex size-10 shrink-0 items-center justify-center
-                                           rounded-lg bg-primary/10 text-primary">
-                                <Globe className="size-5"/>
-                            </div>
-                            <span className="text-sm font-medium text-foreground">
-                                {t("language_label")}
-                            </span>
-                        </div>
-                        <Select value={i18n.resolvedLanguage} onValueChange={changeLanguage}>
-                            <SelectTrigger className="w-45">
-                                <SelectValue placeholder={t("select_language")}/>
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="en">English</SelectItem>
-                                <SelectItem value="zh">中文</SelectItem>
-                            </SelectContent>
-                        </Select>
-                    </div>
-
-                    <div className="my-2 h-px w-full bg-border"/>
-
-                    <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-4">
-                            <div
-                                className="flex size-10 shrink-0 items-center justify-center
-                                           rounded-lg bg-primary/10 text-primary">
-                                <Palette className="size-5"/>
-                            </div>
-                            <span className="text-sm font-medium text-foreground">
-                                {t("theme_label")}
-                            </span>
-                        </div>
-                        <Select value={theme} onValueChange={(v) => changeTheme(v as Theme)}>
-                            <SelectTrigger className="w-45">
-                                <SelectValue placeholder={t("select_theme")}/>
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="dark">
-                                    <span className="flex items-center gap-2">
-                                        <Moon className="size-4"/>
-                                        {t("theme_dark")}
-                                    </span>
-                                </SelectItem>
-                                <SelectItem value="light">
-                                    <span className="flex items-center gap-2">
-                                        <Sun className="size-4"/>
-                                        {t("theme_light")}
-                                    </span>
-                                </SelectItem>
-                            </SelectContent>
-                        </Select>
-                    </div>
-                </SettingsCard>
-
-                <SettingsCard title={t("security_title")} description={t("security_desc")}>
-                    <div className="flex items-center justify-between">
-                        <div className="flex flex-col">
-                            <span className="font-medium text-foreground">{t("lock_vault_title")}</span>
-                            <span className="text-xs text-muted-foreground">{t("lock_vault_desc")}</span>
-                        </div>
-                        <Button variant="outline" onClick={handleLockVault}>
-                            <Lock className="mr-2 size-4"/>
-                            {t("lock_btn")}
-                        </Button>
-                    </div>
-
-                    <div className="my-2 h-px w-full bg-border"/>
-
-                    <div className="flex items-center justify-between">
-                        <div className="flex flex-col">
-                            <span className="font-medium text-destructive">{t("wipe_data_title")}</span>
-                            <span className="text-xs text-muted-foreground">{t("wipe_data_desc")}</span>
-                        </div>
-                        <Button variant="destructive" onClick={() => setIsWipeModalOpen(true)}>
-                            <Trash2 className="mr-2 size-4"/>
-                            {t("wipe_btn")}
-                        </Button>
-                    </div>
-                </SettingsCard>
-
-                {/* 日志查看器 */}
-                <SettingsCard icon={<ScrollText className="size-5"/>} title={t("log_section_title")}>
-                    <LogViewer/>
-                </SettingsCard>
-
-                {/* 关于 / 检查更新 */}
-                <SettingsCard icon={<Download className="size-5"/>} title={t("about_title")} description={t("about_desc")}>
-                    <div className="flex items-center justify-between">
-                        <div className="flex flex-col">
-                            <span className="font-medium text-foreground">{t("check_update_title")}</span>
-                            <span className="text-xs text-muted-foreground">{t("check_update_desc")}</span>
-                        </div>
-                        <Button
-                            variant="outline"
-                            onClick={handleCheckUpdate}
-                            disabled={isCheckingUpdate}
-                        >
-                            {isCheckingUpdate ? (
-                                <Loader2 className="mr-2 size-4 animate-spin"/>
-                            ) : (
-                                <Download className="mr-2 size-4"/>
+            {/* 左侧导航栏 */}
+            <nav className="flex w-56 shrink-0 flex-col border-r border-border p-4">
+                <h1 className="mb-4 px-2 text-lg font-bold tracking-tight text-foreground">{t("page_title")}</h1>
+                <div className="flex flex-col gap-1">
+                    {NAV_ITEMS.map((item) => (
+                        <button
+                            key={item.id}
+                            onClick={() => setActiveCategory(item.id)}
+                            className={cn(
+                                "flex cursor-pointer items-center gap-2.5 rounded-md px-3 py-2 text-sm transition-colors",
+                                activeCategory === item.id
+                                    ? "bg-accent text-accent-foreground"
+                                    : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
                             )}
-                            {isCheckingUpdate ? t("checking", {ns: "common"}) : t("check_update_btn")}
-                        </Button>
-                    </div>
+                        >
+                            <item.icon className="size-4 shrink-0" />
+                            {t(item.labelKey)}
+                        </button>
+                    ))}
+                </div>
+            </nav>
 
-                    {/* 检查结果 */}
-                    {releaseInfo && (
-                        <div className="mt-4 rounded-lg border border-border bg-muted/30 p-4">
-                            {releaseInfo.hasUpdate ? (
-                                <>
-                                    <div className="mb-2 flex items-center gap-2">
-                                        <Download className="size-4 text-primary"/>
-                                        <span className="font-semibold text-primary">
-                                            {t("new_version_available", {version: releaseInfo.latestVersion})}
-                                        </span>
+            {/* 右侧内容区 */}
+            <div className="flex-1 overflow-y-auto p-8">
+                <div className="mx-auto flex w-full max-w-2xl flex-col gap-6">
+
+                    {/* ============ 外观 ============ */}
+                    {activeCategory === "appearance" && (
+                        <SettingsCard title={t("preferences_title")}>
+                            {/* 主题 */}
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-4">
+                                    <div
+                                        className="flex size-10 shrink-0 items-center justify-center
+                                                   rounded-lg bg-primary/10 text-primary">
+                                        <Palette className="size-5"/>
                                     </div>
-                                    <p className="mb-2 text-xs text-muted-foreground">
-                                        {t("current_version", {version: releaseInfo.currentVersion})}
-                                    </p>
-                                    {releaseInfo.publishedAt && (
-                                        <p className="mb-2 text-xs text-muted-foreground">
-                                            {t("published_at", {date: new Date(releaseInfo.publishedAt).toLocaleDateString()})}
-                                        </p>
-                                    )}
-                                    <Button size="sm" variant="outline" onClick={handleOpenReleasePage} className="mt-2">
-                                        <ExternalLink className="mr-2 size-3"/>
-                                        {t("go_to_download")}
-                                    </Button>
-                                </>
-                            ) : (
-                                <div className="flex items-center gap-2">
-                                    <CheckCircle2 className="size-4 text-green-500"/>
-                                    <span className="text-sm text-foreground">
-                                        {t("already_latest", {version: releaseInfo.currentVersion})}
+                                    <span className="text-sm font-medium text-foreground">
+                                        {t("theme_label")}
                                     </span>
                                 </div>
-                            )}
-                        </div>
-                    )}
-                </SettingsCard>
+                                <Select value={theme} onValueChange={(v) => changeTheme(v as Theme)}>
+                                    <SelectTrigger className="w-45">
+                                        <SelectValue placeholder={t("select_theme")}/>
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="dark">
+                                            <span className="flex items-center gap-2">
+                                                <Moon className="size-4"/>
+                                                {t("theme_dark")}
+                                            </span>
+                                        </SelectItem>
+                                        <SelectItem value="light">
+                                            <span className="flex items-center gap-2">
+                                                <Sun className="size-4"/>
+                                                {t("theme_light")}
+                                            </span>
+                                        </SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
 
+                            <div className="my-2 h-px w-full bg-border"/>
+
+                            {/* 语言 */}
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-4">
+                                    <div
+                                        className="flex size-10 shrink-0 items-center justify-center
+                                                   rounded-lg bg-primary/10 text-primary">
+                                        <Globe className="size-5"/>
+                                    </div>
+                                    <span className="text-sm font-medium text-foreground">
+                                        {t("language_label")}
+                                    </span>
+                                </div>
+                                <Select value={i18n.resolvedLanguage} onValueChange={changeLanguage}>
+                                    <SelectTrigger className="w-45">
+                                        <SelectValue placeholder={t("select_language")}/>
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="en">English</SelectItem>
+                                        <SelectItem value="zh">中文</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
+
+                            <div className="my-2 h-px w-full bg-border"/>
+
+                            {/* 强调色 */}
+                            <div className="flex items-center justify-between">
+                                <div className="flex flex-col">
+                                    <span className="font-medium text-foreground">{t("accent_color_label")}</span>
+                                    <span className="text-xs text-muted-foreground">{t("accent_color_desc")}</span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    {ACCENT_PRESETS.map((preset) => (
+                                        <button
+                                            key={preset.value}
+                                            onClick={() => handleAccentChange(preset.value)}
+                                            className={cn(
+                                                "size-7 rounded-full transition-all hover:scale-110",
+                                                accentColor === preset.value
+                                                    ? "ring-2 ring-foreground ring-offset-2 ring-offset-background"
+                                                    : "ring-1 ring-border"
+                                            )}
+                                            style={{backgroundColor: preset.color}}
+                                            title={preset.label}
+                                            aria-label={preset.label}
+                                        />
+                                    ))}
+                                </div>
+                            </div>
+
+                            <div className="my-2 h-px w-full bg-border"/>
+
+                            {/* 密度 */}
+                            <div className="flex items-center justify-between">
+                                <div className="flex flex-col">
+                                    <span className="font-medium text-foreground">{t("density_label")}</span>
+                                    <span className="text-xs text-muted-foreground">{t("density_desc")}</span>
+                                </div>
+                                <div className="flex items-center gap-1 rounded-lg border border-border p-1">
+                                    {SPACINESS_PRESETS.map((preset) => (
+                                        <button
+                                            key={preset.value}
+                                            onClick={() => handleSpacinessChange(preset.value)}
+                                            className={cn(
+                                                "cursor-pointer rounded-md px-3 py-1 text-xs font-medium transition-all",
+                                                spaciness === preset.value
+                                                    ? "bg-primary text-primary-foreground"
+                                                    : "text-muted-foreground hover:text-foreground"
+                                            )}
+                                        >
+                                            {preset.label}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            <div className="my-2 h-px w-full bg-border"/>
+
+                            {/* 终端配色联动 */}
+                            <div className="flex items-center justify-between">
+                                <div className="flex flex-col">
+                                    <span className="font-medium text-foreground">{t("terminal_color_link_label")}</span>
+                                    <span className="text-xs text-muted-foreground">{t("terminal_color_link_desc")}</span>
+                                </div>
+                                <button
+                                    role="switch"
+                                    aria-checked={terminalColorLink}
+                                    onClick={() => handleTerminalColorLinkChange(!terminalColorLink)}
+                                    className={cn(
+                                        "relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center",
+                                        "rounded-full border-2 border-transparent transition-colors",
+                                        terminalColorLink ? "bg-primary" : "bg-muted"
+                                    )}
+                                >
+                                    <span
+                                        className={cn(
+                                            "pointer-events-none block size-5 rounded-full bg-background shadow-lg",
+                                            "transition-transform",
+                                            terminalColorLink ? "translate-x-5" : "translate-x-0"
+                                        )}
+                                    />
+                                </button>
+                            </div>
+                        </SettingsCard>
+                    )}
+
+                    {/* ============ 终端 ============ */}
+                    {activeCategory === "terminal" && (
+                        <SettingsCard title={t("log_section_title")}>
+                            <LogViewer/>
+                        </SettingsCard>
+                    )}
+
+                    {/* ============ 同步 ============ */}
+                    {activeCategory === "sync" && (
+                        <SettingsCard title={t("profile_sync_title")} description={t("profile_sync_desc")}>
+                            {/* 账户信息 */}
+                            <div className="flex items-center gap-4">
+                                <div
+                                    className="flex size-12 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                                    <User className="size-6"/>
+                                </div>
+                                <div className="flex flex-col">
+                                    <span
+                                        className="text-sm font-medium text-muted-foreground">{t("username", {ns: "common"})}</span>
+                                    <span className="text-lg font-semibold text-foreground">
+                                        {user?.username || t("loading", {ns: "common"})}
+                                    </span>
+                                </div>
+                            </div>
+
+                            {lastError && (
+                                <div className="p-4 flex items-start gap-3 text-destructive
+                                                border border-destructive/20 bg-destructive/10 rounded-lg">
+                                    <AlertTriangle className="mt-0.5 size-5 shrink-0" />
+                                    <div className="flex flex-col">
+                                        <span className="text-sm font-medium">{t("sync_offline")}</span>
+                                        <span className="text-xs opacity-90">
+                                            {t(`errors:${lastError.code}`, { defaultValue: lastError.message })}
+                                        </span>
+                                        {lastError.detailsString && (
+                                            <span className="mt-1 text-2xs font-mono opacity-75">
+                                                {lastError.detailsString}
+                                            </span>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* 同步方式分隔线 */}
+                            <div className="my-2 h-px w-full bg-border"/>
+
+                            {/* 服务器同步 */}
+                            <div className="flex items-center justify-between
+                                           rounded-lg border border-border bg-background p-4">
+                                <div className="flex items-center gap-4">
+                                    <div className="flex size-10 shrink-0 items-center justify-center
+                                                   rounded-lg bg-primary/10 text-primary">
+                                        <Server className="size-5"/>
+                                    </div>
+                                    <div className="flex flex-col">
+                                        <span className="text-sm font-medium text-foreground">
+                                            {t("sync_server_title")}
+                                        </span>
+                                        <span className="text-xs text-muted-foreground">
+                                            {syncMethod === "server" && user?.serverUrl
+                                                ? user.serverUrl
+                                                : t("sync_server_desc")}
+                                        </span>
+                                    </div>
+                                </div>
+                                <Button variant={syncMethod === "server" ? "secondary" : "outline"}
+                                        onClick={() => setIsServerModalOpen(true)}>
+                                    {user?.serverUrl ? t("switch_server_btn") : t("connect_btn")}
+                                </Button>
+                            </div>
+
+                            {syncMethod === "server" && user?.serverUrl && (
+                                <div className="flex justify-end">
+                                    <Button variant="ghost" size="sm" onClick={() => setIsDisconnectModalOpen(true)}>
+                                        <Unplug className="mr-2 size-4"/>
+                                        {t("disconnect_btn")}
+                                    </Button>
+                                </div>
+                            )}
+
+                            {/* WebDAV 同步 */}
+                            <div className="mt-2 flex items-center justify-between
+                                           rounded-lg border border-border bg-background p-4">
+                                <div className="flex items-center gap-4">
+                                    <div className="flex size-10 shrink-0 items-center justify-center
+                                                   rounded-lg bg-accent/10 text-accent">
+                                        <FolderSync className="size-5"/>
+                                    </div>
+                                    <div className="flex flex-col">
+                                        <span className="text-sm font-medium text-foreground">
+                                            {t("webdav_title")}
+                                        </span>
+                                        <span className="text-xs text-muted-foreground">
+                                            {syncMethod === "webdav" && webdavUrl
+                                                ? webdavUrl
+                                                : t("webdav_card_desc")}
+                                        </span>
+                                    </div>
+                                </div>
+                                <Button variant={syncMethod === "webdav" ? "secondary" : "outline"}
+                                        onClick={() => setIsWebDAVModalOpen(true)}>
+                                    {syncMethod === "webdav" ? t("webdav_edit_btn") : t("webdav_setup_btn")}
+                                </Button>
+                            </div>
+                        </SettingsCard>
+                    )}
+
+                    {/* ============ 安全 ============ */}
+                    {activeCategory === "security" && (
+                        <SettingsCard title={t("security_title")} description={t("security_desc")}>
+                            <div className="flex items-center justify-between">
+                                <div className="flex flex-col">
+                                    <span className="font-medium text-foreground">{t("lock_vault_title")}</span>
+                                    <span className="text-xs text-muted-foreground">{t("lock_vault_desc")}</span>
+                                </div>
+                                <Button variant="outline" onClick={handleLockVault}>
+                                    <Lock className="mr-2 size-4"/>
+                                    {t("lock_btn")}
+                                </Button>
+                            </div>
+
+                            <div className="my-2 h-px w-full bg-border"/>
+
+                            <div className="flex items-center justify-between">
+                                <div className="flex flex-col">
+                                    <span className="font-medium text-destructive">{t("wipe_data_title")}</span>
+                                    <span className="text-xs text-muted-foreground">{t("wipe_data_desc")}</span>
+                                </div>
+                                <Button variant="destructive" onClick={() => setIsWipeModalOpen(true)}>
+                                    <Trash2 className="mr-2 size-4"/>
+                                    {t("wipe_btn")}
+                                </Button>
+                            </div>
+                        </SettingsCard>
+                    )}
+
+                    {/* ============ 关于 ============ */}
+                    {activeCategory === "about" && (
+                        <SettingsCard title={t("about_title")} description={t("about_desc")}>
+                            <div className="flex items-center justify-between">
+                                <div className="flex flex-col">
+                                    <span className="font-medium text-foreground">{t("check_update_title")}</span>
+                                    <span className="text-xs text-muted-foreground">{t("check_update_desc")}</span>
+                                </div>
+                                <Button
+                                    variant="outline"
+                                    onClick={handleCheckUpdate}
+                                    disabled={isCheckingUpdate}
+                                >
+                                    {isCheckingUpdate ? (
+                                        <Loader2 className="mr-2 size-4 animate-spin"/>
+                                    ) : (
+                                        <Download className="mr-2 size-4"/>
+                                    )}
+                                    {isCheckingUpdate ? t("checking", {ns: "common"}) : t("check_update_btn")}
+                                </Button>
+                            </div>
+
+                            {/* 检查结果 */}
+                            {releaseInfo && (
+                                <div className="mt-4 rounded-lg border border-border bg-muted/30 p-4">
+                                    {releaseInfo.hasUpdate ? (
+                                        <>
+                                            <div className="mb-2 flex items-center gap-2">
+                                                <Download className="size-4 text-primary"/>
+                                                <span className="font-semibold text-primary">
+                                                    {t("new_version_available", {version: releaseInfo.latestVersion})}
+                                                </span>
+                                            </div>
+                                            <p className="mb-2 text-xs text-muted-foreground">
+                                                {t("current_version", {version: releaseInfo.currentVersion})}
+                                            </p>
+                                            {releaseInfo.publishedAt && (
+                                                <p className="mb-2 text-xs text-muted-foreground">
+                                                    {t("published_at", {date: new Date(releaseInfo.publishedAt).toLocaleDateString()})}
+                                                </p>
+                                            )}
+                                            <Button size="sm" variant="outline" onClick={handleOpenReleasePage} className="mt-2">
+                                                <ExternalLink className="mr-2 size-3"/>
+                                                {t("go_to_download")}
+                                            </Button>
+                                        </>
+                                    ) : (
+                                        <div className="flex items-center gap-2">
+                                            <CheckCircle2 className="size-4 text-green-500"/>
+                                            <span className="text-sm text-foreground">
+                                                {t("already_latest", {version: releaseInfo.currentVersion})}
+                                            </span>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </SettingsCard>
+                    )}
+
+                </div>
             </div>
 
             <SwitchServerModal

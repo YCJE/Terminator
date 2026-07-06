@@ -1,4 +1,5 @@
 {
   "error_message": "错误：{{message}}\r\n{{error}}",
-  "session_disconnected": "── SSH 会话已断开 ──"
+  "session_disconnected": "── SSH 会话已断开 ──",
+  "search_placeholder": "搜索终端输出..."
 }
