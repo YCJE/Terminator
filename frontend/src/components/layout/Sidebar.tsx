@@ -17,13 +17,16 @@ export function Sidebar() {
     if (status === SyncStatus.SyncStatusSuccess) dotColor = "bg-success";
     if (status === SyncStatus.SyncStatusError || status === SyncStatus.SyncStatusUnauthenticated) dotColor = "bg-destructive";
 
+    const sidebarWidth = (activeView !== ViewType.Terminal || isSidebarVisible) ? "var(--sidebar-width)" : "0px";
+
     return (
         <aside
             className={cn(
                 "wails-drag flex shrink-0 flex-col items-center justify-between " +
-                "border-r border-border bg-sidebar pb-4 pt-2",
-                (activeView !== ViewType.Terminal || isSidebarVisible) ? "w-14" : "w-0 overflow-hidden border-r-0"
+                "border-r border-border bg-sidebar pb-4 pt-2 transition-[width] duration-200",
+                (activeView !== ViewType.Terminal || isSidebarVisible) ? "overflow-visible" : "overflow-hidden border-r-0"
             )}
+            style={{ width: sidebarWidth }}
         >
             <nav className="flex flex-col gap-2">
                 <Button

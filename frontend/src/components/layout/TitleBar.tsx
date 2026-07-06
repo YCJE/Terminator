@@ -37,14 +37,15 @@ export function TitleBar() {
     };
 
     return (
-        <header className="titlebar wails-drag flex h-8 shrink-0 items-end justify-between pr-0">
+        <header className="titlebar wails-drag flex shrink-0 items-end justify-between pr-0" style={{ height: "var(--tabs-height)" }}>
 
             {isUnlocked && (
                 <div
                     className={cn(
-                        "relative flex h-full w-14 shrink-0 flex-col items-center justify-center",
+                        "relative flex h-full shrink-0 flex-col items-center justify-center",
                         showSidebarStyling ? "bg-sidebar border-r" : "bg-transparent"
                     )}
+                    style={{ width: "var(--sidebar-width)" }}
                 >
                     {isTerminalView ? (
                         <Button

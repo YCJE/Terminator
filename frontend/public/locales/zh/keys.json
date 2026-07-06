@@ -18,5 +18,6 @@
   "save_key": "保存密钥",
   "delete_title": "删除 SSH 密钥？",
   "delete_desc": "确定要删除密钥“{{name}}”吗？此操作无法撤销，可能导致依赖此密钥的主机无法连接。",
-  "ssh_private_key": "SSH 私钥"
+  "ssh_private_key": "SSH 私钥",
+  "section_key_details": "密钥详情"
 }

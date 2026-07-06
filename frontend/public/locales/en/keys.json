@@ -18,5 +18,6 @@
   "save_key": "Save Key",
   "delete_title": "Delete SSH Key?",
   "delete_desc": "Are you sure you want to delete the key \"{{name}}\"? This action cannot be undone and may break hosts relying on this key.",
-  "ssh_private_key": "SSH Private Key"
+  "ssh_private_key": "SSH Private Key",
+  "section_key_details": "Key Details"
 }

@@ -12,6 +12,9 @@ export class AppSettings {
     "webdav_url": string;
     "webdav_username": string;
     "webdav_password": string;
+    "accent_color": string;
+    "spaciness": number;
+    "terminal_color_link": boolean;
 
     /** Creates a new AppSettings instance. */
     constructor($$source: Partial<AppSettings> = {}) {
@@ -37,6 +40,18 @@ export class AppSettings {
 
         if (!("webdav_password" in $$source)) {
             this["webdav_password"] = "";
+        }
+
+        if (!("accent_color" in $$source)) {
+            this["accent_color"] = "";
+        }
+
+        if (!("spaciness" in $$source)) {
+            this["spaciness"] = 0;
+        }
+
+        if (!("terminal_color_link" in $$source)) {
+            this["terminal_color_link"] = false;
         }
 
         Object.assign(this, $$source);

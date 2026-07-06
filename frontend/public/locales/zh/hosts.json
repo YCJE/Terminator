@@ -32,5 +32,7 @@
   "ask_on_connect_hint": "连接时弹出密码输入框，密码不会保存",
   "enter_password_title": "输入密码",
   "enter_password_desc": "请输入连接 {{name}} 的密码",
-  "no_search_results": "没有找到匹配的主机"
+  "no_search_results": "没有找到匹配的主机",
+  "section_connection": "连接信息",
+  "section_authentication": "身份认证"
 }

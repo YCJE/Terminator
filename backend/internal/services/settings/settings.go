@@ -19,6 +19,11 @@ type AppSettings struct {
 	WebDAVURL      string `json:"webdav_url"`
 	WebDAVUsername string `json:"webdav_username"`
 	WebDAVPassword string `json:"webdav_password"`
+
+	// 外观偏好
+	AccentColor       string  `json:"accent_color"`        // "sky"|"emerald"|"violet"|"amber"|"rose"|"cyan" (默认 sky)
+	Spaciness         float64 `json:"spaciness"`           // 0.8|1|1.2 (默认 1)
+	TerminalColorLink bool    `json:"terminal_color_link"` // 终端配色联动 (默认 false)
 }
 
 type SettingsService struct {
@@ -68,6 +73,15 @@ func (s *SettingsService) GetSettings() (AppSettings, error) {
 	def.WebDAVUsername = raw.WebDAVUsername
 	def.WebDAVPassword = raw.WebDAVPassword
 
+	// 外观偏好：空值/零值使用默认值
+	if raw.AccentColor != "" {
+		def.AccentColor = raw.AccentColor
+	}
+	if raw.Spaciness != 0 {
+		def.Spaciness = raw.Spaciness
+	}
+	def.TerminalColorLink = raw.TerminalColorLink
+
 	return def, nil
 }
 
@@ -75,9 +89,12 @@ func (s *SettingsService) GetSettings() (AppSettings, error) {
 // 借鉴 Tabby 的 ConfigProxy：保存时自动擦除等于默认值的字段，配置文件只保留用户实际修改项
 func defaultSettings() AppSettings {
 	return AppSettings{
-		Language:   "zh",
-		Theme:      "dark",
-		SyncMethod: "server",
+		Language:          "zh",
+		Theme:             "dark",
+		SyncMethod:        "server",
+		AccentColor:       "sky",
+		Spaciness:         1,
+		TerminalColorLink: false,
 	}
 }
 
@@ -104,6 +121,17 @@ func (s *SettingsService) SaveSettings(settings AppSettings) error {
 	}
 	if settings.SyncMethod != def.SyncMethod {
 		sanitized.SyncMethod = settings.SyncMethod
+	}
+
+	// 外观偏好
+	if settings.AccentColor != def.AccentColor {
+		sanitized.AccentColor = settings.AccentColor
+	}
+	if settings.Spaciness != def.Spaciness {
+		sanitized.Spaciness = settings.Spaciness
+	}
+	if settings.TerminalColorLink != def.TerminalColorLink {
+		sanitized.TerminalColorLink = settings.TerminalColorLink
 	}
 
 	data, err := json.MarshalIndent(sanitized, "", "  ")

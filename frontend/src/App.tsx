@@ -22,6 +22,9 @@ export default function App() {
     const setUpdateVersionReady = useUIStore((s) => s.setUpdateVersionReady);
     const theme = useUIStore((s) => s.theme);
     const setTheme = useUIStore((s) => s.setTheme);
+    const setAccentColor = useUIStore((s) => s.setAccentColor);
+    const setSpaciness = useUIStore((s) => s.setSpaciness);
+    const setTerminalColorLink = useUIStore((s) => s.setTerminalColorLink);
     const queryClient = useQueryClient();
     const {i18n} = useTranslation();
 
@@ -39,9 +42,18 @@ export default function App() {
                 const raw = settings.theme;
                 const savedTheme: Theme = raw === "light" || raw === "dark" ? raw : "dark";
                 setTheme(savedTheme);
+
+                // 恢复外观偏好
+                if (settings.accent_color) {
+                    setAccentColor(settings.accent_color);
+                }
+                if (settings.spaciness && settings.spaciness > 0) {
+                    setSpaciness(settings.spaciness);
+                }
+                setTerminalColorLink(settings.terminal_color_link);
             })
             .catch(console.error);
-    }, [i18n, setTheme]);
+    }, [i18n, setTheme, setAccentColor, setSpaciness, setTerminalColorLink]);
 
     // Apply theme class to document root whenever it changes
     useEffect(() => {

@@ -28,6 +28,8 @@ interface TerminalInstanceProps {
 export function TerminalInstance({sessionId, isActive, config, disconnected}: TerminalInstanceProps) {
     const {t} = useTranslation("terminal");
     const theme = useUIStore((s) => s.theme);
+    const accentColor = useUIStore((s) => s.accentColor);
+    const terminalColorLink = useUIStore((s) => s.terminalColorLink);
     const isFilePanelVisible = useUIStore((s) => s.isFilePanelVisible);
     const setSessionStatus = useSessionStore((s) => s.setSessionStatus);
 
@@ -65,7 +67,7 @@ export function TerminalInstance({sessionId, isActive, config, disconnected}: Te
 
         let cancelled = false;
 
-        const term = new Terminal(getTerminalTheme(theme));
+        const term = new Terminal(getTerminalTheme(theme, terminalColorLink ? accentColor : undefined));
         const fitAddon = new FitAddon();
         const unicode11Addon = new Unicode11Addon();
         const serializeAddon = new SerializeAddon();
@@ -230,14 +232,14 @@ export function TerminalInstance({sessionId, isActive, config, disconnected}: Te
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [sessionId, config]);
 
-    // 主题切换时实时更新终端颜色
+    // 主题/强调色/联动切换时实时更新终端颜色
     useEffect(() => {
         const term = terminalRef.current;
         if (!term) return;
-        const colors = getTerminalTheme(theme).theme;
+        const colors = getTerminalTheme(theme, terminalColorLink ? accentColor : undefined).theme;
         term.options.theme = colors;
         term.refresh(0, term.rows - 1);
-    }, [theme]);
+    }, [theme, accentColor, terminalColorLink]);
 
     // SSH 数据事件 — 使用流控写入器 + 滚动锚定
     useEffect(() => {

@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"terminator-desktop/backend/internal/services/ssh"
@@ -70,11 +71,19 @@ func (s *SftpService) ListDir(sessionID string, path string) ([]FileEntry, error
 
 	infos, err := client.ReadDir(path)
 	if err != nil {
-		// SFTP 连接可能已失效，重置后重试一次
+		// 连接级错误（EOF/network reset）不重试，直接返回
+		errStr := err.Error()
+		if strings.Contains(errStr, "EOF") ||
+			strings.Contains(errStr, "connection reset") ||
+			strings.Contains(errStr, "broken pipe") {
+			return nil, fmt.Errorf("读取目录 %q 失败: SSH 连接已断开", path)
+		}
+		// 其他 SFTP 错误（如通道临时失效），重置后重试一次
 		s.sshSvc.ResetSFTPClient(sessionID)
 		client, err2 := s.sshSvc.GetSFTPClient(sessionID)
 		if err2 != nil {
-			return nil, fmt.Errorf("读取目录 %q 失败(原始): %w; 重置SFTP失败: %v", path, err, err2)
+			// 会话已不存在，返回原始错误
+			return nil, fmt.Errorf("读取目录 %q 失败: %w", path, err)
 		}
 		infos, err = client.ReadDir(path)
 		if err != nil {
@@ -103,6 +112,15 @@ func (s *SftpService) ReadFile(sessionID string, path string) (string, error) {
 	client, err := s.sshSvc.GetSFTPClient(sessionID)
 	if err != nil {
 		return "", err
+	}
+
+	// 先检查文件类型，避免对目录/设备文件执行读取操作
+	info, err := client.Stat(path)
+	if err != nil {
+		return "", fmt.Errorf("获取文件信息 %q 失败: %w", path, err)
+	}
+	if info.IsDir() {
+		return "", fmt.Errorf("%q 是目录，无法预览", path)
 	}
 
 	file, err := client.Open(path)

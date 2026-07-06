@@ -1,10 +1,10 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { Plus, Search, Server, ChevronRight, FolderOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { HostCard } from "@/components/views/HostCard";
-import { HostModal } from "@/components/views/HostModal";
+import { HostForm } from "@/components/views/HostForm";
 import { PasswordPromptDialog } from "@/components/views/PasswordPromptDialog";
 import { ConfirmModal } from "@/components/ui/confirm-modal";
 import { useHosts, useSaveHost, useDeleteHost } from "@/hooks/useHosts";
@@ -24,8 +24,9 @@ export function HostsPage() {
     const deleteMutation = useDeleteHost();
     const {addSession} = useSessionStore();
 
-    const [isModalOpen, setIsModalOpen] = useState(false);
+    const [showForm, setShowForm] = useState(false);
     const [editingHost, setEditingHost] = useState<Host | null>(null);
+    const scrollContainerRef = useRef<HTMLDivElement>(null);
     const [hostToDelete, setHostToDelete] = useState<Host | null>(null);
     const [searchQuery, setSearchQuery] = useState("");
     const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
@@ -35,12 +36,14 @@ export function HostsPage() {
 
     const handleCreateNew = () => {
         setEditingHost(null);
-        setIsModalOpen(true);
+        setShowForm(true);
+        scrollContainerRef.current?.scrollTo({top: 0, behavior: "smooth"});
     };
 
     const handleEdit = (host: Host) => {
         setEditingHost(host);
-        setIsModalOpen(true);
+        setShowForm(true);
+        scrollContainerRef.current?.scrollTo({top: 0, behavior: "smooth"});
     };
 
     const handleDeletePrompt = (host: Host) => {
@@ -53,7 +56,7 @@ export function HostsPage() {
     };
 
     const handleSave = (host: Host) => {
-        saveMutation.mutate(host, {onSuccess: () => setIsModalOpen(false)});
+        saveMutation.mutate(host, {onSuccess: () => setShowForm(false)});
     };
 
     // 实际建立连接（提取公共逻辑）
@@ -134,7 +137,7 @@ export function HostsPage() {
     const hasGroups = groupedHosts.length > 1 || (groupedHosts.length === 1 && groupedHosts[0][0] !== UNGROUPED);
 
     return (
-        <div className="lazy-fade-in flex h-full w-full flex-col overflow-y-auto p-8">
+        <div ref={scrollContainerRef} className="lazy-fade-in flex h-full w-full flex-col overflow-y-auto p-8">
             <div className="mb-8 flex w-full items-center gap-4">
                 <h1 className="shrink-0 text-2xl font-bold tracking-tight text-foreground">
                     {t("page_title")}
@@ -152,6 +155,25 @@ export function HostsPage() {
                     <Plus/>
                     {t("new_host")}
                 </Button>
+            </div>
+
+            {/* 内联展开式主机表单 */}
+            <div
+                className={cn(
+                    "grid overflow-hidden transition-[grid-template-rows,opacity,margin] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]",
+                    showForm
+                        ? "mb-6 grid-rows-[1fr] opacity-100"
+                        : "mb-0 grid-rows-[0fr] opacity-0"
+                )}
+            >
+                <div className="min-h-0 overflow-hidden" inert={!showForm}>
+                    <HostForm
+                        initialData={editingHost}
+                        isSaving={saveMutation.isPending}
+                        onSave={handleSave}
+                        onCancel={() => setShowForm(false)}
+                    />
+                </div>
             </div>
 
             {isLoading && <div className="text-sm text-muted-foreground">{t("loading_hosts")}</div>}
@@ -242,14 +264,6 @@ export function HostsPage() {
                     {t("no_search_results")}
                 </div>
             ) : null}
-
-            <HostModal
-                isOpen={isModalOpen}
-                onClose={() => setIsModalOpen(false)}
-                onSave={handleSave}
-                initialData={editingHost}
-                isSaving={saveMutation.isPending}
-            />
 
             <PasswordPromptDialog
                 isOpen={!!passwordPromptHost}

@@ -78,7 +78,7 @@ export function SettingsPage() {
     // 主题变化或强调色变化时重新应用终端配色联动
     useEffect(() => {
         if (terminalColorLink) {
-            applyTerminalColorLink(theme, true);
+            applyTerminalColorLink(theme, accentColor, true);
         }
     }, [theme, terminalColorLink, accentColor]);
 
@@ -173,19 +173,53 @@ export function SettingsPage() {
         }
     };
 
-    const handleAccentChange = (color: AccentColor) => {
-        setAccentColor(color);
-        document.documentElement.setAttribute("data-accent", color);
+    const handleAccentChange = async (color: AccentColor) => {
+        const prev = accentColor;
+        try {
+            setAccentColor(color);
+            document.documentElement.setAttribute("data-accent", color);
+            const current = await SettingsService.GetSettings();
+            await SettingsService.SaveSettings(new AppSettings({
+                ...current,
+                accent_color: color,
+            }));
+        } catch (error) {
+            setAccentColor(prev);
+            document.documentElement.setAttribute("data-accent", prev);
+            handleAppError(error);
+        }
     };
 
-    const handleSpacinessChange = (s: Spaciness) => {
-        setSpaciness(s);
-        document.documentElement.style.setProperty("--spaciness", String(s));
+    const handleSpacinessChange = async (s: Spaciness) => {
+        const prev = spaciness;
+        try {
+            setSpaciness(s);
+            document.documentElement.style.setProperty("--spaciness", String(s));
+            const current = await SettingsService.GetSettings();
+            await SettingsService.SaveSettings(new AppSettings({
+                ...current,
+                spaciness: s,
+            }));
+        } catch (error) {
+            setSpaciness(prev);
+            document.documentElement.style.setProperty("--spaciness", String(prev));
+            handleAppError(error);
+        }
     };
 
-    const handleTerminalColorLinkChange = (enabled: boolean) => {
-        setTerminalColorLink(enabled);
-        applyTerminalColorLink(theme, enabled);
+    const handleTerminalColorLinkChange = async (enabled: boolean) => {
+        try {
+            setTerminalColorLink(enabled);
+            applyTerminalColorLink(theme, accentColor, enabled);
+            const current = await SettingsService.GetSettings();
+            await SettingsService.SaveSettings(new AppSettings({
+                ...current,
+                terminal_color_link: enabled,
+            }));
+        } catch (error) {
+            setTerminalColorLink(!enabled);
+            handleAppError(error);
+        }
     };
 
     return (

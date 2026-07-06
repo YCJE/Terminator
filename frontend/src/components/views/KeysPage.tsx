@@ -1,13 +1,14 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { Plus, Search, Key } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { KeyCard } from "@/components/views/KeyCard";
-import { KeyModal } from "@/components/views/KeyModal";
+import { KeyForm } from "@/components/views/KeyForm";
 import { ConfirmModal } from "@/components/ui/confirm-modal";
 import { useKeys, useSaveKey, useDeleteKey } from "@/hooks/useKeys";
 import { SavedKey } from "../../../bindings/terminator-desktop/backend/internal/services/blob";
+import { cn } from "@/lib/utils";
 
 export function KeysPage() {
     const {t} = useTranslation(["keys", "common"]);
@@ -16,18 +17,21 @@ export function KeysPage() {
     const deleteMutation = useDeleteKey();
 
     const [searchQuery, setSearchQuery] = useState("");
-    const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+    const [showForm, setShowForm] = useState(false);
     const [editingKey, setEditingKey] = useState<SavedKey | null>(null);
+    const scrollContainerRef = useRef<HTMLDivElement>(null);
     const [keyToDelete, setKeyToDelete] = useState<SavedKey | null>(null);
 
     const handleCreateNew = () => {
         setEditingKey(null);
-        setIsEditModalOpen(true);
+        setShowForm(true);
+        scrollContainerRef.current?.scrollTo({top: 0, behavior: "smooth"});
     };
 
     const handleEdit = (key: SavedKey) => {
         setEditingKey(key);
-        setIsEditModalOpen(true);
+        setShowForm(true);
+        scrollContainerRef.current?.scrollTo({top: 0, behavior: "smooth"});
     };
 
     const handleDeletePrompt = (key: SavedKey) => {
@@ -40,7 +44,7 @@ export function KeysPage() {
     };
 
     const handleSave = (key: SavedKey) => {
-        saveMutation.mutate(key, {onSuccess: () => setIsEditModalOpen(false)});
+        saveMutation.mutate(key, {onSuccess: () => setShowForm(false)});
     };
 
     const filteredKeys = useMemo(() => {
@@ -49,7 +53,7 @@ export function KeysPage() {
     }, [keys, searchQuery]);
 
     return (
-        <div className="lazy-fade-in flex h-full w-full flex-col overflow-y-auto p-8">
+        <div ref={scrollContainerRef} className="lazy-fade-in flex h-full w-full flex-col overflow-y-auto p-8">
 
             <div className="mb-8 flex w-full items-center gap-4">
                 <h1 className="shrink-0 text-2xl font-bold tracking-tight text-foreground">
@@ -68,6 +72,25 @@ export function KeysPage() {
                     <Plus/>
                     {t("new_key")}
                 </Button>
+            </div>
+
+            {/* 内联展开式密钥表单 */}
+            <div
+                className={cn(
+                    "grid overflow-hidden transition-[grid-template-rows,opacity,margin] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]",
+                    showForm
+                        ? "mb-6 grid-rows-[1fr] opacity-100"
+                        : "mb-0 grid-rows-[0fr] opacity-0"
+                )}
+            >
+                <div className="min-h-0 overflow-hidden" inert={!showForm}>
+                    <KeyForm
+                        initialData={editingKey}
+                        isSaving={saveMutation.isPending}
+                        onSave={handleSave}
+                        onCancel={() => setShowForm(false)}
+                    />
+                </div>
             </div>
 
             {isLoading && <div className="text-sm text-muted-foreground">{t("loading_keys")}</div>}
@@ -98,14 +121,6 @@ export function KeysPage() {
                     </div>
                 ))}
             </div>
-
-            <KeyModal
-                isOpen={isEditModalOpen}
-                onClose={() => setIsEditModalOpen(false)}
-                onSave={handleSave}
-                initialData={editingKey}
-                isSaving={saveMutation.isPending}
-            />
 
             <ConfirmModal
                 isOpen={!!keyToDelete}
