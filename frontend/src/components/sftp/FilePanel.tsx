@@ -33,6 +33,7 @@ import {
     type FileEntry,
 } from "../../../bindings/terminator-desktop/backend/internal/services/sftp";
 import { useTransferStore } from "@/store/transferStore";
+import { useSessionStore } from "@/store/sessionStore";
 import { FileTable } from "@/components/sftp/FileTable";
 import { TransferQueue } from "@/components/sftp/TransferQueue";
 import { Button } from "@/components/ui/button";
@@ -122,6 +123,11 @@ export function FilePanel({ sessionId }: FilePanelProps) {
     // 只订阅函数引用，不订阅整个 store，避免传输进度变化触发面板重渲染
     const addTransfer = useTransferStore((s) => s.addTransfer);
     const updateTransfer = useTransferStore((s) => s.updateTransfer);
+    // 订阅当前会话状态，仅在连接成功后才加载文件
+    const sessionStatus = useSessionStore((s) => {
+        const sess = s.sessions.find((x) => x.id === sessionId);
+        return sess?.status || "connecting";
+    });
 
     const [currentPath, setCurrentPath] = useState("/");
     const [entries, setEntries] = useState<FileEntry[]>([]);
@@ -204,8 +210,10 @@ export function FilePanel({ sessionId }: FilePanelProps) {
         }
     }, [sessionId, loadTreeChildren]);
 
-    // 初始化：sessionId 变化时重置状态并加载新主机的文件
+    // 初始化：sessionId 变化或会话状态变为 connected 时加载文件
     useEffect(() => {
+        // 会话未连接时不加载，避免 SSH 连接建立前调用 SFTP 导致 "session not found"
+        if (sessionStatus !== "connected") return;
         let cancelled = false;
         // 递增 loadIdRef 使旧会话的在途 loadDir 请求失效
         const initId = ++loadIdRef.current;
@@ -229,7 +237,7 @@ export function FilePanel({ sessionId }: FilePanelProps) {
                 setLoading(false);
             });
         return () => { cancelled = true; };
-    }, [sessionId, loadDir]);
+    }, [sessionId, sessionStatus, loadDir]);
 
     // 双面板模式同步：开启时或当前路径变化时，自动展开并加载当前路径的祖先目录
     useEffect(() => {
