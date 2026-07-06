@@ -154,6 +154,11 @@ func (s *SshService) Connect(config *SSHConnectionConfig) error {
 	// 启动 goroutine 等待 session 结束后关闭 pipe 写端
 	// 这样 pr.Read 会返回 EOF，触发 streamOutput → cleanupSession 清理资源
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Error("session.Wait goroutine panic", "panic", r, "stack", string(debug.Stack()))
+			}
+		}()
 		_ = session.Wait()
 		pw.Close()
 	}()
@@ -389,6 +394,11 @@ func (s *SshService) streamOutput(sessionID string, stdout io.Reader, current *a
 	defer func() {
 		if r := recover(); r != nil {
 			slog.Error("streamOutput panic", "session", sessionID, "panic", r, "stack", string(debug.Stack()))
+			// 尝试清理 session 资源（独立 recover 防止 cleanupSession 内 panic 逃逸）
+			func() {
+				defer func() { recover() }()
+				s.cleanupSession(sessionID, current)
+			}()
 		}
 	}()
 
