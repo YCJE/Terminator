@@ -16,36 +16,89 @@ Terminator is a cross-platform SSH client built with [Wails v3](https://v3.wails
 
 ## Features
 
-- **Encryption.** All sensitive data is encrypted locally using Argon2id and AES-256-GCM.
-- **Sync** encrypted data across multiple devices. Data is encrypted *before* it leaves the client!
-- **Dark/Light themes.** Built-in Abyss (dark) and Frost (light) themes, switchable anytime in settings.
-- **Lightweight.** ~15MB binaries, ~10MB RAM.
-- Cross-platform:
-  - [Windows](https://github.com/YCJE/Terminator/releases/latest/download/terminator-amd64-installer.exe)
-  - [Linux](https://github.com/terminator-ssh/terminator-desktop/releases/latest/download/Terminator-linux-stable.AppImage)
-  - [MacOS](https://github.com/terminator-ssh/terminator-desktop/releases/latest/download/Terminator-macos-stable-Setup.pkg)
-- Local first. You *don't have to* use a server!
+### Terminal
 
-## Server
+- Full terminal emulator based on xterm.js 6, 256-color + Unicode 11
+- Multi-tab management, each tab has independent SSH session, drag-to-reorder
+- Trust-On-First-Use (TOFU) host key verification
+- Terminal theme follows app theme (Abyss dark / Frost light) with real-time switching
+- Terminal color linked to UI accent color — ANSI blue/cyan/cursor sync on change
+- Flow control backpressure (Promise chain + writeQueue) — no data loss on large outputs
+- Scroll anchoring — locks scroll position during large outputs
+- Tab status indicators (green=connected / yellow=connecting / red=disconnected)
+- Session recovery via SerializeAddon after crash
 
-Terminator is designed as a local-first app, but it supports E2E encrypted sync. Grab the server [here](https://github.com/terminator-ssh/terminator-server)!
+### SSH Connection
 
-After connecting to a cloud server, you can disconnect anytime in settings. Local data stays intact.
+- SSH connection multiplexing — multiple sessions share one TCP connection
+- Jump Host support — connect through an intermediate host
+- Port Forwarding — Local and Remote forward with visual UI management
+- Connection pool health check, refCount prevents closing in-use connections
+
+### Host & Key Management
+
+- Netcatty-style slide panel for add/edit — draggable width adjustment
+- Host grouping with collapse/expand, search by group name
+- OS-specific icons (Linux/Windows/macOS)
+- Interactive password input — optionally don't save passwords
+- SSH key management — encrypted storage, key-based auth
+- Built-in key generation — Ed25519 and RSA, import from file
+
+### Visual File Management
+
+- FinalShell-style side panel, collapsible
+- Dual-panel layout: directory tree + file list, draggable width
+- Virtual list rendering for 10k+ files
+- SFTP over existing SSH connection
+- Upload/download with 32KB chunking + real-time progress
+- File operations: mkdir, delete, rename, chmod, text preview
+
+### End-to-End Encrypted Sync
+
+Two sync methods, both E2E encrypted, freely switchable:
+
+| Method | Description | Use Case |
+|---|---|---|
+| **Self-hosted Server** | HTTP API incremental sync, 3s polling | Real-time multi-device sync |
+| **WebDAV** | Full encrypted blob upload, 60s interval | Nutstore/Nextcloud/NAS |
+
+### Other
+
+- **Local-first** — no server required
+- **Accent color presets** — 6 colors, independent dark/light palettes
+- **UI density** — compact/standard/relaxed, adjusts title bar/sidebar/spacing
+- **Terminal color link** — toggleable, terminal ANSI follows UI accent
+- **Multi-language** — Chinese/English, Chinese default on first launch
+- **Dark/Light themes** — Abyss / Frost
+- **RAF batch merge** — high-frequency events merged via requestAnimationFrame
+- **Error debouncing** — classified errors + debounce window
+- **ConfigProxy** — config file only stores user-modified values
+- **Auto-update** — built-in version checker and updater
 
 ## Roadmap
 
-- [x] Encryption
-- [x] Sync
+- [x] Encryption (Argon2id + AES-256-GCM)
+- [x] Multi-device sync (self-hosted + WebDAV)
 - [x] SSH keys
 - [x] Dark/Light theme switcher
-- [x] Chinese default on first launch
-- [ ] Host groups
-- [ ] Interactive passwords
-- [ ] Multiple profiles (teams?)
+- [x] SFTP visual file management
+- [x] 256-color terminal
+- [x] Multi-language (Chinese/English)
+- [x] Host groups
+- [x] Interactive passwords
+- [x] SSH connection multiplexing + Jump Host
+- [x] Port forwarding (local/remote) + visual UI
+- [x] Flow control + scroll anchoring + virtual list
+- [x] Accent colors + terminal color link
+- [x] UI density adjustment
+- [x] Slide panel UI (Netcatty-style, draggable)
+- [x] Tab recovery (SerializeAddon)
+- [x] RAF batch + error debounce
+- [x] ConfigProxy default value erasure
+- [ ] Multiple profiles (teams)
 - [ ] Shortcuts
 - [ ] Android client
 - [ ] CLI client
-- [ ] SFTP
 
 Something missing? Suggest more! [Issues](https://github.com/YCJE/Terminator/issues/new)
 
