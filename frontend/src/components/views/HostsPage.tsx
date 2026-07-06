@@ -135,7 +135,8 @@ export function HostsPage() {
     const hasGroups = groupedHosts.length > 1 || (groupedHosts.length === 1 && groupedHosts[0][0] !== UNGROUPED);
 
     return (
-        <div className="lazy-fade-in relative flex h-full w-full flex-col overflow-y-auto p-8" style={panelMarginStyle(showForm)}>
+        <div className="relative h-full w-full">
+        <div className="lazy-fade-in flex h-full w-full flex-col overflow-y-auto p-8" style={panelMarginStyle(showForm)}>
             <div className="mb-8 flex w-full items-center gap-4">
                 <h1 className="shrink-0 text-2xl font-bold tracking-tight text-foreground">
                     {t("page_title")}
@@ -260,6 +261,7 @@ export function HostsPage() {
                 confirmText={t("delete", {ns: "common"})}
                 isDestructive={true}
             />
+        </div>
 
             <SlidePanel
                 open={showForm}

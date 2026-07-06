@@ -50,8 +50,9 @@ export function KeysPage() {
     }, [keys, searchQuery]);
 
     return (
+        <div className="relative h-full w-full">
         <div
-            className="lazy-fade-in relative flex h-full w-full flex-col overflow-y-auto p-8"
+            className="lazy-fade-in flex h-full w-full flex-col overflow-y-auto p-8"
             style={panelMarginStyle(showForm)}
         >
 
@@ -112,6 +113,7 @@ export function KeysPage() {
                 confirmText={t("delete", {ns: "common"})}
                 isDestructive={true}
             />
+        </div>
 
             <SlidePanel
                 open={showForm}
