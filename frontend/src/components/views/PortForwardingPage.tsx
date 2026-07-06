@@ -407,9 +407,9 @@ function PortForwardForm({formData, onChange, connectedSessions}: PortForwardFor
                 </p>
             </div>
 
-            {/* 本地地址 / 端口 */}
-            <div className="grid grid-cols-3 gap-3">
-                <div className="col-span-2 grid gap-2">
+            {/* 本地地址 / 端口：地址占 3/4，端口占 1/4，端口不加图标 */}
+            <div className="grid grid-cols-4 gap-3">
+                <div className="col-span-3 grid gap-2">
                     <Label htmlFor="localHost">{t("label_local_host")}</Label>
                     <div className="relative">
                         <Globe
@@ -425,26 +425,21 @@ function PortForwardForm({formData, onChange, connectedSessions}: PortForwardFor
                 </div>
                 <div className="grid gap-2">
                     <Label htmlFor="localPort">{t("label_local_port")}</Label>
-                    <div className="relative">
-                        <Hash
-                            className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"/>
-                        <Input
-                            id="localPort"
-                            type="number"
-                            min={1}
-                            max={65535}
-                            className="pl-9"
-                            placeholder="8080"
-                            value={formData.localPort}
-                            onChange={(e) => update({localPort: e.target.value})}
-                        />
-                    </div>
+                    <Input
+                        id="localPort"
+                        type="number"
+                        min={1}
+                        max={65535}
+                        placeholder="8080"
+                        value={formData.localPort}
+                        onChange={(e) => update({localPort: e.target.value})}
+                    />
                 </div>
             </div>
 
             {/* 远程地址 / 端口 */}
-            <div className="grid grid-cols-3 gap-3">
-                <div className="col-span-2 grid gap-2">
+            <div className="grid grid-cols-4 gap-3">
+                <div className="col-span-3 grid gap-2">
                     <Label htmlFor="remoteHost">{t("label_remote_host")}</Label>
                     <div className="relative">
                         <Globe
@@ -460,20 +455,15 @@ function PortForwardForm({formData, onChange, connectedSessions}: PortForwardFor
                 </div>
                 <div className="grid gap-2">
                     <Label htmlFor="remotePort">{t("label_remote_port")}</Label>
-                    <div className="relative">
-                        <Hash
-                            className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"/>
-                        <Input
-                            id="remotePort"
-                            type="number"
-                            min={1}
-                            max={65535}
-                            className="pl-9"
-                            placeholder="80"
-                            value={formData.remotePort}
-                            onChange={(e) => update({remotePort: e.target.value})}
-                        />
-                    </div>
+                    <Input
+                        id="remotePort"
+                        type="number"
+                        min={1}
+                        max={65535}
+                        placeholder="80"
+                        value={formData.remotePort}
+                        onChange={(e) => update({remotePort: e.target.value})}
+                    />
                 </div>
             </div>
         </div>

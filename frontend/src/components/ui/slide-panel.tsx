@@ -6,9 +6,9 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import { X, ArrowLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-const MIN_WIDTH = 360;
-const MAX_WIDTH = 720;
-const DEFAULT_WIDTH = 420;
+const MIN_WIDTH = 380;
+const MAX_WIDTH = 760;
+const DEFAULT_WIDTH = 460;
 const STORAGE_KEY = "slide-panel-width";
 
 interface SlidePanelProps {
@@ -21,7 +21,6 @@ interface SlidePanelProps {
     actions?: React.ReactNode;
     footer?: React.ReactNode;
     children: React.ReactNode;
-    width?: number;
 }
 
 export function SlidePanel({
@@ -54,7 +53,6 @@ export function SlidePanel({
 
         const handleMouseMove = (e: MouseEvent) => {
             if (!draggingRef.current) return;
-            // 面板贴右边缘，向左拖增大宽度
             const newWidth = Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, window.innerWidth - e.clientX));
             setWidth(newWidth);
         };
@@ -80,16 +78,16 @@ export function SlidePanel({
     return (
         <div
             className={cn(
-                "flex h-full shrink-0 flex-col overflow-hidden",
+                "relative flex h-full shrink-0 flex-col overflow-hidden",
                 "border-l border-border/60 bg-background shadow-[-16px_0_32px_hsl(var(--foreground)/0.08)]",
                 "slide-panel-enter"
             )}
             style={{ width: `${width}px` }}
         >
-            {/* 左边缘拖拽手柄 */}
+            {/* 左边缘拖拽手柄 — 需要 relative 父元素才能正确定位 */}
             <div
                 onMouseDown={handleMouseDown}
-                className="absolute left-0 top-0 z-40 h-full w-1 cursor-col-resize hover:bg-primary/30 transition-colors"
+                className="absolute left-0 top-0 z-40 h-full w-1.5 cursor-col-resize hover:bg-primary/40 transition-colors"
             />
 
             {/* Header — 固定高度 */}

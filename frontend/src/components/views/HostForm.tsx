@@ -6,7 +6,6 @@ import {
     Tag,
     FolderOpen,
     Globe,
-    Hash,
     User,
     Lock,
 } from "lucide-react";
@@ -164,8 +163,9 @@ export function HostForm({initialData, isSaving, onSave, onCancel}: HostFormProp
                     </div>
                 </div>
 
-                <div className="grid grid-cols-3 gap-3">
-                    <div className="col-span-2 grid gap-2">
+                {/* 主机地址 + 端口：主机占 3/4，端口占 1/4，端口不加图标避免挤压 */}
+                <div className="grid grid-cols-4 gap-3">
+                    <div className="col-span-3 grid gap-2">
                         <Label htmlFor="host">{t("host_ip", {ns: "common"})}</Label>
                         <div className="relative">
                             <Globe
@@ -183,23 +183,18 @@ export function HostForm({initialData, isSaving, onSave, onCancel}: HostFormProp
                     </div>
                     <div className="grid gap-2">
                         <Label htmlFor="port">{t("port", {ns: "common"})}</Label>
-                        <div className="relative">
-                            <Hash
-                                className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"/>
-                            <Input
-                                id="port"
-                                type="number"
-                                min={1}
-                                max={65535}
-                                required
-                                className="pl-9"
-                                value={formData.port === undefined ? "" : formData.port}
-                                onChange={(e) => {
-                                    const val = parseInt(e.target.value);
-                                    setFormData(prev => ({...prev, port: isNaN(val) ? undefined : val}));
-                                }}
-                            />
-                        </div>
+                        <Input
+                            id="port"
+                            type="number"
+                            min={1}
+                            max={65535}
+                            required
+                            value={formData.port === undefined ? "" : formData.port}
+                            onChange={(e) => {
+                                const val = parseInt(e.target.value);
+                                setFormData(prev => ({...prev, port: isNaN(val) ? undefined : val}));
+                            }}
+                        />
                     </div>
                 </div>
 
