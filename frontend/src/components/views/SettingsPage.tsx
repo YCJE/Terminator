@@ -325,21 +325,26 @@ export function SettingsPage() {
                                     <span className="text-xs text-muted-foreground">{t("accent_color_desc")}</span>
                                 </div>
                                 <div className="flex items-center gap-2">
-                                    {ACCENT_PRESETS.map((preset) => (
-                                        <button
-                                            key={preset.value}
-                                            onClick={() => handleAccentChange(preset.value)}
-                                            className={cn(
-                                                "size-7 rounded-full transition-all hover:scale-110",
-                                                accentColor === preset.value
-                                                    ? "ring-2 ring-foreground ring-offset-2 ring-offset-background"
-                                                    : "ring-1 ring-border"
-                                            )}
-                                            style={{backgroundColor: preset.color}}
-                                            title={preset.label}
-                                            aria-label={preset.label}
-                                        />
-                                    ))}
+                                    {ACCENT_PRESETS.map((preset) => {
+                                        // monochrome: 深色主题用白色圆点，浅色主题用黑色圆点
+                                        const isDark = document.documentElement.classList.contains("dark");
+                                        const bgColor = preset.colorDark && isDark ? preset.colorDark : preset.color;
+                                        return (
+                                            <button
+                                                key={preset.value}
+                                                onClick={() => handleAccentChange(preset.value)}
+                                                className={cn(
+                                                    "size-7 rounded-full transition-all hover:scale-110",
+                                                    accentColor === preset.value
+                                                        ? "ring-2 ring-foreground ring-offset-2 ring-offset-background"
+                                                        : "ring-1 ring-border"
+                                                )}
+                                                style={{backgroundColor: bgColor}}
+                                                title={preset.label}
+                                                aria-label={preset.label}
+                                            />
+                                        );
+                                    })}
                                 </div>
                             </div>
 

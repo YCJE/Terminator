@@ -53,8 +53,8 @@ export const useUIStore = create<UIState>((set) => ({
 }));
 
 /** 强调色预设列表，供设置页面渲染选择器 */
-export const ACCENT_PRESETS: { value: AccentColor; label: string; color: string }[] = [
-    { value: "monochrome", label: "单色", color: "#71717a" },
+export const ACCENT_PRESETS: { value: AccentColor; label: string; color: string; colorDark?: string }[] = [
+    { value: "monochrome", label: "默认", color: "#171717", colorDark: "#fafafa" },
     { value: "sky", label: "天蓝", color: "#60a5fa" },
     { value: "emerald", label: "翡翠绿", color: "#34d399" },
     { value: "violet", label: "紫罗兰", color: "#a78bfa" },
