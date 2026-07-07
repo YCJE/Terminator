@@ -326,8 +326,8 @@ export function SettingsPage() {
                                 </div>
                                 <div className="flex items-center gap-2">
                                     {ACCENT_PRESETS.map((preset) => {
-                                        // monochrome: 深色主题用白色圆点，浅色主题用黑色圆点
-                                        const isDark = document.documentElement.classList.contains("dark");
+                                        // 使用 theme 变量而非 DOM 读取，确保主题切换时同步更新
+                                        const isDark = theme === "dark";
                                         const bgColor = preset.colorDark && isDark ? preset.colorDark : preset.color;
                                         return (
                                             <button

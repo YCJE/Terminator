@@ -5,6 +5,7 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 	"encoding/base64"
+	"fmt"
 	"io"
 	"terminator-desktop/backend/internal/apperror"
 
@@ -26,6 +27,10 @@ func deriveArgon2id(password, saltBase64 string) ([]byte, error) {
 	salt, err := base64.StdEncoding.DecodeString(saltBase64)
 	if err != nil {
 		return nil, err
+	}
+	// 校验 salt 最小长度（Argon2 规范建议至少 8 字节）
+	if len(salt) < 8 {
+		return nil, fmt.Errorf("salt too short: %d bytes (minimum 8)", len(salt))
 	}
 
 	key := argon2.IDKey([]byte(password), salt, argonTimeCost, argonMemoryCost, argonThreads, argonKeyLength)

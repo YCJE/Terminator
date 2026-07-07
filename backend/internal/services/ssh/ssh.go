@@ -585,6 +585,20 @@ func (s *SshService) Disconnect(sessionID string) {
 	}
 }
 
+// DisconnectAll 断开所有活跃 SSH 会话（用于 WipeData/LockVault）
+func (s *SshService) DisconnectAll() {
+	s.mu.Lock()
+	ids := make([]string, 0, len(s.sessions))
+	for id := range s.sessions {
+		ids = append(ids, id)
+	}
+	s.mu.Unlock()
+
+	for _, id := range ids {
+		s.Disconnect(id)
+	}
+}
+
 // GetSFTPClient 懒加载 SFTP 客户端，复用现有 SSH 连接
 func (s *SshService) GetSFTPClient(sessionID string) (*sftp.Client, error) {
 	s.mu.RLock()
@@ -652,6 +666,13 @@ func (s *SshService) startLocalForward(spec *PortForwardSpec, client *ssh.Client
 	}
 
 	s.forwardsMu.Lock()
+	// 检查重复 ID，若已存在则关闭新 listener 并返回错误
+	if old, exists := s.forwards[spec.ID]; exists {
+		s.forwardsMu.Unlock()
+		_ = listener.Close()
+		_ = old.Close()
+		return fmt.Errorf("port forward with ID %s already exists", spec.ID)
+	}
 	s.forwards[spec.ID] = listener
 	s.sessionForwards[spec.SessionID] = append(s.sessionForwards[spec.SessionID], spec.ID)
 	s.forwardsMu.Unlock()
@@ -716,6 +737,13 @@ func (s *SshService) startRemoteForward(spec *PortForwardSpec, client *ssh.Clien
 	}
 
 	s.forwardsMu.Lock()
+	// 检查重复 ID，若已存在则关闭新 listener 并返回错误
+	if old, exists := s.forwards[spec.ID]; exists {
+		s.forwardsMu.Unlock()
+		_ = listener.Close()
+		_ = old.Close()
+		return fmt.Errorf("port forward with ID %s already exists", spec.ID)
+	}
 	s.forwards[spec.ID] = listener
 	s.sessionForwards[spec.SessionID] = append(s.sessionForwards[spec.SessionID], spec.ID)
 	s.forwardsMu.Unlock()

@@ -8,7 +8,7 @@ import { handleAppError } from "@/lib/error";
 
 export function UpdatePopover() {
     const {t} = useTranslation("update");
-    const {updateVersionReady, setUpdateVersionReady} = useUIStore();
+    const {updateVersionReady, setUpdateVersionReady, setDismissedUpdateVersion} = useUIStore();
 
     if (!updateVersionReady) return null;
 
@@ -21,6 +21,7 @@ export function UpdatePopover() {
     };
 
     const handleDismiss = () => {
+        setDismissedUpdateVersion(updateVersionReady);
         setUpdateVersionReady(null);
     };
 

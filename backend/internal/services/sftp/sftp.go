@@ -71,12 +71,20 @@ func (s *SftpService) ListDir(sessionID string, path string) ([]FileEntry, error
 
 	infos, err := client.ReadDir(path)
 	if err != nil {
-		// 连接级错误（EOF/network reset）不重试，直接返回
 		errStr := err.Error()
+		// 连接级错误（EOF/network reset）不重试，直接返回
 		if strings.Contains(errStr, "EOF") ||
 			strings.Contains(errStr, "connection reset") ||
 			strings.Contains(errStr, "broken pipe") {
 			return nil, fmt.Errorf("读取目录 %q 失败: SSH 连接已断开", path)
+		}
+		// 权限错误等非连接级错误，直接返回不重置客户端
+		// 避免重置 SFTP 客户端影响其他正在进行的传输操作
+		if strings.Contains(errStr, "permission denied") ||
+			strings.Contains(errStr, "not permitted") ||
+			strings.Contains(errStr, "no such file") ||
+			strings.Contains(errStr, "does not exist") {
+			return nil, fmt.Errorf("读取目录 %q 失败: %w", path, err)
 		}
 		// 其他 SFTP 错误（如通道临时失效），重置后重试一次
 		s.sshSvc.ResetSFTPClient(sessionID)
@@ -206,7 +214,8 @@ func (s *SftpService) Chmod(sessionID string, path string, mode uint32) error {
 		return err
 	}
 
-	if err := client.Chmod(path, os.FileMode(mode)); err != nil {
+	// 屏蔽高位，仅保留权限位（0o777），防止 ModeDir 等类型位被发送
+	if err := client.Chmod(path, os.FileMode(mode&0o777)); err != nil {
 		return fmt.Errorf("修改 %q 权限失败: %w", path, err)
 	}
 	return nil
@@ -312,9 +321,9 @@ func (s *SftpService) DownloadFile(sessionID string, transferID string, remotePa
 		s.emitter.EmitTransferComplete(sessionID, transferID, false, fmt.Sprintf("创建本地文件失败: %v", err))
 		return fmt.Errorf("创建本地文件 %q 失败: %w", localPath, err)
 	}
+	defer func() { _ = localFile.Close() }()
 
 	if err := s.copyWithProgress(remoteFile, localFile, sessionID, transferID, filename, total); err != nil {
-		localFile.Close()
 		os.Remove(localPath)
 		s.emitter.EmitTransferComplete(sessionID, transferID, false, err.Error())
 		return fmt.Errorf("下载 %q -> %q 失败: %w", remotePath, localPath, err)

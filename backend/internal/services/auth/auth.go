@@ -17,11 +17,17 @@ import (
 	"github.com/google/uuid"
 )
 
+// SessionDisconnector 断开所有 SSH 会话的接口（避免循环依赖）
+type SessionDisconnector interface {
+	DisconnectAll()
+}
+
 type AuthService struct {
-	q      *dbgen.Queries
-	db     *sql.DB
-	vault  *vault.Vault
-	client *api.Client
+	q          *dbgen.Queries
+	db         *sql.DB
+	vault      *vault.Vault
+	client     *api.Client
+	sshDisconn SessionDisconnector
 }
 
 type UserInfo struct {
@@ -47,6 +53,11 @@ func NewAuthService(
 	}
 }
 
+// SetSessionDisconnector 注入 SSH 服务引用，用于 WipeData 时断开所有连接
+func (s *AuthService) SetSessionDisconnector(d SessionDisconnector) {
+	s.sshDisconn = d
+}
+
 // generateSalt returns a new random 16-byte salt, base64 encoded
 func generateSalt() (string, error) {
 	salt := make([]byte, saltLength)
@@ -65,6 +76,11 @@ func (s *AuthService) HasUser(ctx context.Context) (bool, error) {
 }
 
 func (s *AuthService) RegisterLocal(ctx context.Context, username, password string) error {
+	// 密码最小长度校验
+	if len(password) < 6 {
+		return apperror.Validation("password must be at least 6 characters")
+	}
+
 	// 防御性检查：防止通过 Wails binding 直接调用绕过 UI 守卫创建重复用户
 	if exists, _ := s.HasUser(ctx); exists {
 		return apperror.Validation("user already exists")
@@ -199,6 +215,11 @@ func (s *AuthService) Login(ctx context.Context, password string) error {
 
 // LoginFromSync - "connect and restore"
 func (s *AuthService) LoginFromSync(ctx context.Context, serverUrl, username, password string) error {
+	// 密码最小长度校验
+	if len(password) < 6 {
+		return apperror.Validation("password must be at least 6 characters")
+	}
+
 	// 防御性检查：防止通过 Wails binding 直接调用绕过 UI 守卫创建重复用户
 	if exists, _ := s.HasUser(ctx); exists {
 		return apperror.Validation("user already exists")
@@ -330,6 +351,11 @@ func (s *AuthService) RegisterOnServer(ctx context.Context, serverURL string) er
 }
 
 func (s *AuthService) WipeData(ctx context.Context) error {
+	// 先断开所有 SSH 会话和端口转发，确保擦除数据后无活跃远程连接
+	if s.sshDisconn != nil {
+		s.sshDisconn.DisconnectAll()
+	}
+
 	// 使用事务确保完全清除，避免出现 blob 已删但用户还在的半清除状态
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {

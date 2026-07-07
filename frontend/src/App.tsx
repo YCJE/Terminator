@@ -111,8 +111,10 @@ export default function App() {
 
         const checkUpdates = () => {
             // 已检测到更新则跳过重复下载
-            const current = useUIStore.getState().updateVersionReady;
-            if (current) return;
+            const state = useUIStore.getState();
+            if (state.updateVersionReady) return;
+            // 用户已忽略此版本，不再重复提示
+            if (state.dismissedUpdateVersion) return;
 
             UpdaterService.CheckForUpdates()
                 .then((info) => {

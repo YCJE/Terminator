@@ -187,6 +187,9 @@ func main() {
 	keyService := blob.NewKeyService(queries, v)
 	updaterService := updater.NewUpdaterService(updateUrl, githubRepo, updaterEmitter)
 
+	// 注入 SSH 服务到 AuthService，使 WipeData 能断开所有连接
+	authService.SetSessionDisconnector(sshService)
+
 	app.RegisterService(application.NewService(authService))
 	app.RegisterService(application.NewService(syncService))
 	app.RegisterService(application.NewService(sshService))

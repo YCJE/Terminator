@@ -17,6 +17,7 @@ interface UIState {
     isSidebarVisible: boolean;
     isFilePanelVisible: boolean;
     updateVersionReady: string | null;
+    dismissedUpdateVersion: string | null;
     theme: Theme;
     accentColor: AccentColor;
     spaciness: Spaciness;
@@ -26,6 +27,7 @@ interface UIState {
     toggleFilePanel: () => void;
     setFilePanelVisible: (visible: boolean) => void;
     setUpdateVersionReady: (version: string | null) => void;
+    setDismissedUpdateVersion: (version: string | null) => void;
     setTheme: (theme: Theme) => void;
     setAccentColor: (color: AccentColor) => void;
     setSpaciness: (s: Spaciness) => void;
@@ -37,6 +39,7 @@ export const useUIStore = create<UIState>((set) => ({
     isSidebarVisible: true,
     isFilePanelVisible: false,
     updateVersionReady: null,
+    dismissedUpdateVersion: null,
     theme: "dark",
     accentColor: "monochrome",
     spaciness: 1,
@@ -46,6 +49,7 @@ export const useUIStore = create<UIState>((set) => ({
     toggleFilePanel: () => set((state) => ({isFilePanelVisible: !state.isFilePanelVisible})),
     setFilePanelVisible: (visible) => set({isFilePanelVisible: visible}),
     setUpdateVersionReady: (version) => set({ updateVersionReady: version }),
+    setDismissedUpdateVersion: (version) => set({ dismissedUpdateVersion: version }),
     setTheme: (theme) => set({ theme }),
     setAccentColor: (color) => set({ accentColor: color }),
     setSpaciness: (s) => set({ spaciness: s }),
