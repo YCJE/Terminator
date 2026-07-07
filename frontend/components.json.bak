@@ -1,16 +1,16 @@
 {
   "$schema": "https://ui.shadcn.com/schema.json",
-  "style": "radix-maia",
+  "style": "radix-nova",
   "rsc": false,
   "tsx": true,
   "tailwind": {
     "config": "",
     "css": "src/assets/main.css",
-    "baseColor": "stone",
+    "baseColor": "neutral",
     "cssVariables": true,
     "prefix": ""
   },
-  "iconLibrary": "tabler",
+  "iconLibrary": "lucide",
   "rtl": false,
   "aliases": {
     "components": "@/components",
