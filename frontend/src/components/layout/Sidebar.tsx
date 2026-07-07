@@ -8,7 +8,7 @@ import { useTranslation } from "react-i18next";
 import { UpdatePopover } from "@/components/layout/UpdatePopover.tsx";
 
 export function Sidebar() {
-    const {t} = useTranslation(["hosts", "keys", "portForwarding", "update"]);
+    const {t} = useTranslation(["hosts", "keys", "portForwarding", "update", "settings"]);
     const {activeView, setActiveView, isSidebarVisible} = useUIStore();
     const {status} = useSyncStore();
 

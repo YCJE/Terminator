@@ -36,8 +36,11 @@ export function KeysPage() {
     };
 
     const handleConfirmDelete = () => {
-        if (keyToDelete) deleteMutation.mutate(keyToDelete.id);
-        setKeyToDelete(null);
+        if (keyToDelete && !deleteMutation.isPending) {
+            deleteMutation.mutate(keyToDelete.id, {
+                onSettled: () => setKeyToDelete(null),
+            });
+        }
     };
 
     const handleSave = (key: SavedKey) => {
@@ -105,12 +108,13 @@ export function KeysPage() {
 
             <ConfirmModal
                 isOpen={!!keyToDelete}
-                onClose={() => setKeyToDelete(null)}
+                onClose={() => !deleteMutation.isPending && setKeyToDelete(null)}
                 onConfirm={handleConfirmDelete}
                 title={t("delete_title")}
                 description={t("delete_desc", {name: keyToDelete?.name})}
                 confirmText={t("delete", {ns: "common"})}
                 isDestructive={true}
+                confirmDisabled={deleteMutation.isPending}
             />
         </div>
 

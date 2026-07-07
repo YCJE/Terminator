@@ -3,6 +3,7 @@ import { TitleBar } from "@/components/layout/TitleBar";
 import { ContentView } from "@/components/layout/ContentView";
 import { LockScreen } from "@/components/views/LockScreen";
 import { Toaster } from "@/components/ui/sonner";
+import { ErrorBoundary } from "@/components/ui/error-boundary";
 import { useAuthStore } from "@/store/authStore";
 import { Events } from "@wailsio/runtime";
 import { useEffect } from "react";
@@ -16,12 +17,17 @@ import { useUIStore, Theme, AccentColor, Spaciness } from "@/store/uiStore.ts";
 import { useSessionStore } from "@/store/sessionStore.ts";
 import { UpdaterService } from "../bindings/terminator-desktop/backend/internal/services/updater";
 
+const VALID_ACCENTS: AccentColor[] = ["sky", "emerald", "violet", "amber", "rose", "cyan"];
+const VALID_SPACINESS: Spaciness[] = [0.8, 1, 1.2];
+
 export default function App() {
     const isUnlocked = useAuthStore((s) => s.isUnlocked);
     const markSessionDisconnected = useSessionStore((s) => s.markSessionDisconnected);
     const setUpdateVersionReady = useUIStore((s) => s.setUpdateVersionReady);
     const theme = useUIStore((s) => s.theme);
     const setTheme = useUIStore((s) => s.setTheme);
+    const accentColor = useUIStore((s) => s.accentColor);
+    const spaciness = useUIStore((s) => s.spaciness);
     const setAccentColor = useUIStore((s) => s.setAccentColor);
     const setSpaciness = useUIStore((s) => s.setSpaciness);
     const setTerminalColorLink = useUIStore((s) => s.setTerminalColorLink);
@@ -43,11 +49,11 @@ export default function App() {
                 const savedTheme: Theme = raw === "light" || raw === "dark" ? raw : "dark";
                 setTheme(savedTheme);
 
-                // 恢复外观偏好
-                if (settings.accent_color) {
+                // 恢复外观偏好 — 校验值合法性
+                if (settings.accent_color && VALID_ACCENTS.includes(settings.accent_color as AccentColor)) {
                     setAccentColor(settings.accent_color as AccentColor);
                 }
-                if (settings.spaciness && settings.spaciness > 0) {
+                if (settings.spaciness && settings.spaciness > 0 && VALID_SPACINESS.includes(settings.spaciness as Spaciness)) {
                     setSpaciness(settings.spaciness as Spaciness);
                 }
                 setTerminalColorLink(settings.terminal_color_link);
@@ -64,6 +70,16 @@ export default function App() {
             root.classList.add("dark");
         }
     }, [theme]);
+
+    // Apply accent color to document root whenever it changes
+    useEffect(() => {
+        document.documentElement.setAttribute("data-accent", accentColor);
+    }, [accentColor]);
+
+    // Apply spaciness to document root whenever it changes
+    useEffect(() => {
+        document.documentElement.style.setProperty("--spaciness", String(spaciness));
+    }, [spaciness]);
 
     // SSH 会话断开：标记为已断开（不自动移除标签），让用户决定是否关闭
     useEffect(() => {
@@ -116,21 +132,23 @@ export default function App() {
     }, [isUnlocked, setUpdateVersionReady]);
 
     return (
-        <div className="app-shell flex h-screen w-screen flex-col overflow-hidden bg-background text-foreground">
-            <TitleBar/>
-            <div className="flex flex-1 overflow-hidden relative">
+        <ErrorBoundary>
+            <div className="app-shell flex h-screen w-screen flex-col overflow-hidden bg-background text-foreground">
+                <TitleBar/>
+                <div className="flex flex-1 overflow-hidden relative">
 
-                {!isUnlocked ? (
-                    <LockScreen/>
-                ) : (
-                    <>
-                        <Sidebar/>
-                        <ContentView/>
-                    </>
-                )}
+                    {!isUnlocked ? (
+                        <LockScreen/>
+                    ) : (
+                        <>
+                            <Sidebar/>
+                            <ContentView/>
+                        </>
+                    )}
 
+                </div>
+                <Toaster position="bottom-right" theme={theme} richColors style={{ zIndex: 9999 }} />
             </div>
-            <Toaster position="bottom-right" theme={theme} richColors style={{ zIndex: 9999 }} />
-        </div>
+        </ErrorBoundary>
     );
 }
