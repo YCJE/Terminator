@@ -31,10 +31,8 @@ func (s *SyncService) StartAutoSync() {
 			}
 		}()
 
-		// 初始间隔
-		interval := s.currentInterval()
 		// 指数退避：连续失败时增大间隔，成功后重置
-		backoff := interval
+		backoff := s.currentInterval()
 		consecutiveFailures := 0
 
 		sync := func() {
@@ -45,7 +43,9 @@ func (s *SyncService) StartAutoSync() {
 					s.emitter.EmitSyncError(err)
 					consecutiveFailures++
 					// 指数退避：每次失败翻倍间隔，上限 maxBackoff
-					backoff = time.Duration(float64(interval) * float64(int(1)<<min(consecutiveFailures, 6)))
+					// 使用当前实际间隔作为基准（可能因同步方式切换而变化）
+					baseInterval := s.currentInterval()
+					backoff = time.Duration(float64(baseInterval) * float64(int(1)<<min(consecutiveFailures, 6)))
 					if backoff > maxBackoff {
 						backoff = maxBackoff
 					}
@@ -80,13 +80,6 @@ func (s *SyncService) currentInterval() time.Duration {
 		return webdavSyncInterval
 	}
 	return s.syncInterval
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }
 
 // isWebDAVSync 判断当前是否使用 WebDAV 同步方式

@@ -151,10 +151,13 @@ func main() {
 	})
 
 	dbPath := getDbDir(appDir, isDebug)
-	db, err := sql.Open("sqlite", dbPath)
+	// 启用 WAL 模式 + busy_timeout，防止并发读写时 "database is locked"
+	db, err := sql.Open("sqlite", dbPath+"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)")
 	if err != nil {
 		log.Fatal(fmt.Errorf("error building db: %w", err))
 	}
+	// 限制最大连接数，SQLite 单写入者模型下多连接反而增加锁竞争
+	db.SetMaxOpenConns(1)
 	defer func(db *sql.DB) {
 		_ = db.Close()
 	}(db)

@@ -185,7 +185,7 @@ func (s *AuthService) Login(ctx context.Context, password string) error {
 
 	masterKey, err = crypto.UnpackAndDecrypt(dbUser.EncryptedMasterKey, kek)
 	if err != nil {
-		return err
+		return apperror.DecryptionFailed(err)
 	}
 
 	s.vault.Unlock(masterKey, loginKey)
@@ -256,7 +256,7 @@ func (s *AuthService) LoginFromSync(ctx context.Context, serverUrl, username, pa
 
 	masterKey, err = crypto.UnpackAndDecrypt(preflightRes.EncryptedMasterKey, kek)
 	if err != nil {
-		return err
+		return apperror.DecryptionFailed(err)
 	}
 
 	epochZero := time.Unix(0, 0).UTC().Format(time.RFC3339)

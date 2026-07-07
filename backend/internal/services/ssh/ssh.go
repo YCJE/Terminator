@@ -93,6 +93,7 @@ type SshService struct {
 type pooledConn struct {
 	client   *ssh.Client
 	refCount int
+	poisoned bool // 标记为死连接，新 acquire 跳过，refCount 归零时删除
 }
 
 const timeout = 15 * time.Second
@@ -171,6 +172,8 @@ func (s *SshService) Connect(config *SSHConnectionConfig) error {
 
 		// Keepalive 监测：每 30 秒检测连接是否存活
 		// 防止半开连接导致 session.Wait() 无限阻塞
+		// 注意：keepalive 失败时只关闭 session/pw，不关闭共享 client
+		// client 的生命周期由连接池 refCount 管理
 		keepaliveDone := make(chan struct{})
 		go func() {
 			ticker := time.NewTicker(30 * time.Second)
@@ -190,9 +193,10 @@ func (s *SshService) Connect(config *SSHConnectionConfig) error {
 			}
 		}()
 
+		// 使用 defer 确保 panic 时 keepaliveDone 和 pw 也被正确清理
+		defer close(keepaliveDone)
+		defer pw.Close()
 		_ = session.Wait()
-		close(keepaliveDone)
-		pw.Close()
 	}()
 
 	s.mu.Lock()
@@ -241,7 +245,8 @@ func connKey(config *SSHConnectionConfig) string {
 
 // isConnectionAlive 发送 keepalive 请求检测连接是否存活
 // 3 秒超时，避免阻塞太久
-// 超时后关闭连接确保 goroutine 退出，防止泄漏
+// 注意：超时后不关闭 client，因为 client 可能是连接池中的共享连接
+// 由调用方决定如何处理（关闭 session 而非 client）
 func isConnectionAlive(client *ssh.Client) bool {
 	done := make(chan error, 1)
 	go func() {
@@ -257,8 +262,8 @@ func isConnectionAlive(client *ssh.Client) bool {
 	case err := <-done:
 		return err == nil
 	case <-time.After(3 * time.Second):
-		// 超时后关闭连接，确保阻塞的 SendRequest goroutine 能退出
-		go func() { client.Close() }()
+		// 超时仅返回 false，不关闭共享 client
+		// 调用方（keepalive goroutine）会关闭自己的 session
 		return false
 	}
 }
@@ -269,7 +274,7 @@ func (s *SshService) acquireClient(config *SSHConnectionConfig) (*ssh.Client, er
 	key := connKey(config)
 
 	s.connPoolMu.Lock()
-	if pc, ok := s.connPool[key]; ok && pc.client != nil {
+	if pc, ok := s.connPool[key]; ok && pc.client != nil && !pc.poisoned {
 		// 健康检查：发送 keepalive 验证连接是否存活
 		client := pc.client
 		s.connPoolMu.Unlock()
@@ -285,13 +290,18 @@ func (s *SshService) acquireClient(config *SSHConnectionConfig) (*ssh.Client, er
 			s.connPoolMu.Unlock()
 		} else {
 			// 连接已死，从池中移除。
-			// 仅当 refCount==0 时才关闭，避免关闭正在被其他 session 使用的连接。
-			// refCount>0 时由各 session 断开时通过 releaseClient 自行关闭。
+			// refCount>0 时不删除条目，仅标记为 poisoned，让 acquire 跳过
+			// releaseClient 继续递减 refCount，归零时才关闭和删除
 			var shouldClose bool
 			s.connPoolMu.Lock()
 			if pc2, ok := s.connPool[key]; ok && pc2.client == client {
-				delete(s.connPool, key)
-				shouldClose = pc2.refCount <= 0
+				if pc2.refCount <= 0 {
+					delete(s.connPool, key)
+					shouldClose = true
+				} else {
+					// 标记为 poisoned，新 acquire 会跳过此条目
+					pc2.poisoned = true
+				}
 			}
 			s.connPoolMu.Unlock()
 			if shouldClose {
