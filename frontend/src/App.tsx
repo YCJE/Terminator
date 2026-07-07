@@ -17,7 +17,7 @@ import { useUIStore, Theme, AccentColor, Spaciness } from "@/store/uiStore.ts";
 import { useSessionStore } from "@/store/sessionStore.ts";
 import { UpdaterService } from "../bindings/terminator-desktop/backend/internal/services/updater";
 
-const VALID_ACCENTS: AccentColor[] = ["sky", "emerald", "violet", "amber", "rose", "cyan"];
+const VALID_ACCENTS: AccentColor[] = ["monochrome", "sky", "emerald", "violet", "amber", "rose", "cyan"];
 const VALID_SPACINESS: Spaciness[] = [0.8, 1, 1.2];
 
 export default function App() {
@@ -110,6 +110,10 @@ export default function App() {
         if (!isUnlocked) return;
 
         const checkUpdates = () => {
+            // 已检测到更新则跳过重复下载
+            const current = useUIStore.getState().updateVersionReady;
+            if (current) return;
+
             UpdaterService.CheckForUpdates()
                 .then((info) => {
                     if (info?.isAvailable) {

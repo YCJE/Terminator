@@ -21,7 +21,7 @@ type AppSettings struct {
 	WebDAVPassword string `json:"webdav_password"`
 
 	// 外观偏好
-	AccentColor       string  `json:"accent_color"`        // "sky"|"emerald"|"violet"|"amber"|"rose"|"cyan" (默认 sky)
+	AccentColor       string  `json:"accent_color"`        // "monochrome"|"sky"|"emerald"|"violet"|"amber"|"rose"|"cyan" (默认 monochrome)
 	Spaciness         float64 `json:"spaciness"`           // 0.8|1|1.2 (默认 1)
 	TerminalColorLink bool    `json:"terminal_color_link"` // 终端配色联动 (默认 false)
 }
@@ -92,7 +92,7 @@ func defaultSettings() AppSettings {
 		Language:          "zh",
 		Theme:             "dark",
 		SyncMethod:        "server",
-		AccentColor:       "sky",
+		AccentColor:       "monochrome",
 		Spaciness:         1,
 		TerminalColorLink: false,
 	}
@@ -148,7 +148,7 @@ func (s *SettingsService) SaveSettings(settings AppSettings) error {
 	// 值合法性校验：非法值回退为默认值
 	def := defaultSettings()
 	validThemes := map[string]bool{"dark": true, "light": true}
-	validAccents := map[string]bool{"sky": true, "emerald": true, "violet": true, "amber": true, "rose": true, "cyan": true}
+	validAccents := map[string]bool{"monochrome": true, "sky": true, "emerald": true, "violet": true, "amber": true, "rose": true, "cyan": true}
 	validSync := map[string]bool{"server": true, "webdav": true}
 
 	if !validThemes[merged.Theme] {

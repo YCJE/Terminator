@@ -318,7 +318,7 @@ func (s *SshService) acquireClient(config *SSHConnectionConfig) (*ssh.Client, er
 	}
 
 	s.connPoolMu.Lock()
-	if pc, ok := s.connPool[key]; ok && pc.client != nil {
+	if pc, ok := s.connPool[key]; ok && pc.client != nil && !pc.poisoned {
 		_ = client.Close()
 		pc.refCount++
 		client = pc.client

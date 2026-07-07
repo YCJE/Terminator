@@ -8,7 +8,7 @@ import { handleAppError } from "@/lib/error";
 
 export function UpdatePopover() {
     const {t} = useTranslation("update");
-    const {updateVersionReady} = useUIStore();
+    const {updateVersionReady, setUpdateVersionReady} = useUIStore();
 
     if (!updateVersionReady) return null;
 
@@ -18,6 +18,10 @@ export function UpdatePopover() {
         } catch (error) {
             handleAppError(error);
         }
+    };
+
+    const handleDismiss = () => {
+        setUpdateVersionReady(null);
     };
 
     return (
@@ -30,7 +34,6 @@ export function UpdatePopover() {
                         className="wails-no-drag text-success hover:text-success/80 group"
                         title={t("update_ready")}
                     >
-                        {/*<ArrowDownToLine className="size-5 group-hover:animate-bounce"/>*/}
                         <ArrowDownToLine className="size-5 animate-bounce"/>
                     </Button>
                 </div>
@@ -46,6 +49,9 @@ export function UpdatePopover() {
                     </div>
                     <Button size="sm" onClick={handleRestartUpdate} className="w-full">
                         {t("restart_update")}
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={handleDismiss} className="w-full">
+                        {t("later", {ns: "common", defaultValue: "Later"})}
                     </Button>
                 </div>
             </PopoverContent>

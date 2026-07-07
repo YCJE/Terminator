@@ -9,7 +9,7 @@ export enum ViewType {
 }
 
 export type Theme = "dark" | "light";
-export type AccentColor = "sky" | "emerald" | "violet" | "amber" | "rose" | "cyan";
+export type AccentColor = "monochrome" | "sky" | "emerald" | "violet" | "amber" | "rose" | "cyan";
 export type Spaciness = 0.8 | 1 | 1.2;
 
 interface UIState {
@@ -38,7 +38,7 @@ export const useUIStore = create<UIState>((set) => ({
     isFilePanelVisible: false,
     updateVersionReady: null,
     theme: "dark",
-    accentColor: "sky",
+    accentColor: "monochrome",
     spaciness: 1,
     terminalColorLink: false,
     setActiveView: (view) => set({activeView: view}),
@@ -54,6 +54,7 @@ export const useUIStore = create<UIState>((set) => ({
 
 /** 强调色预设列表，供设置页面渲染选择器 */
 export const ACCENT_PRESETS: { value: AccentColor; label: string; color: string }[] = [
+    { value: "monochrome", label: "单色", color: "#71717a" },
     { value: "sky", label: "天蓝", color: "#60a5fa" },
     { value: "emerald", label: "翡翠绿", color: "#34d399" },
     { value: "violet", label: "紫罗兰", color: "#a78bfa" },

@@ -4,7 +4,34 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/appicon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Wails + React + TS</title>
+    <title>Terminator</title>
+    <script>
+      // 防止主题/强调色闪烁 (FOUC)
+      // 在 React 挂载前预设 dark 类和 data-accent 属性
+      try {
+        var raw = localStorage.getItem("terminator-appearance");
+        if (raw) {
+          var appearance = JSON.parse(raw);
+          if (appearance.state && appearance.state.theme === "light") {
+            document.documentElement.classList.remove("dark");
+          } else {
+            document.documentElement.classList.add("dark");
+          }
+          if (appearance.state && appearance.state.accentColor) {
+            document.documentElement.setAttribute("data-accent", appearance.state.accentColor);
+          } else {
+            document.documentElement.setAttribute("data-accent", "monochrome");
+          }
+        } else {
+          // 首次启动默认深色主题 + monochrome 强调色
+          document.documentElement.classList.add("dark");
+          document.documentElement.setAttribute("data-accent", "monochrome");
+        }
+      } catch (e) {
+        document.documentElement.classList.add("dark");
+        document.documentElement.setAttribute("data-accent", "monochrome");
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>

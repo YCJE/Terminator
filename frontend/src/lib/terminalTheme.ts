@@ -101,10 +101,10 @@ const LIGHT_THEME: ITheme = {
 };
 
 export type TerminalThemeName = "dark" | "light";
-export type AccentColorName = "sky" | "emerald" | "violet" | "amber" | "rose" | "cyan";
+export type AccentColorName = "monochrome" | "sky" | "emerald" | "violet" | "amber" | "rose" | "cyan";
 
 /** 各强调色对应的终端 ANSI 蓝色/青色替换值 */
-const ACCENT_TERMINAL_COLORS: Record<AccentColorName, { dark: { blue: string; cyan: string; cursor: string }; light: { blue: string; cyan: string; cursor: string } }> = {
+const ACCENT_TERMINAL_COLORS: Partial<Record<AccentColorName, { dark: { blue: string; cyan: string; cursor: string }; light: { blue: string; cyan: string; cursor: string } }>> = {
     sky:     { dark: { blue: "#60a5fa", cyan: "#22d3ee", cursor: "#a5b4fc" }, light: { blue: "#2563eb", cyan: "#0891b2", cursor: "#4f46e5" } },
     emerald: { dark: { blue: "#4ade80", cyan: "#22d3ee", cursor: "#6ee7b7" }, light: { blue: "#16a34a", cyan: "#0891b2", cursor: "#059669" } },
     violet:  { dark: { blue: "#c084fc", cyan: "#22d3ee", cursor: "#d8b4fe" }, light: { blue: "#9333ea", cyan: "#0891b2", cursor: "#7c3aed" } },

@@ -38,7 +38,7 @@ export function KeysPage() {
     const handleConfirmDelete = () => {
         if (keyToDelete && !deleteMutation.isPending) {
             deleteMutation.mutate(keyToDelete.id, {
-                onSettled: () => setKeyToDelete(null),
+                onSuccess: () => setKeyToDelete(null),
             });
         }
     };

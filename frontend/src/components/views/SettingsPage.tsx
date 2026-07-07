@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
+import { useQueryClient } from "@tanstack/react-query";
 import { User, Server, Lock, Trash2, Globe, AlertTriangle, Palette, Moon, Sun, Unplug, FolderSync, ScrollText, Download, ExternalLink, Loader2, CheckCircle2, type LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SwitchServerModal } from "@/components/views/SwitchServerModal";
@@ -45,6 +46,7 @@ export function SettingsPage() {
     const {clearSessions} = useSessionStore();
     const {lastError} = useSyncStore();
     const {theme, setTheme, accentColor, setAccentColor, spaciness, setSpaciness, terminalColorLink, setTerminalColorLink} = useUIStore();
+    const queryClient = useQueryClient();
 
     const [activeCategory, setActiveCategory] = useState<SettingsCategory>("appearance");
     const [isServerModalOpen, setIsServerModalOpen] = useState(false);
@@ -86,6 +88,7 @@ export function SettingsPage() {
         try {
             await AuthService.LockVault();
             clearSessions();
+            queryClient.clear();
             setUnlocked(false);
         } catch (error) {
             handleAppError(error);
@@ -96,6 +99,7 @@ export function SettingsPage() {
         try {
             await AuthService.WipeData();
             clearSessions();
+            queryClient.clear();
             setUnlocked(false);
             setHasUser(false);
         } catch (error) {
