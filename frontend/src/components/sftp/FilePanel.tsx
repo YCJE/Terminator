@@ -479,14 +479,19 @@ export function FilePanel({ sessionId }: FilePanelProps) {
     };
 
     // 删除
+    const [isDeleting, setIsDeleting] = useState(false);
     const handleDelete = async () => {
-        if (!deleteTarget) return;
+        if (!deleteTarget || isDeleting) return;
+        setIsDeleting(true);
         try {
             await Remove(sessionId, joinPath(currentPath, deleteTarget));
             setDeleteOpen(false);
+            setDeleteTarget("");
             loadDir(currentPath);
         } catch (err) {
             handleAppError(err);
+        } finally {
+            setIsDeleting(false);
         }
     };
 
@@ -834,10 +839,11 @@ export function FilePanel({ sessionId }: FilePanelProps) {
             {/* 删除确认弹窗 */}
             <ConfirmModal
                 isOpen={deleteOpen}
-                onClose={() => setDeleteOpen(false)}
+                onClose={() => !isDeleting && setDeleteOpen(false)}
                 onConfirm={handleDelete}
                 title={t("delete")}
                 description={t("delete_confirm", { name: deleteTarget })}
+                confirmDisabled={isDeleting}
             />
         </div>
     );

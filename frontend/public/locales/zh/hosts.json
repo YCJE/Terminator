@@ -14,6 +14,7 @@
   "password_placeholder": "输入密码",
   "ssh_key_label": "SSH 密钥",
   "select_key_placeholder": "选择密钥",
+  "select_key_required": "请选择一个 SSH 密钥",
   "none_use_password": "不使用密钥",
   "save_host": "保存",
   "delete_title": "删除主机",

@@ -168,7 +168,30 @@ func (s *SshService) Connect(config *SSHConnectionConfig) error {
 				slog.Error("session.Wait goroutine panic", "panic", r, "stack", string(debug.Stack()))
 			}
 		}()
+
+		// Keepalive 监测：每 30 秒检测连接是否存活
+		// 防止半开连接导致 session.Wait() 无限阻塞
+		keepaliveDone := make(chan struct{})
+		go func() {
+			ticker := time.NewTicker(30 * time.Second)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-keepaliveDone:
+					return
+				case <-ticker.C:
+					if !isConnectionAlive(client) {
+						slog.Warn("SSH keepalive failed, closing session", "session", config.ID)
+						_ = session.Close()
+						_ = pw.Close()
+						return
+					}
+				}
+			}
+		}()
+
 		_ = session.Wait()
+		close(keepaliveDone)
 		pw.Close()
 	}()
 
@@ -218,6 +241,7 @@ func connKey(config *SSHConnectionConfig) string {
 
 // isConnectionAlive 发送 keepalive 请求检测连接是否存活
 // 3 秒超时，避免阻塞太久
+// 超时后关闭连接确保 goroutine 退出，防止泄漏
 func isConnectionAlive(client *ssh.Client) bool {
 	done := make(chan error, 1)
 	go func() {
@@ -233,6 +257,8 @@ func isConnectionAlive(client *ssh.Client) bool {
 	case err := <-done:
 		return err == nil
 	case <-time.After(3 * time.Second):
+		// 超时后关闭连接，确保阻塞的 SendRequest goroutine 能退出
+		go func() { client.Close() }()
 		return false
 	}
 }

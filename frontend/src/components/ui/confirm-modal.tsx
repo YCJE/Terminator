@@ -19,6 +19,7 @@ interface ConfirmModalProps {
     description: string;
     confirmText?: string;
     isDestructive?: boolean;
+    confirmDisabled?: boolean;
 }
 
 export function ConfirmModal({
@@ -29,6 +30,7 @@ export function ConfirmModal({
     description,
     confirmText = undefined,
     isDestructive = true,
+    confirmDisabled = false,
 }: ConfirmModalProps) {
     const {t} = useTranslation("common");
 
@@ -48,8 +50,9 @@ export function ConfirmModal({
                     <AlertDialogAction
                         onClick={(e) => {
                             e.preventDefault();
-                            onConfirm();
+                            if (!confirmDisabled) onConfirm();
                         }}
+                        disabled={confirmDisabled}
                         className={cn(isDestructive && "bg-destructive text-destructive-foreground hover:bg-destructive/90")}
                     >
                         {confirmText}

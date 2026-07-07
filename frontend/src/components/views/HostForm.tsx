@@ -1,5 +1,6 @@
 import {useState, useEffect, SyntheticEvent, useMemo} from "react";
 import {useTranslation} from "react-i18next";
+import {toast} from "sonner";
 import {
     Server,
     KeyRound,
@@ -95,7 +96,8 @@ export function HostForm({initialData, isSaving, onSave, onCancel}: HostFormProp
 
         // 校验：密钥认证必须选择密钥
         if (authMethod === "key" && (!formData.keyId || formData.keyId === "none")) {
-            return; // Select 组件已显示"选择密钥"placeholder
+            toast.error(t("select_key_required"));
+            return;
         }
 
         const port = Number(formData.port) || 22;

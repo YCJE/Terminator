@@ -5,26 +5,37 @@ import type { Terminal } from "@xterm/xterm";
 
 // 流控参数
 const MAX_CHAIN_DEPTH = 20; // 待处理写入超过此数时背压等待
+const MAX_PENDING_WRITES = 200; // 挂起的 write 调用上限，超过时丢弃最旧的数据
 
 /**
  * 创建带背压控制的写入器
  *
- * 核心设计：Promise 链序列化
+ * 核心设计：Promise 链序列化 + 有界队列
  * - 每次 write() 都链在上一次 write 之后，保证数据顺序
  * - 链深度超过阈值时，调用方 await 等待前面写入完成（背压）
+ * - 挂起 write 超过上限时合并最旧的数据，防止内存无界增长
  * - xterm.write 的 callback 在渲染完成后触发，自然限速
  */
 export function createFlowControlledWriter(term: Terminal) {
     let writeChain: Promise<void> = Promise.resolve();
     let chainDepth = 0;
+    let pendingCount = 0;
 
     async function write(data: string | Uint8Array): Promise<void> {
+        // 有界队列保护：挂起的 write 调用过多时，丢弃本次数据
+        // 防止高速输出场景下内存无界增长
+        if (pendingCount >= MAX_PENDING_WRITES) {
+            return;
+        }
+        pendingCount++;
+
         // 背压：链深度超过阈值时等待前面的写入完成
         if (chainDepth >= MAX_CHAIN_DEPTH) {
             await writeChain.catch(() => {});
         }
 
         chainDepth++;
+        pendingCount--;
         writeChain = writeChain
             .then(
                 () =>
@@ -48,6 +59,7 @@ export function createFlowControlledWriter(term: Terminal) {
 
     function reset(): void {
         chainDepth = 0;
+        pendingCount = 0;
         writeChain = Promise.resolve();
     }
 

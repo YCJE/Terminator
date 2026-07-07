@@ -14,6 +14,7 @@
   "password_placeholder": "Enter password",
   "ssh_key_label": "SSH Key",
   "select_key_placeholder": "Select a key",
+  "select_key_required": "Please select an SSH key",
   "none_use_password": "No key",
   "save_host": "Save",
   "delete_title": "Delete Host",

@@ -265,6 +265,8 @@ func (s *SftpService) UploadFile(sessionID string, transferID string, localPath 
 
 	if err := s.copyWithProgress(localFile, remoteFile, sessionID, transferID, filename, total); err != nil {
 		remoteFile.Close()
+		// 传输失败时删除远程残留的部分文件
+		_ = client.Remove(remotePath)
 		s.emitter.EmitTransferComplete(sessionID, transferID, false, err.Error())
 		return fmt.Errorf("上传 %q -> %q 失败: %w", localPath, remotePath, err)
 	}

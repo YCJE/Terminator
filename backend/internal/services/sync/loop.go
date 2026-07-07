@@ -11,6 +11,9 @@ import (
 // webdavSyncInterval WebDAV 全量同步的轮询间隔（全量传输，间隔较长）
 const webdavSyncInterval = 60 * time.Second
 
+// maxBackoff 指数退避最大间隔
+const maxBackoff = 5 * time.Minute
+
 func (s *SyncService) StartAutoSync() {
 	s.mutex.Lock()
 	if s.cancelSync != nil {
@@ -20,12 +23,6 @@ func (s *SyncService) StartAutoSync() {
 	s.cancelSync = cancel
 	s.mutex.Unlock()
 
-	// 根据同步方式选择轮询间隔：WebDAV 全量传输用较长间隔，服务器同步用较短间隔
-	interval := s.syncInterval
-	if s.isWebDAVSync() {
-		interval = webdavSyncInterval
-	}
-
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
@@ -33,31 +30,63 @@ func (s *SyncService) StartAutoSync() {
 				s.emitter.EmitStatus(SyncStatusError)
 			}
 		}()
-		ticker := time.NewTicker(interval)
-		defer ticker.Stop()
+
+		// 初始间隔
+		interval := s.currentInterval()
+		// 指数退避：连续失败时增大间隔，成功后重置
+		backoff := interval
+		consecutiveFailures := 0
 
 		sync := func() {
 			err := s.Sync(ctx)
 			if err != nil {
 				if !errors.Is(err, context.Canceled) {
-					slog.Error("background sync failed", "error", err)
+					slog.Error("background sync failed", "error", err, "consecutive_failures", consecutiveFailures+1)
 					s.emitter.EmitSyncError(err)
-					// SyncStatusError 已由 Sync() 的 defer 统一发射，此处不再重复
+					consecutiveFailures++
+					// 指数退避：每次失败翻倍间隔，上限 maxBackoff
+					backoff = time.Duration(float64(interval) * float64(int(1)<<min(consecutiveFailures, 6)))
+					if backoff > maxBackoff {
+						backoff = maxBackoff
+					}
 				}
+			} else {
+				// 成功后重置退避
+				consecutiveFailures = 0
+				backoff = s.currentInterval()
 			}
 		}
 
 		sync()
 
 		for {
+			// 动态使用退避间隔
+			ticker := time.NewTicker(backoff)
 			select {
 			case <-ctx.Done():
+				ticker.Stop()
 				return
 			case <-ticker.C:
+				ticker.Stop()
 				sync()
 			}
 		}
 	}()
+}
+
+// currentInterval 根据当前同步方式返回轮询间隔
+func (s *SyncService) currentInterval() time.Duration {
+	if s.isWebDAVSync() {
+		return webdavSyncInterval
+	}
+	return s.syncInterval
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 // isWebDAVSync 判断当前是否使用 WebDAV 同步方式

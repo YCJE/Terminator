@@ -54,7 +54,7 @@ export function HostsPage() {
     };
 
     const handleSave = (host: Host) => {
-        saveMutation.mutate(host, {onSuccess: () => setShowForm(false)});
+        saveMutation.mutate(host, {onSuccess: () => { setShowForm(false); setEditingHost(null); }});
     };
 
     // 实际建立连接（提取公共逻辑）
