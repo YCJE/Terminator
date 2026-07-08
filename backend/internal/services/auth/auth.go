@@ -352,8 +352,16 @@ func (s *AuthService) RegisterOnServer(ctx context.Context, serverURL string) er
 
 func (s *AuthService) WipeData(ctx context.Context) error {
 	// 先断开所有 SSH 会话和端口转发，确保擦除数据后无活跃远程连接
+	// 用 recover 保护，确保即使断开失败也能继续执行数据擦除
 	if s.sshDisconn != nil {
-		s.sshDisconn.DisconnectAll()
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					// 记录但继续执行 wipe
+				}
+			}()
+			s.sshDisconn.DisconnectAll()
+		}()
 	}
 
 	// 使用事务确保完全清除，避免出现 blob 已删但用户还在的半清除状态

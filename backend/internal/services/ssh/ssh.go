@@ -666,11 +666,10 @@ func (s *SshService) startLocalForward(spec *PortForwardSpec, client *ssh.Client
 	}
 
 	s.forwardsMu.Lock()
-	// 检查重复 ID，若已存在则关闭新 listener 并返回错误
-	if old, exists := s.forwards[spec.ID]; exists {
+	// 检查重复 ID，若已存在则关闭新 listener 并返回错误（保留已有转发不动）
+	if _, exists := s.forwards[spec.ID]; exists {
 		s.forwardsMu.Unlock()
 		_ = listener.Close()
-		_ = old.Close()
 		return fmt.Errorf("port forward with ID %s already exists", spec.ID)
 	}
 	s.forwards[spec.ID] = listener
@@ -737,11 +736,10 @@ func (s *SshService) startRemoteForward(spec *PortForwardSpec, client *ssh.Clien
 	}
 
 	s.forwardsMu.Lock()
-	// 检查重复 ID，若已存在则关闭新 listener 并返回错误
-	if old, exists := s.forwards[spec.ID]; exists {
+	// 检查重复 ID，若已存在则关闭新 listener 并返回错误（保留已有转发不动）
+	if _, exists := s.forwards[spec.ID]; exists {
 		s.forwardsMu.Unlock()
 		_ = listener.Close()
-		_ = old.Close()
 		return fmt.Errorf("port forward with ID %s already exists", spec.ID)
 	}
 	s.forwards[spec.ID] = listener

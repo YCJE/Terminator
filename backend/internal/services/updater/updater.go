@@ -282,10 +282,15 @@ func (s *UpdaterService) ApplyAndRestart() error {
 	s.mu.Lock()
 	manager := s.manager
 	latest := s.latest
+	state := s.state
 	s.mu.Unlock()
 
 	if manager == nil || latest == nil {
 		return fmt.Errorf("no update pending")
+	}
+	// 确保更新已下载完成，防止应用未下载的更新导致损坏
+	if state != stateDownloaded {
+		return fmt.Errorf("update not downloaded yet (current state: %d)", state)
 	}
 
 	return manager.ApplyUpdatesAndRestart(latest)

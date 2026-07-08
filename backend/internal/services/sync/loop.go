@@ -24,18 +24,25 @@ func (s *SyncService) StartAutoSync() {
 	s.mutex.Unlock()
 
 	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				slog.Error("sync goroutine panic", "panic", r, "stack", string(debug.Stack()))
-				s.emitter.EmitStatus(SyncStatusError)
-			}
-		}()
-
 		// 指数退避：连续失败时增大间隔，成功后重置
 		backoff := s.currentInterval()
 		consecutiveFailures := 0
 
 		sync := func() {
+			// 每次同步独立 recover，防止单次 panic 永久杀死同步循环
+			defer func() {
+				if r := recover(); r != nil {
+					slog.Error("sync panic recovered", "panic", r, "stack", string(debug.Stack()))
+					s.emitter.EmitStatus(SyncStatusError)
+					consecutiveFailures++
+					baseInterval := s.currentInterval()
+					backoff = time.Duration(float64(baseInterval) * float64(int(1)<<min(consecutiveFailures, 6)))
+					if backoff > maxBackoff {
+						backoff = maxBackoff
+					}
+				}
+			}()
+
 			err := s.Sync(ctx)
 			if err != nil {
 				if !errors.Is(err, context.Canceled) {

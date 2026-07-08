@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"terminator-desktop/backend/internal/apperror"
 	"terminator-desktop/backend/internal/crypto"
 	"terminator-desktop/backend/internal/dbgen"
 	"terminator-desktop/backend/internal/vault"
@@ -95,7 +96,11 @@ func getAllItems[T any](ctx context.Context, q *dbgen.Queries, v *vault.Vault, e
 	return items, nil
 }
 
-func deleteItem(ctx context.Context, q *dbgen.Queries, id string) error {
+func deleteItem(ctx context.Context, q *dbgen.Queries, v *vault.Vault, id string) error {
+	// 检查 vault 是否解锁，与 saveItem/getAllItems 保持一致
+	if _, err := v.GetMasterKey(); err != nil {
+		return apperror.VaultLocked()
+	}
 	return q.SoftDeleteBlob(ctx, dbgen.SoftDeleteBlobParams{
 		ID:        id,
 		UpdatedAt: time.Now().UTC().Format(time.RFC3339Nano),

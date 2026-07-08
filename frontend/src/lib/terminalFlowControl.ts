@@ -38,7 +38,8 @@ export function createFlowControlledWriter(term: Terminal) {
 
         // generation 变化说明 reset() 被调用过，丢弃本次写入
         if (myGen !== generation) {
-            pendingCount--;
+            // 使用 Math.max 防止 reset() 已归零后变为负数
+            pendingCount = Math.max(0, pendingCount - 1);
             return;
         }
 

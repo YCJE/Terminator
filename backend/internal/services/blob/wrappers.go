@@ -32,7 +32,7 @@ func (s *HostService) GetAll(ctx context.Context) ([]Host, error) {
 }
 
 func (s *HostService) Delete(ctx context.Context, id string) error {
-	return deleteItem(ctx, s.q, id)
+	return deleteItem(ctx, s.q, s.v, id)
 }
 
 type KeyService struct {
@@ -57,5 +57,5 @@ func (s *KeyService) GetAll(ctx context.Context) ([]SavedKey, error) {
 }
 
 func (s *KeyService) Delete(ctx context.Context, id string) error {
-	return deleteItem(ctx, s.q, id)
+	return deleteItem(ctx, s.q, s.v, id)
 }
