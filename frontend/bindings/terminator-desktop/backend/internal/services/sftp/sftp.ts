@@ -68,5 +68,5 @@ export interface SearchResultEntry {
 
 /** 递归搜索文件/目录，searchPath 为起始目录，query 为文件名关键词 */
 export function SearchFiles(sessionId: string, searchPath: string, query: string, maxResults: number): $CancellablePromise<SearchResultEntry[]> {
-    return $Call.ByID(3847291106, sessionId, searchPath, query, maxResults);
+    return $Call.ByID(2705080646, sessionId, searchPath, query, maxResults);
 }
