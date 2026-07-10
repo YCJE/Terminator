@@ -255,9 +255,17 @@ func (s *SftpService) SearchFiles(sessionID string, searchPath string, query str
 		maxResults = 200
 	}
 
-	// 对用户输入进行转义，防止命令注入
-	// find 的 -name 参数使用单引号包裹，内部单引号用 '\'' 转义
-	escapedQuery := strings.ReplaceAll(query, "'", "'\\''")
+	// 过滤换行符（防止 find -iname 模式包含换行导致静默无结果）
+	query = strings.ReplaceAll(query, "\n", "")
+	query = strings.ReplaceAll(query, "\r", "")
+	searchPath = strings.ReplaceAll(searchPath, "\n", "")
+	searchPath = strings.ReplaceAll(searchPath, "\r", "")
+
+	// 转义 find glob 元字符（* ? [ ] \），使 -iname 按字面量匹配
+	globEscapedQuery := strings.NewReplacer("\\", "\\\\", "*", "\\*", "?", "\\?", "[", "\\[", "]", "\\]").Replace(query)
+
+	// 对用户输入进行 shell 单引号转义，防止命令注入
+	escapedQuery := strings.ReplaceAll(globEscapedQuery, "'", "'\\''")
 	escapedPath := strings.ReplaceAll(searchPath, "'", "'\\''")
 
 	// 使用 find 命令递归搜索：

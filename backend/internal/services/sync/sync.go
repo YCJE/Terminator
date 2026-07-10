@@ -157,6 +157,13 @@ func (s *SyncService) Sync(ctx context.Context) (err error) {
 	serverUrl := user.ServerUrl.String
 
 	if err = s.Authenticate(ctx); err != nil {
+		// 401 特殊处理：清除 token 并发射未认证状态，与 s.client.Sync 的 401 处理保持一致
+		var apiErr *api.APIError
+		if errors.As(err, &apiErr) && apiErr.StatusCode == 401 {
+			s.client.ClearToken()
+			s.emitter.EmitStatus(SyncStatusUnauthenticated)
+			return nil
+		}
 		return err
 	}
 

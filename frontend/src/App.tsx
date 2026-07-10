@@ -6,7 +6,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
 import { useAuthStore } from "@/store/authStore";
 import { Events } from "@wailsio/runtime";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { HOSTS_QUERY_KEY } from "@/hooks/useHosts.ts";
 import { KEYS_QUERY_KEY } from "@/hooks/useKeys.ts";
@@ -106,26 +106,35 @@ export default function App() {
     }, [isUnlocked, queryClient]);
 
     // 自动检查更新（cgo 禁用时会静默失败，不影响使用）
+    const isCheckingRef = useRef(false);
+
     useEffect(() => {
         if (!isUnlocked) return;
 
         const checkUpdates = () => {
-            // 已检测到更新则跳过重复下载
+            // 防止并发检查：上一次检查尚未完成时跳过
+            if (isCheckingRef.current) return;
+            // 实时读取 store 状态（非快照），避免在途状态变更不被感知
             const state = useUIStore.getState();
             if (state.updateVersionReady) return;
 
+            isCheckingRef.current = true;
             UpdaterService.CheckForUpdates()
                 .then((info) => {
-                    if (info?.isAvailable) {
-                        // 用户已忽略此版本，不再提示该版本
-                        if (state.dismissedUpdateVersion === info.version) return;
-                        UpdaterService.DownloadUpdate()
-                            .then(() => setUpdateVersionReady(info.version))
-                            .catch(console.debug);
-                    }
+                    if (!info?.isAvailable || !info.version) return;
+                    // 重新读取 store，防止在途期间用户忽略了版本
+                    const latest = useUIStore.getState();
+                    if (latest.updateVersionReady) return;
+                    if (latest.dismissedUpdateVersion === info.version) return;
+                    UpdaterService.DownloadUpdate()
+                        .then(() => setUpdateVersionReady(info.version))
+                        .catch(console.debug);
                 })
                 .catch(() => {
                     // cgo 禁用或更新服务不可用时静默忽略
+                })
+                .finally(() => {
+                    isCheckingRef.current = false;
                 });
         };
 

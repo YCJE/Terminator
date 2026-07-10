@@ -189,17 +189,20 @@ export function TerminalInstance({sessionId, isActive, config, disconnected}: Te
             });
         });
 
+        // 防抖 resize：fit() + SshService.Resize 一起延迟执行
+        // 避免拖拽面板宽度时大量 fit() 调用导致闪烁和卡顿
         let resizeTimer: ReturnType<typeof setTimeout> | null = null;
         const resizeObserver = new ResizeObserver(() => {
             if (!fitAddonRef.current || !terminalRef.current) return;
             if (container.offsetWidth === 0 || container.offsetHeight === 0) return;
-            try {
-                fitAddonRef.current.fit();
-            } catch (e) {
-                return;
-            }
             if (resizeTimer) clearTimeout(resizeTimer);
             resizeTimer = setTimeout(() => {
+                if (!fitAddonRef.current || !terminalRef.current) return;
+                try {
+                    fitAddonRef.current.fit();
+                } catch (e) {
+                    return;
+                }
                 if (!isReadyRef.current || !terminalRef.current) return;
                 if (isActiveRef.current) {
                     SshService.Resize(sessionId, terminalRef.current.rows, terminalRef.current.cols)

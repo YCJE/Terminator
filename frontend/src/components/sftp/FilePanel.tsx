@@ -489,10 +489,11 @@ export function FilePanel({ sessionId }: FilePanelProps) {
             // 搜索结果用 fullPath，普通列表用 joinPath
             const oldPath = contextMenuPathRef.current ?? joinPath(currentPath, renameTarget);
             const newPath = contextMenuPathRef.current
-                ? joinPath(contextMenuPathRef.current.substring(0, contextMenuPathRef.current.lastIndexOf("/")) || "/", newName)
+                ? joinPath(parentPath(contextMenuPathRef.current), newName)
                 : joinPath(currentPath, newName);
             await Rename(sessionId, oldPath, newPath);
             setRenameOpen(false);
+            contextMenuPathRef.current = null;
             loadDir(currentPath);
         } catch (err) {
             handleAppError(err);
@@ -511,6 +512,7 @@ export function FilePanel({ sessionId }: FilePanelProps) {
         try {
             await Chmod(sessionId, contextMenuPathRef.current ?? joinPath(currentPath, chmodTarget), mode);
             setChmodOpen(false);
+            contextMenuPathRef.current = null;
             loadDir(currentPath);
         } catch (err) {
             handleAppError(err);
@@ -526,6 +528,7 @@ export function FilePanel({ sessionId }: FilePanelProps) {
             await Remove(sessionId, contextMenuPathRef.current ?? joinPath(currentPath, deleteTarget));
             setDeleteOpen(false);
             setDeleteTarget("");
+            contextMenuPathRef.current = null;
             loadDir(currentPath);
         } catch (err) {
             handleAppError(err);
@@ -931,7 +934,7 @@ export function FilePanel({ sessionId }: FilePanelProps) {
                             entries={entries}
                             loading={loading}
                             onOpen={handleOpen}
-                            onContextMenu={(entry, e) => setContextMenu({ entry, x: e.clientX, y: e.clientY })}
+                            onContextMenu={(entry, e) => { contextMenuPathRef.current = null; setContextMenu({ entry, x: e.clientX, y: e.clientY }); }}
                             filterText={searchText}
                             onScrollChange={(top) => { currentScrollTop.current = top; }}
                             restoreScrollTop={restoreScrollTop}

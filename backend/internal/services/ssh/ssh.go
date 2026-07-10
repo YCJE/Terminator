@@ -181,6 +181,11 @@ func (s *SshService) Connect(config *SSHConnectionConfig) error {
 		// client 的生命周期由连接池 refCount 管理
 		keepaliveDone := make(chan struct{})
 		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					slog.Error("keepalive goroutine panic", "panic", r, "stack", string(debug.Stack()))
+				}
+			}()
 			ticker := time.NewTicker(30 * time.Second)
 			defer ticker.Stop()
 			for {
@@ -672,8 +677,9 @@ func (s *SshService) ExecCommand(sessionID string, command string, timeout time.
 		go func() {
 			<-ctx.Done()
 			if ctx.Err() == context.DeadlineExceeded {
-				// 仅超时时才 kill，正常完成不发送多余信号
-				_ = session.Signal(ssh.SIGKILL)
+				// 超时后直接关闭 session，使 CombinedOutput 返回
+				// 不调用 session.Signal：它使用 wantReply=true 会阻塞等待服务器响应，
+				// 如果服务器无响应（正是超时的原因），Signal 会永久阻塞
 				closeSession()
 			}
 		}()

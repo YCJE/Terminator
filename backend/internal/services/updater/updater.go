@@ -255,10 +255,15 @@ func (s *UpdaterService) DownloadUpdate() error {
 	s.mu.Lock()
 	manager := s.manager
 	latest := s.latest
+	state := s.state
 	s.mu.Unlock()
 
 	if manager == nil || latest == nil {
 		return fmt.Errorf("no update pending")
+	}
+	// 已下载完成则跳过，避免重复下载
+	if state == stateDownloaded {
+		return nil
 	}
 
 	err := manager.DownloadUpdates(latest, func(progress uint) {
