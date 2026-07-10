@@ -1,6 +1,6 @@
 // SFTP 服务导出聚合
 
-export type { FileEntry } from "./sftp.js";
+export type { FileEntry, SearchResultEntry } from "./sftp.js";
 
 export {
     ListDir,
@@ -12,4 +12,5 @@ export {
     UploadFile,
     DownloadFile,
     HomeDir,
+    SearchFiles,
 } from "./sftp.js";

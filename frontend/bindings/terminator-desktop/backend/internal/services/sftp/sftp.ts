@@ -57,3 +57,16 @@ export function DownloadFile(sessionId: string, transferId: string, remotePath: 
 export function HomeDir(sessionId: string): $CancellablePromise<string> {
     return $Call.ByID(2880722651, sessionId);
 }
+
+/** 搜索结果条目，包含完整路径 */
+export interface SearchResultEntry {
+    path: string;
+    name: string;
+    size: number;
+    isDir: boolean;
+}
+
+/** 递归搜索文件/目录，searchPath 为起始目录，query 为文件名关键词 */
+export function SearchFiles(sessionId: string, searchPath: string, query: string, maxResults: number): $CancellablePromise<SearchResultEntry[]> {
+    return $Call.ByID(3847291106, sessionId, searchPath, query, maxResults);
+}

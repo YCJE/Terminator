@@ -19,6 +19,8 @@ import {
     Trash2,
     Search,
     X,
+    FolderSearch,
+    Loader2,
 } from "lucide-react";
 import { Dialogs } from "@wailsio/runtime";
 import { toast } from "sonner";
@@ -32,7 +34,9 @@ import {
     UploadFile,
     DownloadFile,
     HomeDir,
+    SearchFiles,
     type FileEntry,
+    type SearchResultEntry,
 } from "../../../bindings/terminator-desktop/backend/internal/services/sftp";
 import { useTransferStore } from "@/store/transferStore";
 import { useSessionStore } from "@/store/sessionStore";
@@ -57,6 +61,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { ConfirmModal } from "@/components/ui/confirm-modal";
 import { cn } from "@/lib/utils";
+import { formatFileSize } from "@/lib/format";
 import { handleAppError } from "@/lib/error";
 import { useTranslation } from "react-i18next";
 
@@ -135,6 +140,12 @@ export function FilePanel({ sessionId }: FilePanelProps) {
     const [entries, setEntries] = useState<FileEntry[]>([]);
     const [loading, setLoading] = useState(true);
     const [searchText, setSearchText] = useState("");
+    // 搜索模式："local" = 当前目录（即时过滤），"global" = 递归搜索整个系统
+    const [searchMode, setSearchMode] = useState<"local" | "global">("local");
+    const [searchResults, setSearchResults] = useState<SearchResultEntry[] | null>(null);
+    const [searching, setSearching] = useState(false);
+    const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const searchIdRef = useRef(0);
 
     // 滚动位置记忆：path -> scrollTop
     // 用户浏览目录时保存滚动位置，返回上级时恢复到之前的浏览位置
@@ -203,8 +214,9 @@ export function FilePanel({ sessionId }: FilePanelProps) {
         scrollPositions.current.set(currentPathRef.current, currentScrollTop.current);
         // 设置目标目录的恢复位置（首次访问为 0）
         setRestoreScrollTop(scrollPositions.current.get(path) ?? 0);
-        // 清空搜索文本
+        // 清空搜索文本和结果
         setSearchText("");
+        setSearchResults(null);
 
         const myId = ++loadIdRef.current;
         setLoading(true);
@@ -514,6 +526,50 @@ export function FilePanel({ sessionId }: FilePanelProps) {
         if (p !== currentPath) loadDir(p);
     };
 
+    // 全局搜索：递归搜索整个文件系统，使用防抖避免频繁请求
+    const triggerGlobalSearch = useCallback((query: string) => {
+        // 清除上一次的防抖定时器
+        if (searchTimer.current) {
+            clearTimeout(searchTimer.current);
+        }
+
+        const trimmed = query.trim();
+        if (!trimmed) {
+            setSearchResults(null);
+            setSearching(false);
+            return;
+        }
+
+        setSearching(true);
+        searchTimer.current = setTimeout(async () => {
+            const myId = ++searchIdRef.current;
+            try {
+                // 全局搜索从根目录 / 开始
+                const results = await SearchFiles(sessionId, "/", trimmed, 200);
+                // 检查是否是最新的搜索请求
+                if (myId !== searchIdRef.current) return;
+                setSearchResults(results || []);
+            } catch (err) {
+                if (myId !== searchIdRef.current) return;
+                handleAppError(err);
+                setSearchResults([]);
+            } finally {
+                if (myId === searchIdRef.current) {
+                    setSearching(false);
+                }
+            }
+        }, 500);
+    }, [sessionId]);
+
+    // 组件卸载时清理防抖定时器
+    useEffect(() => {
+        return () => {
+            if (searchTimer.current) {
+                clearTimeout(searchTimer.current);
+            }
+        };
+    }, []);
+
     // 拖拽调整面板宽度
     // 用 ref 存储监听器引用，组件卸载时兜底清理
     const resizeCleanupRef = useRef<(() => void) | null>(null);
@@ -660,19 +716,62 @@ export function FilePanel({ sessionId }: FilePanelProps) {
                 {currentPath}
             </div>
 
-            {/* 搜索栏：实时过滤当前目录的文件/文件夹 */}
+            {/* 搜索栏：支持当前目录过滤 / 全系统递归搜索两种模式 */}
             <div className="flex items-center gap-1.5 border-b border-border px-2 py-1">
-                <Search className="size-3.5 shrink-0 text-muted-foreground" />
+                {/* 搜索模式切换按钮 */}
+                <button
+                    onClick={() => {
+                        const newMode = searchMode === "local" ? "global" : "local";
+                        setSearchMode(newMode);
+                        // 切换模式时清空搜索结果
+                        setSearchResults(null);
+                        // 如果有搜索文本且切换到 global，触发全局搜索
+                        if (newMode === "global" && searchText.trim()) {
+                            triggerGlobalSearch(searchText);
+                        }
+                    }}
+                    className={cn(
+                        "shrink-0 rounded p-0.5 transition-colors",
+                        searchMode === "global"
+                            ? "text-primary bg-primary/10"
+                            : "text-muted-foreground hover:text-foreground"
+                    )}
+                    title={searchMode === "local" ? t("search_mode_local") : t("search_mode_global")}
+                >
+                    {searchMode === "local"
+                        ? <Search className="size-3.5" />
+                        : <FolderSearch className="size-3.5" />
+                    }
+                </button>
                 <input
                     value={searchText}
-                    onChange={(e) => setSearchText(e.target.value)}
-                    placeholder={t("search_placeholder")}
+                    onChange={(e) => {
+                        const val = e.target.value;
+                        setSearchText(val);
+                        if (searchMode === "global") {
+                            // 全局搜索：防抖 500ms
+                            triggerGlobalSearch(val);
+                        }
+                    }}
+                    placeholder={searchMode === "local"
+                        ? t("search_placeholder")
+                        : t("search_global_placeholder")
+                    }
                     className="h-5 flex-1 bg-transparent text-xs outline-none placeholder:text-muted-foreground/60"
-                    onKeyDown={(e) => { if (e.key === "Escape") setSearchText(""); }}
+                    onKeyDown={(e) => {
+                        if (e.key === "Escape") {
+                            setSearchText("");
+                            setSearchResults(null);
+                        }
+                    }}
                 />
-                {searchText && (
+                {searching && <Loader2 className="size-3.5 shrink-0 animate-spin text-muted-foreground" />}
+                {searchText && !searching && (
                     <button
-                        onClick={() => setSearchText("")}
+                        onClick={() => {
+                            setSearchText("");
+                            setSearchResults(null);
+                        }}
                         className="shrink-0 text-muted-foreground hover:text-foreground"
                         title={t("clear", { ns: "common", defaultValue: "Clear" })}
                     >
@@ -734,17 +833,93 @@ export function FilePanel({ sessionId }: FilePanelProps) {
                         />
                     </>
                 )}
-                {/* 右侧文件列表 */}
+                {/* 右侧文件列表 / 搜索结果 */}
                 <div className="flex-1 overflow-hidden">
-                    <FileTable
-                        entries={entries}
-                        loading={loading}
-                        onOpen={handleOpen}
-                        onContextMenu={(entry, e) => setContextMenu({ entry, x: e.clientX, y: e.clientY })}
-                        filterText={searchText}
-                        onScrollChange={(top) => { currentScrollTop.current = top; }}
-                        restoreScrollTop={restoreScrollTop}
-                    />
+                    {searchResults ? (
+                        /* 全局搜索结果列表 */
+                        <div className="flex h-full flex-col overflow-hidden">
+                            <div className="border-b border-border bg-muted/40 px-3 py-1.5 text-xs font-medium text-muted-foreground">
+                                {searching
+                                    ? t("searching")
+                                    : t("search_results_count", { count: searchResults.length })
+                                }
+                            </div>
+                            <div className="flex-1 overflow-y-auto overflow-x-hidden">
+                                {searchResults.length === 0 && !searching ? (
+                                    <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+                                        {t("no_search_results")}
+                                    </div>
+                                ) : (
+                                    searchResults.map((item) => (
+                                        <div
+                                            key={item.path}
+                                            onClick={() => {}}
+                                            onDoubleClick={() => {
+                                                if (item.isDir) {
+                                                    loadDir(item.path);
+                                                } else {
+                                                    // 导航到文件所在目录
+                                                    const dir = item.path.substring(0, item.path.lastIndexOf("/")) || "/";
+                                                    loadDir(dir);
+                                                }
+                                                setSearchResults(null);
+                                                setSearchText("");
+                                            }}
+                                            onContextMenu={(e) => {
+                                                e.preventDefault();
+                                                // 将搜索结果转为 FileEntry 供右键菜单使用
+                                                setContextMenu({
+                                                    entry: {
+                                                        name: item.name,
+                                                        size: item.size,
+                                                        mode: "",
+                                                        modTime: "",
+                                                        isDir: item.isDir,
+                                                        isSymlink: false,
+                                                    },
+                                                    x: e.clientX,
+                                                    y: e.clientY,
+                                                });
+                                            }}
+                                            className="grid cursor-default items-center gap-2 px-3 py-1.5 text-sm overflow-hidden transition-colors hover:bg-accent/60"
+                                            style={{ gridTemplateColumns: "minmax(0,1fr) 60px" }}
+                                            title={item.path}
+                                        >
+                                            <div className="flex min-w-0 items-center gap-2 overflow-hidden">
+                                                <span className="shrink-0">
+                                                    {item.isDir
+                                                        ? <Folder className="size-4 text-primary" />
+                                                        : <FileText className="size-4 text-muted-foreground" />
+                                                    }
+                                                </span>
+                                                <div className="flex min-w-0 flex-col">
+                                                    <span className={cn("truncate", item.isDir && "font-medium")}>
+                                                        {item.name}
+                                                    </span>
+                                                    <span className="truncate text-[0.625rem] text-muted-foreground/60">
+                                                        {item.path}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                            <span className="truncate text-right text-muted-foreground">
+                                                {item.isDir ? "-" : formatFileSize(item.size)}
+                                            </span>
+                                        </div>
+                                    ))
+                                )}
+                            </div>
+                        </div>
+                    ) : (
+                        <FileTable
+                            entries={entries}
+                            loading={loading}
+                            onOpen={handleOpen}
+                            onContextMenu={(entry, e) => setContextMenu({ entry, x: e.clientX, y: e.clientY })}
+                            filterText={searchText}
+                            onScrollChange={(top) => { currentScrollTop.current = top; }}
+                            restoreScrollTop={restoreScrollTop}
+                        />
+                    )}
                 </div>
             </div>
 

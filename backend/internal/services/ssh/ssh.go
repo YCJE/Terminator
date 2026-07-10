@@ -638,6 +638,37 @@ func (s *SshService) ResetSFTPClient(sessionID string) {
 	}
 }
 
+// ExecCommand 在指定会话的 SSH 连接上执行非交互式命令，返回合并的 stdout+stderr 输出。
+// 使用独立的 session（不影响交互式 shell），执行完毕后立即关闭。
+// timeout 为 0 表示不超时。
+func (s *SshService) ExecCommand(sessionID string, command string, timeout time.Duration) (string, error) {
+	s.mu.RLock()
+	active, exists := s.sessions[sessionID]
+	s.mu.RUnlock()
+
+	if !exists {
+		return "", apperror.SSHSessionNotFound()
+	}
+
+	var session *ssh.Session
+	var err error
+	if timeout > 0 {
+		session, err = active.client.NewSession()
+	} else {
+		session, err = active.client.NewSession()
+	}
+	if err != nil {
+		return "", fmt.Errorf("创建命令会话失败: %w", err)
+	}
+	defer session.Close()
+
+	output, err := session.CombinedOutput(command)
+	if err != nil {
+		return string(output), err
+	}
+	return string(output), nil
+}
+
 // AddPortForward 添加端口转发
 func (s *SshService) AddPortForward(spec *PortForwardSpec) error {
 	s.mu.RLock()

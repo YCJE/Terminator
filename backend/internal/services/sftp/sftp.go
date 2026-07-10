@@ -238,6 +238,81 @@ func (s *SftpService) HomeDir(sessionID string) (string, error) {
 	return dir, nil
 }
 
+// SearchResultEntry 描述搜索结果中的一个条目，包含完整路径。
+type SearchResultEntry struct {
+	Path  string `json:"path"`  // 完整路径
+	Name  string `json:"name"`  // 文件名（不含路径）
+	Size  int64  `json:"size"`  // 字节数
+	IsDir bool   `json:"isDir"` // 是否为目录
+}
+
+// SearchFiles 递归搜索远程文件系统中的文件/目录。
+// searchPath 为搜索起始目录，query 为搜索关键词（匹配文件名）。
+// maxResults 限制返回结果数量，0 表示使用默认值 200。
+// 使用 find 命令实现，比递归 SFTP ListDir 快数十倍。
+func (s *SftpService) SearchFiles(sessionID string, searchPath string, query string, maxResults int) ([]SearchResultEntry, error) {
+	if maxResults <= 0 {
+		maxResults = 200
+	}
+
+	// 对用户输入进行转义，防止命令注入
+	// find 的 -name 参数使用单引号包裹，内部单引号用 '\'' 转义
+	escapedQuery := strings.ReplaceAll(query, "'", "'\\''")
+	escapedPath := strings.ReplaceAll(searchPath, "'", "'\\''")
+
+	// 使用 find 命令递归搜索：
+	// -maxdepth 10 限制递归深度避免无限遍历
+	// -name 匹配文件名（大小写不敏感用 -iname）
+	// -print 限制输出格式
+	// 2>/dev/null 静默权限错误
+	// head -n 限制结果数量
+	limitArg := fmt.Sprintf("-%d", maxResults)
+	cmd := fmt.Sprintf("find '%s' -maxdepth 10 -iname '*%s*' -print 2>/dev/null | head -n %s",
+		escapedPath, escapedQuery, limitArg)
+
+	output, err := s.sshSvc.ExecCommand(sessionID, cmd, 30*time.Second)
+	if err != nil && output == "" {
+		return nil, fmt.Errorf("搜索文件失败: %w", err)
+	}
+
+	// 解析 find 输出：每行一个完整路径
+	lines := strings.Split(strings.TrimSpace(output), "\n")
+	results := make([]SearchResultEntry, 0, len(lines))
+
+	// 获取 SFTP 客户端用于查询文件信息（大小、类型）
+	client, clientErr := s.sshSvc.GetSFTPClient(sessionID)
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
+		// 提取文件名
+		name := line
+		if idx := strings.LastIndex(line, "/"); idx >= 0 && idx < len(line)-1 {
+			name = line[idx+1:]
+		}
+
+		entry := SearchResultEntry{
+			Path: line,
+			Name: name,
+		}
+
+		// 尝试获取文件信息
+		if clientErr == nil {
+			if info, err := client.Stat(line); err == nil {
+				entry.Size = info.Size()
+				entry.IsDir = info.IsDir()
+			}
+		}
+
+		results = append(results, entry)
+	}
+
+	return results, nil
+}
+
 // UploadFile 将本地文件上传到远程路径。
 // 该方法是同步的（Wails 绑定调用），但会通过 emitter 持续推送传输进度，
 // 前端可据 transferID 关联进度事件。传输结束（无论成功失败）推送完成事件。
