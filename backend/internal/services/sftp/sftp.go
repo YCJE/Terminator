@@ -131,6 +131,10 @@ func (s *SftpService) ReadFile(sessionID string, path string) (string, error) {
 	if info.IsDir() {
 		return "", fmt.Errorf("%q 是目录，无法预览", path)
 	}
+	// 拒绝非常规文件（设备文件、管道、套接字等），避免 SFTP 读取返回 SSH_FX_BAD_MESSAGE
+	if !info.Mode().IsRegular() {
+		return "", fmt.Errorf("%q 不是常规文件，无法预览", path)
+	}
 
 	file, err := client.Open(path)
 	if err != nil {
