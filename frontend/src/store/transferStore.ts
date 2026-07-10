@@ -22,6 +22,8 @@ interface TransferState {
     updateTransfer: (id: string, updates: Partial<TransferItem>) => void;
     removeTransfer: (id: string) => void;
     clearCompleted: () => void;
+    removeTransfersBySession: (sessionId: string) => void;
+    clearAll: () => void;
 }
 
 // 进度节流：同一 transferID 的进度事件最多每 200ms 更新一次 UI
@@ -55,7 +57,7 @@ function ensureFlushTimer(set: (fn: (s: TransferState) => Partial<TransferState>
     }, THROTTLE_MS);
 }
 
-export const useTransferStore = create<TransferState>((set) => ({
+export const useTransferStore = create<TransferState>((set, get) => ({
     transfers: [],
 
     addTransfer: (item) => {
@@ -105,4 +107,22 @@ export const useTransferStore = create<TransferState>((set) => ({
     clearCompleted: () => set((state) => ({
         transfers: state.transfers.filter((t) => t.status === "active"),
     })),
+
+    // 清理指定会话的所有传输任务（会话断开/移除时调用）
+    removeTransfersBySession: (sessionId) => {
+        const state = get();
+        const toRemove = state.transfers.filter((t) => t.sessionId === sessionId);
+        for (const t of toRemove) {
+            progressThrottle.delete(t.id);
+            pendingUpdates.delete(t.id);
+        }
+        set({transfers: state.transfers.filter((t) => t.sessionId !== sessionId)});
+    },
+
+    // 清空所有传输任务
+    clearAll: () => {
+        progressThrottle.clear();
+        pendingUpdates.clear();
+        set({transfers: []});
+    },
 }));

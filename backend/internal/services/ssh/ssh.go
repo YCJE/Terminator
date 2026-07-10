@@ -1,6 +1,7 @@
 package ssh
 
 import (
+	"context"
 	"encoding/base64"
 	"fmt"
 	"io"
@@ -152,12 +153,16 @@ func (s *SshService) Connect(config *SSHConnectionConfig) error {
 	}
 
 	if err = session.RequestPty("xterm-256color", 24, 80, modes); err != nil {
+		_ = pw.Close()
+		_ = pr.Close()
 		_ = session.Close()
 		s.releaseClient(config, client)
 		return apperror.SSHConnectionFailed("failed to request PTY", err)
 	}
 
 	if err = session.Shell(); err != nil {
+		_ = pw.Close()
+		_ = pr.Close()
 		_ = session.Close()
 		s.releaseClient(config, client)
 		return apperror.SSHConnectionFailed("failed to start shell", err)
@@ -650,17 +655,29 @@ func (s *SshService) ExecCommand(sessionID string, command string, timeout time.
 		return "", apperror.SSHSessionNotFound()
 	}
 
-	var session *ssh.Session
-	var err error
-	if timeout > 0 {
-		session, err = active.client.NewSession()
-	} else {
-		session, err = active.client.NewSession()
-	}
+	session, err := active.client.NewSession()
 	if err != nil {
 		return "", fmt.Errorf("创建命令会话失败: %w", err)
 	}
-	defer session.Close()
+
+	// 使用 sync.Once 确保 session.Close() 只执行一次，避免并发关闭竞态
+	var closeOnce sync.Once
+	closeSession := func() { closeOnce.Do(func() { _ = session.Close() }) }
+	defer closeSession()
+
+	// 超时控制：通过 context 取消 session
+	if timeout > 0 {
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+		go func() {
+			<-ctx.Done()
+			if ctx.Err() == context.DeadlineExceeded {
+				// 仅超时时才 kill，正常完成不发送多余信号
+				_ = session.Signal(ssh.SIGKILL)
+				closeSession()
+			}
+		}()
+	}
 
 	output, err := session.CombinedOutput(command)
 	if err != nil {

@@ -162,8 +162,15 @@ export function FilePanel({ sessionId }: FilePanelProps) {
     const dualPanelRef = useRef(dualPanel);
     dualPanelRef.current = dualPanel;
 
-    // 右键菜单状态
-    const [contextMenu, setContextMenu] = useState<{ entry: FileEntry; x: number; y: number } | null>(null);
+    // 右键菜单状态（fullPath 用于搜索结果中的绝对路径操作）
+    const [contextMenu, setContextMenu] = useState<{ entry: FileEntry; x: number; y: number; fullPath?: string } | null>(null);
+
+    // 解析右键菜单操作的文件路径：搜索结果用 fullPath，普通列表用 joinPath
+    const resolveEntryPath = (entry: FileEntry) => {
+        return contextMenu?.fullPath ?? joinPath(currentPath, entry.name);
+    };
+    // 存储右键菜单的完整路径（用于 rename/chmod/delete 等对话框操作）
+    const contextMenuPathRef = useRef<string | null>(null);
 
     // 各类对话框状态
     const [mkdirOpen, setMkdirOpen] = useState(false);
@@ -371,7 +378,8 @@ export function FilePanel({ sessionId }: FilePanelProps) {
             return;
         }
         try {
-            const content = await ReadFile(sessionId, joinPath(currentPath, entry.name));
+            const path = resolveEntryPath(entry);
+            const content = await ReadFile(sessionId, path);
             setPreviewEntry(entry);
             setPreviewContent(content ?? "");
             setPreviewOpen(true);
@@ -431,7 +439,7 @@ export function FilePanel({ sessionId }: FilePanelProps) {
 
     // 下载文件：弹出系统保存框
     const handleDownload = async (entry: FileEntry) => {
-        const remotePath = joinPath(currentPath, entry.name);
+        const remotePath = resolveEntryPath(entry);
         try {
             const localPath = await Dialogs.SaveFile({ Title: t("download"), Filename: entry.name });
             if (!localPath) return;
@@ -478,7 +486,12 @@ export function FilePanel({ sessionId }: FilePanelProps) {
         const newName = renameValue.trim();
         if (!newName || !renameTarget) return;
         try {
-            await Rename(sessionId, joinPath(currentPath, renameTarget), joinPath(currentPath, newName));
+            // 搜索结果用 fullPath，普通列表用 joinPath
+            const oldPath = contextMenuPathRef.current ?? joinPath(currentPath, renameTarget);
+            const newPath = contextMenuPathRef.current
+                ? joinPath(contextMenuPathRef.current.substring(0, contextMenuPathRef.current.lastIndexOf("/")) || "/", newName)
+                : joinPath(currentPath, newName);
+            await Rename(sessionId, oldPath, newPath);
             setRenameOpen(false);
             loadDir(currentPath);
         } catch (err) {
@@ -496,7 +509,7 @@ export function FilePanel({ sessionId }: FilePanelProps) {
         }
         const mode = parseInt(chmodValue, 8);
         try {
-            await Chmod(sessionId, joinPath(currentPath, chmodTarget), mode);
+            await Chmod(sessionId, contextMenuPathRef.current ?? joinPath(currentPath, chmodTarget), mode);
             setChmodOpen(false);
             loadDir(currentPath);
         } catch (err) {
@@ -510,7 +523,7 @@ export function FilePanel({ sessionId }: FilePanelProps) {
         if (!deleteTarget || isDeleting) return;
         setIsDeleting(true);
         try {
-            await Remove(sessionId, joinPath(currentPath, deleteTarget));
+            await Remove(sessionId, contextMenuPathRef.current ?? joinPath(currentPath, deleteTarget));
             setDeleteOpen(false);
             setDeleteTarget("");
             loadDir(currentPath);
@@ -535,6 +548,7 @@ export function FilePanel({ sessionId }: FilePanelProps) {
 
         const trimmed = query.trim();
         if (!trimmed) {
+            ++searchIdRef.current; // 使在途搜索失效，防止旧结果覆盖已清空状态
             setSearchResults(null);
             setSearching(false);
             return;
@@ -723,7 +737,8 @@ export function FilePanel({ sessionId }: FilePanelProps) {
                     onClick={() => {
                         const newMode = searchMode === "local" ? "global" : "local";
                         setSearchMode(newMode);
-                        // 切换模式时清空搜索结果
+                        // 切换模式时清空搜索结果，使在途搜索失效
+                        ++searchIdRef.current;
                         setSearchResults(null);
                         // 如果有搜索文本且切换到 global，触发全局搜索
                         if (newMode === "global" && searchText.trim()) {
@@ -868,6 +883,7 @@ export function FilePanel({ sessionId }: FilePanelProps) {
                                             onContextMenu={(e) => {
                                                 e.preventDefault();
                                                 // 将搜索结果转为 FileEntry 供右键菜单使用
+                                                // fullPath 存储绝对路径，避免操作错误文件
                                                 setContextMenu({
                                                     entry: {
                                                         name: item.name,
@@ -879,6 +895,7 @@ export function FilePanel({ sessionId }: FilePanelProps) {
                                                     },
                                                     x: e.clientX,
                                                     y: e.clientY,
+                                                    fullPath: item.path,
                                                 });
                                             }}
                                             className="grid cursor-default items-center gap-2 px-3 py-1.5 text-sm overflow-hidden transition-colors hover:bg-accent/60"
@@ -955,16 +972,16 @@ export function FilePanel({ sessionId }: FilePanelProps) {
                                 <Download className="size-4" /> {t("download")}
                             </DropdownMenuItem>
                         )}
-                        <DropdownMenuItem onClick={() => { setRenameTarget(contextMenu.entry.name); setRenameValue(contextMenu.entry.name); setRenameOpen(true); setContextMenu(null); }}>
-                            <Pencil className="size-4" /> {t("rename")}
+                        <DropdownMenuItem onClick={() => { setRenameTarget(contextMenu.entry.name); setRenameValue(contextMenu.entry.name); setRenameOpen(true); contextMenuPathRef.current = contextMenu.fullPath ?? null; setContextMenu(null); }}>
+                            <Pencil className="mr-2 size-4" /> {t("rename")}
                         </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => { setChmodTarget(contextMenu.entry.name); setChmodValue(toOctal(contextMenu.entry.mode)); setChmodOpen(true); setContextMenu(null); }}>
-                            <Lock className="size-4" /> {t("chmod")}
+                        <DropdownMenuItem onClick={() => { setChmodTarget(contextMenu.entry.name); setChmodValue(toOctal(contextMenu.entry.mode)); setChmodOpen(true); contextMenuPathRef.current = contextMenu.fullPath ?? null; setContextMenu(null); }}>
+                            <Lock className="mr-2 size-4" /> {t("chmod")}
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem
                             variant="destructive"
-                            onClick={() => { setDeleteTarget(contextMenu.entry.name); setDeleteOpen(true); setContextMenu(null); }}
+                            onClick={() => { setDeleteTarget(contextMenu.entry.name); setDeleteOpen(true); contextMenuPathRef.current = contextMenu.fullPath ?? null; setContextMenu(null); }}
                         >
                             <Trash2 className="size-4" /> {t("delete")}
                         </DropdownMenuItem>

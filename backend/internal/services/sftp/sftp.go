@@ -262,13 +262,12 @@ func (s *SftpService) SearchFiles(sessionID string, searchPath string, query str
 
 	// 使用 find 命令递归搜索：
 	// -maxdepth 10 限制递归深度避免无限遍历
-	// -name 匹配文件名（大小写不敏感用 -iname）
-	// -print 限制输出格式
+	// -iname 匹配文件名（大小写不敏感）
+	// -print 输出完整路径
 	// 2>/dev/null 静默权限错误
-	// head -n 限制结果数量
-	limitArg := fmt.Sprintf("-%d", maxResults)
-	cmd := fmt.Sprintf("find '%s' -maxdepth 10 -iname '*%s*' -print 2>/dev/null | head -n %s",
-		escapedPath, escapedQuery, limitArg)
+	// head -n N 限制结果数量（注意：正数 N 表示前 N 行）
+	cmd := fmt.Sprintf("find '%s' -maxdepth 10 -iname '*%s*' -print 2>/dev/null | head -n %d",
+		escapedPath, escapedQuery, maxResults)
 
 	output, err := s.sshSvc.ExecCommand(sessionID, cmd, 30*time.Second)
 	if err != nil && output == "" {

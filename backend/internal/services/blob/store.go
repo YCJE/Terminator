@@ -98,7 +98,8 @@ func getAllItems[T any](ctx context.Context, q *dbgen.Queries, v *vault.Vault, e
 
 func deleteItem(ctx context.Context, q *dbgen.Queries, v *vault.Vault, id string) error {
 	// 检查 vault 是否解锁，与 saveItem/getAllItems 保持一致
-	if _, err := v.GetMasterKey(); err != nil {
+	// 用 IsUnlocked 而非 GetMasterKey，避免不必要地获取主密钥副本
+	if !v.IsUnlocked() {
 		return apperror.VaultLocked()
 	}
 	return q.SoftDeleteBlob(ctx, dbgen.SoftDeleteBlobParams{

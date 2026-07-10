@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { SSHConnectionConfig, SshService } from "../../bindings/terminator-desktop/backend/internal/services/ssh";
 import { useUIStore, ViewType } from "@/store/uiStore";
+import { useTransferStore } from "@/store/transferStore";
 
 export type SessionStatus = "connecting" | "connected" | "disconnected";
 
@@ -83,6 +84,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
     removeSession: (id) => {
         SshService.Disconnect(id).catch(console.error);
+        // 清理关联的传输任务，避免孤儿数据
+        useTransferStore.getState().removeTransfersBySession(id);
 
         let shouldGoToHosts = false;
 
@@ -110,6 +113,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         // 在 set 之外触发其他 store 的状态变更，避免更新顺序不确定
         if (shouldGoToHosts) {
             useUIStore.getState().setActiveView(ViewType.Hosts);
+            useUIStore.getState().setFilePanelVisible(false);
         }
     },
 
@@ -149,7 +153,10 @@ export const useSessionStore = create<SessionState>((set, get) => ({
             SshService.Disconnect(session.id).catch(console.error);
         });
 
+        // 清空所有传输任务
+        useTransferStore.getState().clearAll();
         useUIStore.getState().setActiveView(ViewType.Hosts);
+        useUIStore.getState().setFilePanelVisible(false);
         set({sessions: [], activeSessionId: null});
     }
 }));
