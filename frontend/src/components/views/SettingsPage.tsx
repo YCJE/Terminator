@@ -154,7 +154,7 @@ export function SettingsPage() {
             });
 
             await SettingsService.SaveSettings(updated);
-            void i18n.changeLanguage(lng);
+            await i18n.changeLanguage(lng);
         } catch (error) {
             handleAppError(error);
         }

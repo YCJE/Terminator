@@ -24,6 +24,16 @@ export function formatServerUrl(inputUrl: string): string {
         cleanUrl = `https://${cleanUrl}`;
     }
 
+    // 校验 URL 合法性：hostname 非空且协议为 http/https
+    try {
+        const parsed = new URL(cleanUrl);
+        if (!parsed.hostname) {
+            throw new Error("missing hostname");
+        }
+    } catch {
+        throw new Error("invalid server URL");
+    }
+
     // Strip query/hash for the /api/v1 suffix check, then re-attach.
     const qIdx = cleanUrl.search(/[?#]/);
     let query = "";

@@ -702,6 +702,14 @@ func (s *SshService) AddPortForward(spec *PortForwardSpec) error {
 		return apperror.SSHSessionNotFound()
 	}
 
+	// 限制端口转发总数，防止资源耗尽
+	s.forwardsMu.Lock()
+	if len(s.forwards) >= 100 {
+		s.forwardsMu.Unlock()
+		return fmt.Errorf("端口转发总数已达上限（100）")
+	}
+	s.forwardsMu.Unlock()
+
 	switch spec.Type {
 	case "local":
 		return s.startLocalForward(spec, active.client)
@@ -716,7 +724,11 @@ func (s *SshService) startLocalForward(spec *PortForwardSpec, client *ssh.Client
 	localAddr := fmt.Sprintf("%s:%d", spec.LocalHost, spec.LocalPort)
 	listener, err := net.Listen("tcp", localAddr)
 	if err != nil {
-		return fmt.Errorf("failed to listen on %s: %w", localAddr, err)
+		// 友好提示端口占用
+		if strings.Contains(err.Error(), "address already in use") {
+			return fmt.Errorf("本地端口 %d 已被占用", spec.LocalPort)
+		}
+		return fmt.Errorf("监听 %s 失败: %w", localAddr, err)
 	}
 
 	s.forwardsMu.Lock()

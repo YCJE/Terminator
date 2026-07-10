@@ -220,6 +220,7 @@ func main() {
 
 	defer v.Lock() // eh why not
 	defer syncService.StopAutoSync()
+	defer sshService.DisconnectAll() // 优雅断开所有 SSH 会话
 
 	// Run the application. This blocks until the application has been exited.
 	err = app.Run()

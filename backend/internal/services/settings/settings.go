@@ -144,11 +144,9 @@ func (s *SettingsService) SaveSettings(settings AppSettings) error {
 	if merged.Spaciness == 0 && existing.Spaciness != 0 {
 		merged.Spaciness = existing.Spaciness
 	}
-	// TerminalColorLink 是 bool，零值 false 无法区分"未提供"与"显式关闭"
-	// 当前端发送部分更新时（不含 terminalColorLink），保留现有值
-	if !merged.TerminalColorLink && existing.TerminalColorLink {
-		merged.TerminalColorLink = existing.TerminalColorLink
-	}
+	// TerminalColorLink: 前端始终发送完整设置对象，无需部分合并
+	// 之前用 !merged.TerminalColorLink && existing.TerminalColorLink 保留旧值，
+	// 但这导致用户无法从 true 切换到 false。移除此合并逻辑，直接使用前端传入的值。
 
 	// 值合法性校验：非法值回退为默认值
 	def := defaultSettings()

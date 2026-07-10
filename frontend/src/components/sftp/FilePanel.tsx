@@ -1049,7 +1049,7 @@ export function FilePanel({ sessionId }: FilePanelProps) {
                     />
                     <DialogFooter>
                         <Button variant="outline" onClick={() => setChmodOpen(false)}>{t("cancel", { ns: "common" })}</Button>
-                        <Button onClick={handleChmod}>{t("chmod")}</Button>
+                        <Button onClick={handleChmod} disabled={!chmodValue.trim()}>{t("chmod")}</Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>

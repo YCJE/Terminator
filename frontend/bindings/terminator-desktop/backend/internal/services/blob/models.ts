@@ -15,6 +15,7 @@ export class Host {
     "username": string;
     "password"?: string;
     "keyId"?: string;
+    "jumpHostId"?: string;
 
     /** Creates a new Host instance. */
     constructor($$source: Partial<Host> = {}) {
