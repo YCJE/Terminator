@@ -36,9 +36,12 @@ interface FileTableProps {
     loading: boolean;
     onOpen: (entry: FileEntry) => void;
     onContextMenu: (entry: FileEntry, e: React.MouseEvent) => void;
+    filterText?: string;
+    onScrollChange?: (scrollTop: number) => void;
+    restoreScrollTop?: number;
 }
 
-function FileTableImpl({ entries, loading, onOpen, onContextMenu }: FileTableProps) {
+function FileTableImpl({ entries, loading, onOpen, onContextMenu, filterText, onScrollChange, restoreScrollTop }: FileTableProps) {
     const { t } = useTranslation("sftp");
     const [sortKey, setSortKey] = useState<SortKey>("name");
     const [sortDir, setSortDir] = useState<SortDir>("asc");
@@ -76,12 +79,15 @@ function FileTableImpl({ entries, loading, onOpen, onContextMenu }: FileTablePro
         return () => observer.disconnect();
     }, [loading, entries.length]);
 
-    // 目录切换时重置滚动位置，防止从大目录切到小目录时 scrollTop 残留导致空白
+    // 目录切换时恢复滚动位置（而非总是重置为 0）
     useEffect(() => {
-        setScrollTop(0);
+        const target = restoreScrollTop ?? 0;
+        setScrollTop(target);
         if (scrollRef.current) {
-            scrollRef.current.scrollTop = 0;
+            scrollRef.current.scrollTop = target;
         }
+        // 仅在 entries 变化时执行，restoreScrollTop 此时已是目标值
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [entries]);
 
     const showSize = containerWidth > 360;
@@ -95,9 +101,16 @@ function FileTableImpl({ entries, loading, onOpen, onContextMenu }: FileTablePro
         showTime ? "100px" : "0px",
     ].join(" ");
 
+    // 按搜索文本过滤
+    const filtered = useMemo(() => {
+        if (!filterText || !filterText.trim()) return entries;
+        const q = filterText.toLowerCase().trim();
+        return entries.filter((e) => e.name.toLowerCase().includes(q));
+    }, [entries, filterText]);
+
     const sorted = useMemo(() => {
-        const dirs = entries.filter((e) => e.isDir);
-        const files = entries.filter((e) => !e.isDir);
+        const dirs = filtered.filter((e) => e.isDir);
+        const files = filtered.filter((e) => !e.isDir);
 
         const cmp = (a: FileEntry, b: FileEntry) => {
             let result = 0;
@@ -112,7 +125,7 @@ function FileTableImpl({ entries, loading, onOpen, onContextMenu }: FileTablePro
         };
 
         return [...dirs.sort(cmp), ...files.sort(cmp)];
-    }, [entries, sortKey, sortDir]);
+    }, [filtered, sortKey, sortDir]);
 
     const toggleSort = (key: SortKey) => {
         if (sortKey === key) {
@@ -132,8 +145,10 @@ function FileTableImpl({ entries, loading, onOpen, onContextMenu }: FileTablePro
     const offsetY = startIndex * ROW_HEIGHT;
 
     const onScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
-        setScrollTop(e.currentTarget.scrollTop);
-    }, []);
+        const top = e.currentTarget.scrollTop;
+        setScrollTop(top);
+        onScrollChange?.(top);
+    }, [onScrollChange]);
 
     if (loading) {
         return (
@@ -148,6 +163,15 @@ function FileTableImpl({ entries, loading, onOpen, onContextMenu }: FileTablePro
         return (
             <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
                 {t("empty_dir")}
+            </div>
+        );
+    }
+
+    // 有文件但搜索结果为空
+    if (filtered.length === 0) {
+        return (
+            <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+                {t("no_search_results")}
             </div>
         );
     }

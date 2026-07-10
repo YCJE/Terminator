@@ -17,6 +17,8 @@ import {
     FileText,
     Lock,
     Trash2,
+    Search,
+    X,
 } from "lucide-react";
 import { Dialogs } from "@wailsio/runtime";
 import { toast } from "sonner";
@@ -132,6 +134,13 @@ export function FilePanel({ sessionId }: FilePanelProps) {
     const [currentPath, setCurrentPath] = useState("/");
     const [entries, setEntries] = useState<FileEntry[]>([]);
     const [loading, setLoading] = useState(true);
+    const [searchText, setSearchText] = useState("");
+
+    // 滚动位置记忆：path -> scrollTop
+    // 用户浏览目录时保存滚动位置，返回上级时恢复到之前的浏览位置
+    const scrollPositions = useRef<Map<string, number>>(new Map());
+    const currentScrollTop = useRef(0);
+    const [restoreScrollTop, setRestoreScrollTop] = useState(0);
 
     // ref 跟踪最新 currentPath，供异步回调使用（避免闭包陷阱）
     const currentPathRef = useRef(currentPath);
@@ -188,17 +197,22 @@ export function FilePanel({ sessionId }: FilePanelProps) {
         }
     }, [sessionId]);
 
-    // 加载指定目录的文件列表（带竞态保护）
+    // 加载指定目录的文件列表（带竞态保护 + 滚动位置记忆）
     const loadDir = useCallback(async (path: string) => {
+        // 保存当前目录的滚动位置，以便返回时恢复
+        scrollPositions.current.set(currentPathRef.current, currentScrollTop.current);
+        // 设置目标目录的恢复位置（首次访问为 0）
+        setRestoreScrollTop(scrollPositions.current.get(path) ?? 0);
+        // 清空搜索文本
+        setSearchText("");
+
         const myId = ++loadIdRef.current;
         setLoading(true);
         try {
             const list = await ListDir(sessionId, path);
-            // 如果在请求期间又有新请求发出，忽略过期响应
             if (myId !== loadIdRef.current) return;
             setCurrentPath(path);
             setEntries(list || []);
-            // 双面板模式下同步刷新目录树（确保新建/删除的目录及时反映）
             if (dualPanelRef.current) {
                 loadTreeChildren(path);
             }
@@ -646,6 +660,27 @@ export function FilePanel({ sessionId }: FilePanelProps) {
                 {currentPath}
             </div>
 
+            {/* 搜索栏：实时过滤当前目录的文件/文件夹 */}
+            <div className="flex items-center gap-1.5 border-b border-border px-2 py-1">
+                <Search className="size-3.5 shrink-0 text-muted-foreground" />
+                <input
+                    value={searchText}
+                    onChange={(e) => setSearchText(e.target.value)}
+                    placeholder={t("search_placeholder")}
+                    className="h-5 flex-1 bg-transparent text-xs outline-none placeholder:text-muted-foreground/60"
+                    onKeyDown={(e) => { if (e.key === "Escape") setSearchText(""); }}
+                />
+                {searchText && (
+                    <button
+                        onClick={() => setSearchText("")}
+                        className="shrink-0 text-muted-foreground hover:text-foreground"
+                        title={t("clear", { ns: "common", defaultValue: "Clear" })}
+                    >
+                        <X className="size-3.5" />
+                    </button>
+                )}
+            </div>
+
             {/* 文件列表区域：双面板模式下左侧显示目录树 */}
             <div className="flex flex-1 overflow-hidden">
                 {dualPanel && (
@@ -706,6 +741,9 @@ export function FilePanel({ sessionId }: FilePanelProps) {
                         loading={loading}
                         onOpen={handleOpen}
                         onContextMenu={(entry, e) => setContextMenu({ entry, x: e.clientX, y: e.clientY })}
+                        filterText={searchText}
+                        onScrollChange={(top) => { currentScrollTop.current = top; }}
+                        restoreScrollTop={restoreScrollTop}
                     />
                 </div>
             </div>
