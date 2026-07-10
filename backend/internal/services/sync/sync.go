@@ -23,6 +23,10 @@ const (
 	SyncStatusUnauthenticated = SyncStatus("unauthenticated")
 )
 
+// ErrUnauthenticated 表示同步因 401 认证失败而中止。
+// 自动同步循环应为此错误应用退避策略，避免高频重试触发服务器速率限制。
+var ErrUnauthenticated = errors.New("unauthenticated")
+
 type SyncEmitter interface {
 	EmitStatus(status SyncStatus)
 	EmitUpdatesAvailable()
@@ -124,8 +128,9 @@ func (s *SyncService) Sync(ctx context.Context) (err error) {
 	s.emitter.EmitStatus(SyncStatusSyncing)
 
 	// 统一错误处理：任何错误路径都发射 SyncStatusError
+	// ErrUnauthenticated 除外：已发射 SyncStatusUnauthenticated，不应被覆盖
 	defer func() {
-		if err != nil {
+		if err != nil && !errors.Is(err, ErrUnauthenticated) {
 			s.emitter.EmitStatus(SyncStatusError)
 		}
 	}()
@@ -162,7 +167,7 @@ func (s *SyncService) Sync(ctx context.Context) (err error) {
 		if errors.As(err, &apiErr) && apiErr.StatusCode == 401 {
 			s.client.ClearToken()
 			s.emitter.EmitStatus(SyncStatusUnauthenticated)
-			return nil
+			return ErrUnauthenticated // 返回 error 触发退避，避免高频重试
 		}
 		return err
 	}
@@ -213,8 +218,9 @@ func (s *SyncService) Sync(ctx context.Context) (err error) {
 		if errors.As(err, &apiErr) && apiErr.StatusCode == 401 {
 			s.client.ClearToken()
 			s.emitter.EmitStatus(SyncStatusUnauthenticated)
-			// 返回 nil 避免 defer 中 EmitStatus(SyncStatusError) 覆盖 Unauthenticated 状态
-			return nil
+			// 返回 ErrUnauthenticated 触发退避，避免高频重试
+			// defer 中检测到此 error 不会发射 SyncStatusError 覆盖 Unauthenticated 状态
+			return ErrUnauthenticated
 		}
 
 		return err

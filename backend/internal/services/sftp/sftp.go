@@ -400,6 +400,11 @@ func (s *SftpService) DownloadFile(sessionID string, transferID string, remotePa
 		s.emitter.EmitTransferComplete(sessionID, transferID, false, fmt.Sprintf("获取远程文件信息失败: %v", err))
 		return fmt.Errorf("获取远程文件 %q 信息失败: %w", remotePath, err)
 	}
+	// 拒绝目录下载，避免读取目录句柄产生垃圾数据
+	if info.IsDir() {
+		s.emitter.EmitTransferComplete(sessionID, transferID, false, "不能下载目录")
+		return fmt.Errorf("%q 是目录，无法下载", remotePath)
+	}
 	total := info.Size()
 
 	// 创建本地文件
@@ -462,5 +467,7 @@ func (s *SftpService) copyWithProgress(src io.Reader, dst io.Writer, sessionID s
 			return readErr
 		}
 	}
+	// 发送最终进度，确保前端进度条显示 100% 而非卡在最后一次节流的值
+	s.emitter.EmitTransferProgress(sessionID, transferID, filename, transferred, total)
 	return nil
 }

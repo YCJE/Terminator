@@ -110,19 +110,21 @@ export const useTransferStore = create<TransferState>((set, get) => ({
 
     // 清理指定会话的所有传输任务（会话断开/移除时调用）
     removeTransfersBySession: (sessionId) => {
-        const state = get();
-        const toRemove = state.transfers.filter((t) => t.sessionId === sessionId);
+        // 使用函数形式 set 避免过期快照竞态：如果在此期间 flushTimer 更新了其他传输进度，
+        // 对象形式 set 会覆盖那些更新；函数形式则基于最新 state 计算
+        const toRemove = get().transfers.filter((t) => t.sessionId === sessionId);
         for (const t of toRemove) {
             progressThrottle.delete(t.id);
             pendingUpdates.delete(t.id);
         }
-        set({transfers: state.transfers.filter((t) => t.sessionId !== sessionId)});
+        set((state) => ({transfers: state.transfers.filter((t) => t.sessionId !== sessionId)}));
     },
 
     // 清空所有传输任务
     clearAll: () => {
         progressThrottle.clear();
         pendingUpdates.clear();
+        if (flushTimer) { clearInterval(flushTimer); flushTimer = null; }
         set({transfers: []});
     },
 }));

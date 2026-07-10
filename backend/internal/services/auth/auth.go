@@ -90,6 +90,12 @@ func (s *AuthService) RegisterLocal(ctx context.Context, username, password stri
 	if _, err := rand.Read(masterKey); err != nil {
 		return err
 	}
+	// defer 确保无论成功或失败都清零 masterKey（覆盖所有后续错误路径）
+	defer func() {
+		for i := range masterKey {
+			masterKey[i] = 0
+		}
+	}()
 
 	keySalt, err := generateSalt()
 	if err != nil {
@@ -122,9 +128,6 @@ func (s *AuthService) RegisterLocal(ctx context.Context, username, password stri
 		}
 		for i := range loginKey {
 			loginKey[i] = 0
-		}
-		for i := range masterKey {
-			masterKey[i] = 0
 		}
 	}()
 

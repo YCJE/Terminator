@@ -46,8 +46,12 @@ func (s *SyncService) StartAutoSync() {
 			err := s.Sync(ctx)
 			if err != nil {
 				if !errors.Is(err, context.Canceled) {
-					slog.Error("background sync failed", "error", err, "consecutive_failures", consecutiveFailures+1)
-					s.emitter.EmitSyncError(err)
+					// ErrUnauthenticated 不记录错误日志、不发射 SyncError（已发射 Unauthenticated 状态）
+					// 但仍触发退避，避免高频重试触发服务器速率限制
+					if !errors.Is(err, ErrUnauthenticated) {
+						slog.Error("background sync failed", "error", err, "consecutive_failures", consecutiveFailures+1)
+						s.emitter.EmitSyncError(err)
+					}
 					consecutiveFailures++
 					// 指数退避：每次失败翻倍间隔，上限 maxBackoff
 					// 使用当前实际间隔作为基准（可能因同步方式切换而变化）

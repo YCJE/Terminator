@@ -95,7 +95,7 @@ function basename(p: string): string {
 // 将权限字符串（数字或符号形式）转换为八进制字符串，用于权限编辑预填
 // 支持 setuid/setgid/sticky 特殊权限位
 function toOctal(mode: string): string {
-    if (!mode) return "755";
+    if (!mode) return ""; // 权限未知时返回空，避免误填 755 覆盖 restrictive 权限
     if (/^[0-7]+$/.test(mode)) {
         // 去除前导零后补齐到 3 位，确保 chmod 正则校验通过
         return (mode.replace(/^0+/, "") || "0").padStart(3, "0");

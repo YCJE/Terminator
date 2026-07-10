@@ -261,10 +261,11 @@ export function TerminalInstance({sessionId, isActive, config, disconnected}: Te
             }
         });
 
-        // SSH 关闭事件 — 标记会话断开
+        // SSH 关闭事件 — 标记会话断开，立即关闭输入通道避免断开瞬间输入产生错误
         const unsubscribeClosed = Events.On(AppEvent.SshClosed, (event) => {
             const data = event?.data as { id?: string } | null;
             if (data?.id === sessionId) {
+                isReadyRef.current = false;
                 setSessionStatus(sessionId, "disconnected");
             }
         });
