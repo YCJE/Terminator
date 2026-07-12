@@ -16,44 +16,79 @@ interface UIState {
     activeView: ViewType;
     isSidebarVisible: boolean;
     isFilePanelVisible: boolean;
+    isSnippetPanelVisible: boolean;
     updateVersionReady: string | null;
     dismissedUpdateVersion: string | null;
     theme: Theme;
     accentColor: AccentColor;
     spaciness: Spaciness;
     terminalColorLink: boolean;
+    /** 终端关键词高亮开关（前端纯本地设置，持久化到 localStorage） */
+    keywordHighlight: boolean;
     setActiveView: (view: ViewType) => void;
     toggleSidebar: () => void;
     toggleFilePanel: () => void;
     setFilePanelVisible: (visible: boolean) => void;
+    toggleSnippetPanel: () => void;
+    setSnippetPanelVisible: (visible: boolean) => void;
     setUpdateVersionReady: (version: string | null) => void;
     setDismissedUpdateVersion: (version: string | null) => void;
     setTheme: (theme: Theme) => void;
     setAccentColor: (color: AccentColor) => void;
     setSpaciness: (s: Spaciness) => void;
     setTerminalColorLink: (enabled: boolean) => void;
+    setKeywordHighlight: (enabled: boolean) => void;
+}
+
+// ---- 关键词高亮设置的 localStorage 持久化 ----
+// 由于此功能为纯前端特性（不涉及后端），使用 localStorage 独立持久化
+const KEYWORD_HIGHLIGHT_STORAGE_KEY = 'terminator_keyword_highlight';
+
+/** 从 localStorage 读取关键词高亮初始值，默认开启 */
+function loadKeywordHighlight(): boolean {
+    try {
+        const stored = localStorage.getItem(KEYWORD_HIGHLIGHT_STORAGE_KEY);
+        // 未存储时默认为 true（开启），存储值为 'false' 时关闭
+        return stored !== 'false';
+    } catch {
+        // localStorage 不可用时默认开启
+        return true;
+    }
 }
 
 export const useUIStore = create<UIState>((set) => ({
     activeView: ViewType.Hosts,
     isSidebarVisible: true,
     isFilePanelVisible: false,
+    isSnippetPanelVisible: false,
     updateVersionReady: null,
     dismissedUpdateVersion: null,
     theme: "dark",
     accentColor: "monochrome",
     spaciness: 1,
     terminalColorLink: false,
+    keywordHighlight: loadKeywordHighlight(),
     setActiveView: (view) => set({activeView: view}),
     toggleSidebar: () => set((state) => ({isSidebarVisible: !state.isSidebarVisible})),
     toggleFilePanel: () => set((state) => ({isFilePanelVisible: !state.isFilePanelVisible})),
     setFilePanelVisible: (visible) => set({isFilePanelVisible: visible}),
+    toggleSnippetPanel: () => set((state) => ({isSnippetPanelVisible: !state.isSnippetPanelVisible})),
+    setSnippetPanelVisible: (visible) => set({isSnippetPanelVisible: visible}),
     setUpdateVersionReady: (version) => set({ updateVersionReady: version }),
     setDismissedUpdateVersion: (version) => set({ dismissedUpdateVersion: version }),
     setTheme: (theme) => set({ theme }),
     setAccentColor: (color) => set({ accentColor: color }),
     setSpaciness: (s) => set({ spaciness: s }),
     setTerminalColorLink: (enabled) => set({ terminalColorLink: enabled }),
+    setKeywordHighlight: (enabled) => {
+        // 持久化到 localStorage，刷新后保持设置
+        try {
+            localStorage.setItem(KEYWORD_HIGHLIGHT_STORAGE_KEY, String(enabled));
+        } catch {
+            // localStorage 不可用时静默忽略
+        }
+        set({ keywordHighlight: enabled });
+    },
 }));
 
 /** 强调色预设列表，供设置页面渲染选择器 */

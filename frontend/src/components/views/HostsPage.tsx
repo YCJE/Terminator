@@ -1,6 +1,6 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
-import { Plus, Search, Server, ChevronRight, FolderOpen } from "lucide-react";
+import { Plus, Search, Server, ChevronRight, FolderOpen, Download, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { HostCard } from "@/components/views/HostCard";
@@ -11,8 +11,10 @@ import { SlidePanel } from "@/components/ui/slide-panel";
 import { useHosts, useSaveHost, useDeleteHost } from "@/hooks/useHosts";
 import { useKeys } from "@/hooks/useKeys";
 import { useSessionStore } from "@/store/sessionStore";
+import { HostService } from "../../../bindings/terminator-desktop/backend/internal/services/blob";
 import { Host } from "../../../bindings/terminator-desktop/backend/internal/services/blob";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 
 const UNGROUPED = "__ungrouped__";
 
@@ -37,6 +39,72 @@ export function HostsPage() {
     const handleCreateNew = () => {
         setEditingHost(null);
         setShowForm(true);
+    };
+
+    // 导入/导出主机配置
+    const fileInputRef = useRef<HTMLInputElement>(null);
+
+    const handleExport = async () => {
+        try {
+            const allHosts = await HostService.GetAll();
+            // 导出时清除 ID 和敏感字段，导入时重新生成
+            const exportData = allHosts.map(h => ({
+                name: h.name,
+                group: h.group || "",
+                host: h.host,
+                port: h.port,
+                username: h.username,
+                jumpHostId: h.jumpHostId || "",
+            }));
+            const json = JSON.stringify(exportData, null, 2);
+            const blob = new Blob([json], { type: "application/json" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = `terminator-hosts-${new Date().toISOString().slice(0, 10)}.json`;
+            a.click();
+            URL.revokeObjectURL(url);
+            toast.success(t("export_success", { count: exportData.length }));
+        } catch (e) {
+            toast.error(t("export_failed"));
+        }
+    };
+
+    const handleImportClick = () => {
+        fileInputRef.current?.click();
+    };
+
+    const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        try {
+            const text = await file.text();
+            const data = JSON.parse(text);
+            if (!Array.isArray(data)) throw new Error("invalid format");
+            let count = 0;
+            for (const item of data) {
+                if (!item.host || !item.username) continue;
+                await HostService.Save({
+                    id: "",
+                    type: "host" as any,
+                    name: item.name || `${item.host}:${item.port || 22}`,
+                    group: item.group || "",
+                    host: item.host,
+                    port: item.port || 22,
+                    username: item.username,
+                    password: "",
+                    keyId: "",
+                    jumpHostId: item.jumpHostId || "",
+                } as any);
+                count++;
+            }
+            toast.success(t("import_success", { count }));
+            // 刷新主机列表
+            window.location.reload();
+        } catch (e) {
+            toast.error(t("import_failed"));
+        }
+        e.target.value = ""; // 重置 input 以便重复导入同一文件
     };
 
     const handleEdit = (host: Host) => {
@@ -150,11 +218,18 @@ export function HostsPage() {
                         onChange={(e) => setSearchQuery(e.target.value)}
                     />
                 </div>
+                <Button variant="outline" onClick={handleImportClick} className="shrink-0" title={t("import_hosts")}>
+                    <Upload/>
+                </Button>
+                <Button variant="outline" onClick={handleExport} className="shrink-0" title={t("export_hosts")}>
+                    <Download/>
+                </Button>
                 <Button onClick={handleCreateNew} className="shrink-0">
                     <Plus/>
                     {t("new_host")}
                 </Button>
             </div>
+            <input ref={fileInputRef} type="file" accept=".json" onChange={handleImportFile} className="hidden" />
 
             {isLoading && <div className="text-sm text-muted-foreground">{t("loading_hosts")}</div>}
 

@@ -3,13 +3,16 @@
 
 import * as HostService from "./hostservice.js";
 import * as KeyService from "./keyservice.js";
+import * as SnippetService from "./snippetservice.js";
 export {
     HostService,
-    KeyService
+    KeyService,
+    SnippetService
 };
 
 export {
     Host,
     ItemType,
-    SavedKey
+    SavedKey,
+    Snippet
 } from "./models.js";

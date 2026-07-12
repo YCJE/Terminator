@@ -1,12 +1,14 @@
 package ssh
 
 import (
+	"bufio"
 	"context"
 	"encoding/base64"
 	"fmt"
 	"io"
 	"log/slog"
 	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"runtime/debug"
@@ -18,7 +20,10 @@ import (
 	"time"
 
 	"github.com/pkg/sftp"
+	sshagent "github.com/xanzy/ssh-agent"
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/agent"
+	"golang.org/x/net/proxy"
 )
 
 type SSHEmitter interface {
@@ -35,6 +40,16 @@ type SSHConnectionConfig struct {
 	PrivateKey string `json:"privateKey,omitempty"`
 	// JumpHost 跳板机配置（可选），通过跳板机建立到目标的 SSH 隧道
 	JumpHost *JumpHostConfig `json:"jumpHost,omitempty"`
+
+	// Proxy 代理配置（可选）
+	ProxyType     string `json:"proxyType,omitempty"`     // "http" | "socks5" | "" (无代理)
+	ProxyHost     string `json:"proxyHost,omitempty"`
+	ProxyPort     int    `json:"proxyPort,omitempty"`
+	ProxyUsername string `json:"proxyUsername,omitempty"`
+	ProxyPassword string `json:"proxyPassword,omitempty"`
+
+	// AgentForwarding 启用 SSH Agent 认证与转发（可选）
+	AgentForwarding bool `json:"agentForwarding,omitempty"`
 }
 
 // JumpHostConfig 跳板机配置
@@ -65,6 +80,8 @@ type activeSession struct {
 	pipeCloser io.Closer
 	sftpClient *sftp.Client            // 懒加载，首次使用时创建
 	connConfig *SSHConnectionConfig    // 保存配置用于连接池释放
+	logFile    *os.File                // 会话日志文件（可选）
+	logMu      sync.Mutex              // 保护 logFile 的并发写入
 }
 
 type SshService struct {
@@ -88,6 +105,9 @@ type SshService struct {
 
 	// sessionID → forwardID[] 反向索引，用于会话断开时批量清理端口转发
 	sessionForwards map[string][]string
+
+	// logDir 会话日志输出目录（空则不记录日志）
+	logDir string
 }
 
 // pooledConn 池化 SSH 连接，引用计数管理生命周期
@@ -101,7 +121,7 @@ const timeout = 15 * time.Second
 
 const batchRatePerSecond = 60
 
-func NewSshService(emitter SSHEmitter) *SshService {
+func NewSshService(emitter SSHEmitter, logDir string) *SshService {
 	return &SshService{
 		emitter:         emitter,
 		sessions:        make(map[string]*activeSession),
@@ -109,6 +129,7 @@ func NewSshService(emitter SSHEmitter) *SshService {
 		connPool:        make(map[string]*pooledConn),
 		forwards:        make(map[string]net.Listener),
 		sessionForwards: make(map[string][]string),
+		logDir:          logDir,
 	}
 }
 
@@ -160,12 +181,40 @@ func (s *SshService) Connect(config *SSHConnectionConfig) error {
 		return apperror.SSHConnectionFailed("failed to request PTY", err)
 	}
 
+	// Agent 转发：必须在 Shell() 之前调用 RequestAgentForwarding()，
+	// 因为 SSH 库在 session 启动后会拒绝该请求。
+	// ForwardToAgent 将本地 agent 注册到 SSH client，处理服务器发起的 agent 通道。
+	if config.AgentForwarding {
+		if ag, _, agentErr := sshagent.New(); agentErr == nil {
+			if ferr := agent.ForwardToAgent(client, ag); ferr != nil {
+				slog.Debug("failed to set up agent forwarding on client", "session", config.ID, "error", ferr)
+			}
+		} else {
+			slog.Debug("SSH agent not available for forwarding", "session", config.ID, "error", agentErr)
+		}
+		// best-effort：忽略错误，不影响正常连接
+		if ferr := agent.RequestAgentForwarding(session); ferr != nil {
+			slog.Debug("agent forwarding request failed", "session", config.ID, "error", ferr)
+		}
+	}
+
 	if err = session.Shell(); err != nil {
 		_ = pw.Close()
 		_ = pr.Close()
 		_ = session.Close()
 		s.releaseClient(config, client)
 		return apperror.SSHConnectionFailed("failed to start shell", err)
+	}
+
+	// 会话日志：如果配置了 logDir，为该会话创建日志文件
+	var logFile *os.File
+	if s.logDir != "" {
+		logPath := filepath.Join(s.logDir, fmt.Sprintf("%s.log", config.ID))
+		logFile, err = os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+		if err != nil {
+			slog.Warn("failed to create session log file, continuing without logging", "path", logPath, "error", err)
+			logFile = nil
+		}
 	}
 
 	go func() {
@@ -218,11 +267,15 @@ func (s *SshService) Connect(config *SSHConnectionConfig) error {
 		stdout:     pr,
 		pipeCloser: pw,
 		connConfig: config,
+		logFile:    logFile,
 	}
 	s.sessions[config.ID] = currentSession
 	s.mu.Unlock()
 
 	if old != nil {
+		if old.logFile != nil {
+			_ = old.logFile.Close()
+		}
 		if old.sftpClient != nil {
 			_ = old.sftpClient.Close()
 		}
@@ -249,6 +302,9 @@ func connKey(config *SSHConnectionConfig) string {
 	base := fmt.Sprintf("%s:%d:%s", config.Host, config.Port, config.Username)
 	if config.JumpHost != nil {
 		base += fmt.Sprintf("->%s:%d:%s", config.JumpHost.Host, config.JumpHost.Port, config.JumpHost.Username)
+	}
+	if config.ProxyType != "" {
+		base += fmt.Sprintf("@proxy:%s:%s:%d", config.ProxyType, config.ProxyHost, config.ProxyPort)
 	}
 	return base
 }
@@ -368,9 +424,17 @@ func (s *SshService) releaseClient(config *SSHConnectionConfig, client *ssh.Clie
 	}
 }
 
-// dialSSH 建立 SSH 连接，支持直连和 Jump Host
+// dialSSH 建立 SSH 连接，支持直连、代理和 Jump Host
 func (s *SshService) dialSSH(config *SSHConnectionConfig) (*ssh.Client, error) {
 	authMethods := buildAuthMethods(config.PrivateKey, config.Password)
+
+	// Agent 认证：如果启用 AgentForwarding，尝试从 SSH agent 获取密钥并作为首选认证方式
+	if config.AgentForwarding {
+		if agentAuth := buildAgentAuthMethod(); agentAuth != nil {
+			authMethods = append([]ssh.AuthMethod{agentAuth}, authMethods...)
+		}
+	}
+
 	hostKeyCallback := s.makeHostKeyCallback(config.Host, config.Port)
 
 	clientConfig := &ssh.ClientConfig{
@@ -386,7 +450,7 @@ func (s *SshService) dialSSH(config *SSHConnectionConfig) (*ssh.Client, error) {
 		return s.dialThroughJumpHost(config, clientConfig, targetAddr)
 	}
 
-	client, err := ssh.Dial("tcp", targetAddr, clientConfig)
+	client, err := dialWithProxy("tcp", targetAddr, clientConfig, config)
 	if err != nil {
 		return nil, apperror.SSHConnectionFailed(fmt.Sprintf("failed to connect to %s", targetAddr), err)
 	}
@@ -408,7 +472,8 @@ func (s *SshService) dialThroughJumpHost(config *SSHConnectionConfig, targetConf
 		Timeout:         timeout,
 	}
 
-	jumpClient, err := ssh.Dial("tcp", jumpAddr, jumpConfig)
+	// 跳板机连接也通过代理（如果配置了代理）
+	jumpClient, err := dialWithProxy("tcp", jumpAddr, jumpConfig, config)
 	if err != nil {
 		return nil, apperror.SSHConnectionFailed(fmt.Sprintf("failed to connect to jump host %s", jumpAddr), err)
 	}
@@ -443,6 +508,105 @@ func (s *SshService) dialThroughJumpHost(config *SSHConnectionConfig, targetConf
 	return targetClient, nil
 }
 
+// dialWithProxy 建立 SSH 连接，可选通过 HTTP 或 SOCKS5 代理。
+// 如果 config.ProxyType 为空，使用直连 ssh.Dial。
+func dialWithProxy(network, addr string, sshConfig *ssh.ClientConfig, config *SSHConnectionConfig) (*ssh.Client, error) {
+	if config.ProxyType == "" {
+		return ssh.Dial(network, addr, sshConfig)
+	}
+
+	proxyAddr := fmt.Sprintf("%s:%d", config.ProxyHost, config.ProxyPort)
+	var dialer proxy.Dialer
+
+	switch strings.ToLower(config.ProxyType) {
+	case "socks5":
+		var auth *proxy.Auth
+		if config.ProxyUsername != "" {
+			auth = &proxy.Auth{User: config.ProxyUsername, Password: config.ProxyPassword}
+		}
+		d, err := proxy.SOCKS5("tcp", proxyAddr, auth, proxy.Direct)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create SOCKS5 dialer: %w", err)
+		}
+		dialer = d
+	case "http":
+		dialer = &httpConnectDialer{
+			proxyAddr:     proxyAddr,
+			proxyUsername: config.ProxyUsername,
+			proxyPassword: config.ProxyPassword,
+		}
+	default:
+		return nil, fmt.Errorf("unsupported proxy type: %s", config.ProxyType)
+	}
+
+	conn, err := dialer.Dial(network, addr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to dial %s through proxy: %w", addr, err)
+	}
+
+	ncc, chans, reqs, err := ssh.NewClientConn(conn, addr, sshConfig)
+	if err != nil {
+		_ = conn.Close()
+		return nil, fmt.Errorf("failed to establish SSH to %s through proxy: %w", addr, err)
+	}
+
+	return ssh.NewClient(ncc, chans, reqs), nil
+}
+
+// httpConnectDialer 实现 proxy.Dialer 接口，使用 HTTP CONNECT 方法建立隧道。
+type httpConnectDialer struct {
+	proxyAddr     string
+	proxyUsername string
+	proxyPassword string
+}
+
+func (d *httpConnectDialer) Dial(network, addr string) (net.Conn, error) {
+	conn, err := net.DialTimeout(network, d.proxyAddr, timeout)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to HTTP proxy %s: %w", d.proxyAddr, err)
+	}
+
+	// 使用 bufio.Reader 读取 HTTP 响应，避免 http.ReadResponse 读到 SSH 握手数据
+	br := bufio.NewReader(conn)
+
+	reqLine := fmt.Sprintf("CONNECT %s HTTP/1.1\r\nHost: %s\r\n", addr, addr)
+	if d.proxyUsername != "" {
+		cred := base64.StdEncoding.EncodeToString([]byte(d.proxyUsername + ":" + d.proxyPassword))
+		reqLine += fmt.Sprintf("Proxy-Authorization: Basic %s\r\n", cred)
+	}
+	reqLine += "\r\n"
+
+	if _, err := conn.Write([]byte(reqLine)); err != nil {
+		_ = conn.Close()
+		return nil, fmt.Errorf("failed to send CONNECT request to proxy: %w", err)
+	}
+
+	resp, err := http.ReadResponse(br, &http.Request{Method: "CONNECT"})
+	if err != nil {
+		_ = conn.Close()
+		return nil, fmt.Errorf("failed to read proxy CONNECT response: %w", err)
+	}
+	_ = resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		_ = conn.Close()
+		return nil, fmt.Errorf("HTTP proxy %s rejected CONNECT to %s: %s", d.proxyAddr, addr, resp.Status)
+	}
+
+	// 包装连接，确保 bufio.Reader 中缓存的 SSH 握手数据不丢失
+	return &bufferedConn{Conn: conn, r: br}, nil
+}
+
+// bufferedConn 包装 net.Conn 和 bufio.Reader，使 bufio 缓冲的数据可通过 Read 读取。
+type bufferedConn struct {
+	net.Conn
+	r *bufio.Reader
+}
+
+func (b *bufferedConn) Read(p []byte) (int, error) {
+	return b.r.Read(p)
+}
+
 // buildAuthMethods 构建认证方法列表
 func buildAuthMethods(privateKey, password string) []ssh.AuthMethod {
 	var authMethods []ssh.AuthMethod
@@ -458,6 +622,26 @@ func buildAuthMethods(privateKey, password string) []ssh.AuthMethod {
 		authMethods = append(authMethods, ssh.Password(password))
 	}
 	return authMethods
+}
+
+// buildAgentAuthMethod 连接本地 SSH agent 并返回基于 agent 的认证方法。
+// 如果 agent 不可用或没有密钥，返回 nil。
+// 在 Windows 上通过命名管道 \\.\pipe\openssh-ssh-agent 连接，
+// 在 Unix 上通过 SSH_AUTH_SOCK 环境变量指定的 Unix socket 连接。
+func buildAgentAuthMethod() ssh.AuthMethod {
+	if !sshagent.Available() {
+		slog.Debug("SSH agent not available")
+		return nil
+	}
+
+	ag, _, err := sshagent.New()
+	if err != nil {
+		slog.Debug("failed to connect to SSH agent", "error", err)
+		return nil
+	}
+
+	// PublicKeysCallback 在认证时调用 ag.Signers() 从 agent 获取签名者
+	return ssh.PublicKeysCallback(ag.Signers)
 }
 
 // makeHostKeyCallback returns a callback that enforces Trust-On-First-Use.
@@ -577,6 +761,9 @@ func (s *SshService) Disconnect(sessionID string) {
 	if exists {
 		// 清理该会话的所有端口转发监听器
 		s.cleanupForwards(sessionID)
+		if active.logFile != nil {
+			_ = active.logFile.Close()
+		}
 		if active.sftpClient != nil {
 			_ = active.sftpClient.Close()
 		}
@@ -940,6 +1127,7 @@ func (s *SshService) streamOutput(sessionID string, stdout io.Reader, current *a
 			if !ok {
 				if len(batch) > 0 {
 					s.emitter.EmitData(sessionID, batch)
+					s.writeLog(current, batch)
 				}
 				s.cleanupSession(sessionID, current)
 				return
@@ -949,15 +1137,30 @@ func (s *SshService) streamOutput(sessionID string, stdout io.Reader, current *a
 
 			if len(batch) >= batchSize {
 				s.emitter.EmitData(sessionID, batch)
+				s.writeLog(current, batch)
 				batch = batch[:0]
 			}
 
 		case <-ticker.C:
 			if len(batch) > 0 {
 				s.emitter.EmitData(sessionID, batch)
+				s.writeLog(current, batch)
 				batch = batch[:0]
 			}
 		}
+	}
+}
+
+// writeLog 将会话输出写入日志文件（如果已启用）。
+// 使用 activeSession.logMu 保护并发写入。
+func (s *SshService) writeLog(active *activeSession, data []byte) {
+	if active == nil || active.logFile == nil {
+		return
+	}
+	active.logMu.Lock()
+	defer active.logMu.Unlock()
+	if _, err := active.logFile.Write(data); err != nil {
+		slog.Debug("failed to write to session log", "error", err)
 	}
 }
 
@@ -991,6 +1194,9 @@ func (s *SshService) cleanupSession(sessionID string, current *activeSession) {
 
 		// 清理该会话的所有端口转发监听器
 		s.cleanupForwards(sessionID)
+		if current.logFile != nil {
+			_ = current.logFile.Close()
+		}
 		if current.sftpClient != nil {
 			_ = current.sftpClient.Close()
 		}

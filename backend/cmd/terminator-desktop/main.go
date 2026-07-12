@@ -176,15 +176,22 @@ func main() {
 	updaterEmitter := emitters.NewWailsUpdaterEmitter(app)
 	sftpEmitter := emitters.NewWailsSFTPEmitter(app)
 
+	// 会话日志目录
+	sshLogDir := filepath.Join(appDir, "ssh-logs")
+	if err := os.MkdirAll(sshLogDir, 0700); err != nil {
+		log.Fatal(fmt.Errorf("error creating SSH log directory: %w", err))
+	}
+
 	authService := auth.NewAuthService(queries, db, v, client)
 	// settingsService 需在 syncService 之前创建，以便注入到 SyncService
 	settingsService := settings.NewSettingsService(appDir)
 	syncService := sync.NewSyncService(queries, client, v, syncEmitter, nil, settingsService)
-	sshService := ssh.NewSshService(sshEmitter)
+	sshService := ssh.NewSshService(sshEmitter, sshLogDir)
 	// sftpService 复用 sshService 的 SSH 连接提供文件管理能力
 	sftpService := sftp.NewSftpService(sshService, sftpEmitter)
 	hostService := blob.NewHostService(queries, v)
 	keyService := blob.NewKeyService(queries, v)
+	snippetService := blob.NewSnippetService(queries, v) // 代码片段服务
 	updaterService := updater.NewUpdaterService(updateUrl, githubRepo, updaterEmitter)
 
 	// 注入 SSH 服务到 AuthService，使 WipeData 能断开所有连接
@@ -196,6 +203,7 @@ func main() {
 	app.RegisterService(application.NewService(sftpService))
 	app.RegisterService(application.NewService(hostService))
 	app.RegisterService(application.NewService(keyService))
+	app.RegisterService(application.NewService(snippetService)) // 注册代码片段服务
 	app.RegisterService(application.NewService(settingsService))
 	app.RegisterService(application.NewService(updaterService))
 	app.RegisterService(application.NewService(NewWebDAVService(settingsService)))

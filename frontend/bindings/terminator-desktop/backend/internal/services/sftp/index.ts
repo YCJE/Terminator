@@ -5,6 +5,7 @@ export type { FileEntry, SearchResultEntry } from "./sftp.js";
 export {
     ListDir,
     ReadFile,
+    WriteFile,
     Mkdir,
     Remove,
     Rename,

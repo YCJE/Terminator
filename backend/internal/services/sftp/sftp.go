@@ -155,6 +155,37 @@ func (s *SftpService) ReadFile(sessionID string, path string) (string, error) {
 	return string(data), nil
 }
 
+// WriteFile 将文本内容写入远程文件（覆盖写入），用于远程文件编辑保存
+func (s *SftpService) WriteFile(sessionID string, path string, content string) error {
+	client, err := s.sshSvc.GetSFTPClient(sessionID)
+	if err != nil {
+		return err
+	}
+
+	// 检查文件类型，拒绝目录和非常规文件
+	info, err := client.Stat(path)
+	if err == nil { // 文件已存在时检查类型
+		if info.IsDir() {
+			return fmt.Errorf("%q 是目录，无法写入", path)
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("%q 不是常规文件，无法写入", path)
+		}
+	}
+
+	file, err := client.Create(path)
+	if err != nil {
+		return fmt.Errorf("创建文件 %q 失败: %w", path, err)
+	}
+	defer file.Close()
+
+	_, err = file.Write([]byte(content))
+	if err != nil {
+		return fmt.Errorf("写入文件 %q 失败: %w", path, err)
+	}
+	return nil
+}
+
 // Mkdir 在远程创建单个目录。父目录必须已存在。
 func (s *SftpService) Mkdir(sessionID string, path string) error {
 	client, err := s.sshSvc.GetSFTPClient(sessionID)

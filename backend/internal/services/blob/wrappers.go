@@ -59,3 +59,29 @@ func (s *KeyService) GetAll(ctx context.Context) ([]SavedKey, error) {
 func (s *KeyService) Delete(ctx context.Context, id string) error {
 	return deleteItem(ctx, s.q, s.v, id)
 }
+
+// SnippetService 提供代码片段的 CRUD 操作（Wails 绑定）
+type SnippetService struct {
+	q *dbgen.Queries
+	v *vault.Vault
+}
+
+func NewSnippetService(q *dbgen.Queries, v *vault.Vault) *SnippetService {
+	return &SnippetService{q: q, v: v}
+}
+
+func (s *SnippetService) Save(ctx context.Context, snippet Snippet) (string, error) {
+	if snippet.ID == "" {
+		snippet.ID = uuid.New().String()
+	}
+	snippet.Type = TypeSnippet // 确保类型正确
+	return saveItem(ctx, s.q, s.v, snippet.ID, snippet)
+}
+
+func (s *SnippetService) GetAll(ctx context.Context) ([]Snippet, error) {
+	return getAllItems[Snippet](ctx, s.q, s.v, TypeSnippet)
+}
+
+func (s *SnippetService) Delete(ctx context.Context, id string) error {
+	return deleteItem(ctx, s.q, s.v, id)
+}

@@ -70,3 +70,8 @@ export interface SearchResultEntry {
 export function SearchFiles(sessionId: string, searchPath: string, query: string, maxResults: number): $CancellablePromise<SearchResultEntry[]> {
     return $Call.ByID(2705080646, sessionId, searchPath, query, maxResults);
 }
+
+/** 写入文本内容到远程文件（覆盖写入），用于远程文件编辑保存 */
+export function WriteFile(sessionId: string, path: string, content: string): $CancellablePromise<void> {
+    return $Call.ByID(1521240084, sessionId, path, content);
+}

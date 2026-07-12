@@ -35,5 +35,11 @@
   "enter_password_desc": "请输入连接 {{name}} 的密码",
   "no_search_results": "没有找到匹配的主机",
   "section_connection": "连接信息",
-  "section_authentication": "身份认证"
+  "section_authentication": "身份认证",
+  "import_hosts": "导入主机",
+  "export_hosts": "导出主机",
+  "export_success": "已导出 {{count}} 台主机",
+  "export_failed": "导出失败",
+  "import_success": "已导入 {{count}} 台主机",
+  "import_failed": "导入失败，请检查文件格式"
 }

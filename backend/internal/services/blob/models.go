@@ -3,8 +3,9 @@ package blob
 type ItemType string
 
 const (
-	TypeHost ItemType = "host"
-	TypeKey  ItemType = "key"
+	TypeHost   ItemType = "host"
+	TypeKey    ItemType = "key"
+	TypeSnippet ItemType = "snippet" // 代码片段类型
 )
 
 type VaultItemHeader struct {
@@ -29,4 +30,13 @@ type SavedKey struct {
 	Type       ItemType `json:"type"`
 	Name       string   `json:"name"`
 	PrivateKey string   `json:"privateKey"`
+}
+
+// Snippet 表示一条可复用的代码片段/快捷命令
+type Snippet struct {
+	ID      string   `json:"id"`
+	Type    ItemType `json:"type"`
+	Name    string   `json:"name"`
+	Group   string   `json:"group,omitempty"`
+	Command string   `json:"command"`
 }

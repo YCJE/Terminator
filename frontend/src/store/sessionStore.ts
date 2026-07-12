@@ -11,6 +11,8 @@ export interface TerminalSession {
     config: SSHConnectionConfig;
     disconnected?: boolean;
     status: SessionStatus;
+    /** 标签页自定义颜色（十六进制色值，如 '#ef4444'），未设置时为 undefined */
+    color?: string;
 }
 
 export interface CreateSessionParams {
@@ -25,18 +27,25 @@ export interface CreateSessionParams {
 interface SessionState {
     sessions: TerminalSession[];
     activeSessionId: string | null;
+    /** 广播模式：开启后在一个终端输入会同时发送到所有活跃终端 */
+    broadcastMode: boolean;
     addSession: (params: CreateSessionParams) => void;
     removeSession: (id: string) => void;
     setActiveSession: (id: string) => void;
     markSessionDisconnected: (id: string) => void;
     setSessionStatus: (id: string, status: SessionStatus) => void;
+    setSessionColor: (id: string, color: string) => void;
     reorderSessions: (fromIndex: number, toIndex: number) => void;
     clearSessions: () => void;
+    toggleBroadcastMode: () => void;
+    /** 获取所有活跃（已连接）的会话 ID */
+    getActiveSessionIds: () => string[];
 }
 
 export const useSessionStore = create<SessionState>((set, get) => ({
     sessions: [],
     activeSessionId: null,
+    broadcastMode: false,
 
     addSession: (params) => {
         const state = get();
@@ -133,6 +142,15 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         }));
     },
 
+    setSessionColor: (id, color) => {
+        set((state) => ({
+            sessions: state.sessions.map((s) =>
+                // 传空字符串时清除颜色（设为 undefined）
+                s.id === id ? { ...s, color: color || undefined } : s
+            ),
+        }));
+    },
+
     reorderSessions: (fromIndex, toIndex) => {
         set((state) => {
             const sessions = [...state.sessions];
@@ -158,5 +176,15 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         useUIStore.getState().setActiveView(ViewType.Hosts);
         useUIStore.getState().setFilePanelVisible(false);
         set({sessions: [], activeSessionId: null});
+    },
+
+    toggleBroadcastMode: () => {
+        set((state) => ({broadcastMode: !state.broadcastMode}));
+    },
+
+    getActiveSessionIds: () => {
+        return get().sessions
+            .filter((s) => s.status === "connected" && !s.disconnected)
+            .map((s) => s.id);
     }
 }));

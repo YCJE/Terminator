@@ -58,6 +58,7 @@ export enum ItemType {
 
     TypeHost = "host",
     TypeKey = "key",
+    TypeSnippet = "snippet",
 };
 
 export class SavedKey {
@@ -90,5 +91,39 @@ export class SavedKey {
     static createFrom($$source: any = {}): SavedKey {
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         return new SavedKey($$parsedSource as Partial<SavedKey>);
+    }
+}
+
+export class Snippet {
+    "id": string;
+    "type": ItemType;
+    "name": string;
+    "group"?: string;
+    "command": string;
+
+    /** Creates a new Snippet instance. */
+    constructor($$source: Partial<Snippet> = {}) {
+        if (!("id" in $$source)) {
+            this["id"] = "";
+        }
+        if (!("type" in $$source)) {
+            this["type"] = ItemType.$zero;
+        }
+        if (!("name" in $$source)) {
+            this["name"] = "";
+        }
+        if (!("command" in $$source)) {
+            this["command"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new Snippet instance from a string or object.
+     */
+    static createFrom($$source: any = {}): Snippet {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new Snippet($$parsedSource as Partial<Snippet>);
     }
 }

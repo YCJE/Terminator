@@ -1,4 +1,4 @@
-import { PanelLeftClose, PanelLeftOpen, FolderOpen, PanelRightClose } from "lucide-react";
+import { PanelLeftClose, PanelLeftOpen, FolderOpen, PanelRightClose, Radio } from "lucide-react";
 import { useSessionStore } from "@/store/sessionStore";
 import { useUIStore, ViewType } from "@/store/uiStore";
 import { WindowControls } from "@/components/layout/WindowControls";
@@ -15,6 +15,9 @@ export function TitleBar() {
     const setActiveSession = useSessionStore((s) => s.setActiveSession);
     const removeSession = useSessionStore((s) => s.removeSession);
     const reorderSessions = useSessionStore((s) => s.reorderSessions);
+    const setSessionColor = useSessionStore((s) => s.setSessionColor);
+    const broadcastMode = useSessionStore((s) => s.broadcastMode);
+    const toggleBroadcastMode = useSessionStore((s) => s.toggleBroadcastMode);
     const activeView = useUIStore((s) => s.activeView);
     const isSidebarVisible = useUIStore((s) => s.isSidebarVisible);
     const toggleSidebar = useUIStore((s) => s.toggleSidebar);
@@ -82,6 +85,7 @@ export function TitleBar() {
                         isActive={isTerminalView && session.id === activeSessionId}
                         onClick={() => setActiveSession(session.id)}
                         onClose={() => removeSession(session.id)}
+                        onSetColor={(color) => setSessionColor(session.id, color)}
                         onDragStart={(i) => setDragIndex(i)}
                         onDragOver={(i) => { /* visual feedback could go here */ }}
                         onDragEnd={() => {
@@ -99,6 +103,17 @@ export function TitleBar() {
 
             {/* 文件管理面板切换按钮 + 窗口控制按钮 */}
             <div className="flex h-full items-center gap-1 pr-1">
+                {isTerminalView && activeSessionId && (
+                    <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        onClick={toggleBroadcastMode}
+                        className={cn("wails-no-drag", broadcastMode ? "text-primary" : "text-muted-foreground hover:text-foreground")}
+                        title={t("broadcast_mode")}
+                    >
+                        <Radio className="size-4"/>
+                    </Button>
+                )}
                 {isTerminalView && activeSessionId && (
                     <Button
                         variant="ghost"

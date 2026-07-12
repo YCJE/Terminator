@@ -35,5 +35,11 @@
   "enter_password_desc": "Enter password to connect to {{name}}",
   "no_search_results": "No matching hosts found",
   "section_connection": "Connection",
-  "section_authentication": "Authentication"
+  "section_authentication": "Authentication",
+  "import_hosts": "Import Hosts",
+  "export_hosts": "Export Hosts",
+  "export_success": "Exported {{count}} hosts",
+  "export_failed": "Export failed",
+  "import_success": "Imported {{count}} hosts",
+  "import_failed": "Import failed, please check file format"
 }

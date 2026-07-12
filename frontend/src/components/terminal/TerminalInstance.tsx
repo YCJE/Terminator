@@ -10,6 +10,7 @@ import { getTerminalTheme } from "@/lib/terminalTheme";
 import { parseAppError } from "@/lib/error";
 import { cn, decodeBase64ToUint8Array } from "@/lib/utils";
 import { createFlowControlledWriter, setupScrollAnchoring } from "@/lib/terminalFlowControl";
+import { createKeywordHighlighter } from "@/lib/keywordHighlight";
 import "@xterm/xterm/css/xterm.css";
 import { SSHConnectionConfig, SshService } from "../../../bindings/terminator-desktop/backend/internal/services/ssh";
 import { useTranslation } from "react-i18next";
@@ -40,6 +41,8 @@ export function TerminalInstance({sessionId, isActive, config, disconnected}: Te
     const searchAddonRef = useRef<SearchAddon | null>(null);
     const flowWriterRef = useRef<ReturnType<typeof createFlowControlledWriter> | null>(null);
     const scrollAnchorRef = useRef<ReturnType<typeof setupScrollAnchoring> | null>(null);
+    // 关键词高亮处理器，在终端初始化时创建，随终端销毁而释放
+    const keywordHighlighterRef = useRef<ReturnType<typeof createKeywordHighlighter> | null>(null);
     const hasConnectedRef = useRef(false);
     const isReadyRef = useRef(false);
     const isActiveRef = useRef(isActive);
@@ -104,6 +107,8 @@ export function TerminalInstance({sessionId, isActive, config, disconnected}: Te
         // 初始化流控写入器和滚动锚定
         flowWriterRef.current = createFlowControlledWriter(term);
         scrollAnchorRef.current = setupScrollAnchoring(term, container);
+        // 初始化关键词高亮处理器（内部维护 TextDecoder stream 状态）
+        keywordHighlighterRef.current = createKeywordHighlighter();
 
         term.attachCustomKeyEventHandler((arg) => {
             if (arg.type === "keydown") {
@@ -187,6 +192,14 @@ export function TerminalInstance({sessionId, isActive, config, disconnected}: Te
             SshService.Input(sessionId, data).catch((err) => {
                 printErrorToTerminal(err);
             });
+            // 广播模式：同时发送到其他所有活跃终端
+            const {broadcastMode, getActiveSessionIds} = useSessionStore.getState();
+            if (broadcastMode) {
+                const others = getActiveSessionIds().filter((id) => id !== sessionId);
+                for (const id of others) {
+                    SshService.Input(id, data).catch(() => {});
+                }
+            }
         });
 
         // 防抖 resize：fit() + SshService.Resize 一起延迟执行
@@ -222,6 +235,7 @@ export function TerminalInstance({sessionId, isActive, config, disconnected}: Te
             scrollAnchorRef.current = null;
             flowWriterRef.current?.reset();
             flowWriterRef.current = null;
+            keywordHighlighterRef.current = null;
             term.dispose();
             terminalRef.current = null;
             fitAddonRef.current = null;
@@ -251,7 +265,16 @@ export function TerminalInstance({sessionId, isActive, config, disconnected}: Te
             if (!data || data.id !== sessionId || !terminalRef.current || !flowWriterRef.current) return;
             try {
                 const rawBytes = decodeBase64ToUint8Array(data.data || "");
-                flowWriterRef.current.write(rawBytes).then(() => {
+
+                // 关键词高亮：在事件回调中实时读取 store 设置（非渲染上下文）
+                // 开启时将原始字节解码为文本、高亮关键词后以字符串写入终端
+                // 关闭时直接写入原始字节（保持原有行为，性能最优）
+                const highlightEnabled = useUIStore.getState().keywordHighlight;
+                const writeData = highlightEnabled && keywordHighlighterRef.current
+                    ? keywordHighlighterRef.current.process(rawBytes)
+                    : rawBytes;
+
+                flowWriterRef.current.write(writeData).then(() => {
                     if (scrollAnchorRef.current?.shouldScrollToBottom()) {
                         scrollAnchorRef.current.forceScrollToBottom();
                     }

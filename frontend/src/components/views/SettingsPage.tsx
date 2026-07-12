@@ -45,7 +45,7 @@ export function SettingsPage() {
     const {setUnlocked, setHasUser} = useAuthStore();
     const {clearSessions} = useSessionStore();
     const {lastError} = useSyncStore();
-    const {theme, setTheme, accentColor, setAccentColor, spaciness, setSpaciness, terminalColorLink, setTerminalColorLink} = useUIStore();
+    const {theme, setTheme, accentColor, setAccentColor, spaciness, setSpaciness, terminalColorLink, setTerminalColorLink, keywordHighlight, setKeywordHighlight} = useUIStore();
     const queryClient = useQueryClient();
 
     const [activeCategory, setActiveCategory] = useState<SettingsCategory>("appearance");
@@ -407,6 +407,34 @@ export function SettingsPage() {
                     {/* ============ 终端 ============ */}
                     {activeCategory === "terminal" && (
                         <SettingsCard title={t("log_section_title")}>
+                            {/* 关键词高亮开关 */}
+                            <div className="flex items-center justify-between">
+                                <div className="flex flex-col">
+                                    <span className="font-medium text-foreground">{t("keyword_highlight_label")}</span>
+                                    <span className="text-xs text-muted-foreground">{t("keyword_highlight_desc")}</span>
+                                </div>
+                                <button
+                                    role="switch"
+                                    aria-checked={keywordHighlight}
+                                    onClick={() => setKeywordHighlight(!keywordHighlight)}
+                                    className={cn(
+                                        "relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center",
+                                        "rounded-full border-2 border-transparent transition-colors",
+                                        keywordHighlight ? "bg-primary" : "bg-muted"
+                                    )}
+                                >
+                                    <span
+                                        className={cn(
+                                            "pointer-events-none block size-5 rounded-full bg-background shadow-lg",
+                                            "transition-transform",
+                                            keywordHighlight ? "translate-x-5" : "translate-x-0"
+                                        )}
+                                    />
+                                </button>
+                            </div>
+
+                            <div className="my-2 h-px w-full bg-border"/>
+
                             <LogViewer/>
                         </SettingsCard>
                     )}

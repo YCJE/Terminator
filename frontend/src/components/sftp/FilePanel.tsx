@@ -27,6 +27,7 @@ import { toast } from "sonner";
 import {
     ListDir,
     ReadFile,
+    WriteFile,
     Mkdir,
     Remove,
     Rename,
@@ -186,6 +187,9 @@ export function FilePanel({ sessionId }: FilePanelProps) {
     const [previewOpen, setPreviewOpen] = useState(false);
     const [previewEntry, setPreviewEntry] = useState<FileEntry | null>(null);
     const [previewContent, setPreviewContent] = useState("");
+    const [previewEditing, setPreviewEditing] = useState(false);
+    const [previewPath, setPreviewPath] = useState("");
+    const [previewSaving, setPreviewSaving] = useState(false);
 
     // 拖拽与面板宽度
     const [isDragOver, setIsDragOver] = useState(false);
@@ -382,9 +386,26 @@ export function FilePanel({ sessionId }: FilePanelProps) {
             const content = await ReadFile(sessionId, path);
             setPreviewEntry(entry);
             setPreviewContent(content ?? "");
+            setPreviewPath(path);
+            setPreviewEditing(false); // 默认只读模式
             setPreviewOpen(true);
         } catch (err) {
             handleAppError(err);
+        }
+    };
+
+    // 保存编辑后的文件内容到远程
+    const handleSavePreview = async () => {
+        if (!previewPath) return;
+        setPreviewSaving(true);
+        try {
+            await WriteFile(sessionId, previewPath, previewContent);
+            toast.success(t("save_success"));
+            setPreviewEditing(false);
+        } catch (err) {
+            handleAppError(err);
+        } finally {
+            setPreviewSaving(false);
         }
     };
 
@@ -1054,17 +1075,35 @@ export function FilePanel({ sessionId }: FilePanelProps) {
                 </DialogContent>
             </Dialog>
 
-            {/* 文件预览对话框 */}
-            <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
+            {/* 文件预览/编辑对话框 */}
+            <Dialog open={previewOpen} onOpenChange={(v) => { setPreviewOpen(v); if (!v) setPreviewEditing(false); }}>
                 <DialogContent className="sm:max-w-2xl">
                     <DialogHeader>
-                        <DialogTitle>{t("preview")} - {previewEntry?.name}</DialogTitle>
+                        <DialogTitle>
+                            {previewEditing ? t("edit_file") : t("preview")} - {previewEntry?.name}
+                        </DialogTitle>
                     </DialogHeader>
-                    <pre className="max-h-[60vh] overflow-auto rounded-lg bg-muted/50 p-3 font-mono text-xs leading-relaxed">
-                        {previewContent}
-                    </pre>
-                    <DialogFooter>
-                        <Button variant="outline" onClick={() => setPreviewOpen(false)}>{t("close", { ns: "common" })}</Button>
+                    {previewEditing ? (
+                        <textarea
+                            className="max-h-[60vh] min-h-[300px] w-full resize-y rounded-lg bg-muted/50 p-3 font-mono text-xs leading-relaxed outline-none focus:ring-1 focus:ring-ring"
+                            value={previewContent}
+                            onChange={(e) => setPreviewContent(e.target.value)}
+                            spellCheck={false}
+                        />
+                    ) : (
+                        <pre className="max-h-[60vh] overflow-auto rounded-lg bg-muted/50 p-3 font-mono text-xs leading-relaxed">
+                            {previewContent}
+                        </pre>
+                    )}
+                    <DialogFooter className="gap-2">
+                        {!previewEditing ? (
+                            <Button variant="outline" onClick={() => setPreviewEditing(true)}>{t("edit")}</Button>
+                        ) : (
+                            <Button variant="default" onClick={handleSavePreview} disabled={previewSaving}>
+                                {previewSaving ? t("saving") : t("save")}
+                            </Button>
+                        )}
+                        <Button variant="outline" onClick={() => { setPreviewOpen(false); setPreviewEditing(false); }}>{t("close", { ns: "common" })}</Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
