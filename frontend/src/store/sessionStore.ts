@@ -22,6 +22,12 @@ export interface CreateSessionParams {
     password?: string;
     privateKey?: string;
     title?: string;
+    proxyType?: string;
+    proxyHost?: string;
+    proxyPort?: number;
+    proxyUsername?: string;
+    proxyPassword?: string;
+    agentForwarding?: boolean;
 }
 
 interface SessionState {
@@ -38,6 +44,8 @@ interface SessionState {
     reorderSessions: (fromIndex: number, toIndex: number) => void;
     clearSessions: () => void;
     toggleBroadcastMode: () => void;
+    /** 直接设置广播模式开关 */
+    setBroadcastMode: (enabled: boolean) => void;
     /** 获取所有活跃（已连接）的会话 ID */
     getActiveSessionIds: () => string[];
 }
@@ -74,6 +82,12 @@ export const useSessionStore = create<SessionState>((set, get) => ({
             username: params.username,
             password: params.password,
             privateKey: params.privateKey,
+            proxyType: params.proxyType,
+            proxyHost: params.proxyHost,
+            proxyPort: params.proxyPort,
+            proxyUsername: params.proxyUsername,
+            proxyPassword: params.proxyPassword,
+            agentForwarding: params.agentForwarding,
         });
 
         const newSession: TerminalSession = {
@@ -180,6 +194,10 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
     toggleBroadcastMode: () => {
         set((state) => ({broadcastMode: !state.broadcastMode}));
+    },
+
+    setBroadcastMode: (enabled: boolean) => {
+        set({broadcastMode: enabled});
     },
 
     getActiveSessionIds: () => {

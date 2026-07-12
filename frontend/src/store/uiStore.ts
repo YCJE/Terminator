@@ -38,23 +38,42 @@ interface UIState {
     setSpaciness: (s: Spaciness) => void;
     setTerminalColorLink: (enabled: boolean) => void;
     setKeywordHighlight: (enabled: boolean) => void;
+    /** 广播模式功能开关（控制广播按钮是否显示） */
+    broadcastEnabled: boolean;
+    toggleBroadcastEnabled: () => void;
+    /** 标签页自定义颜色功能开关（控制右键颜色选择是否可用） */
+    tabColorEnabled: boolean;
+    toggleTabColorEnabled: () => void;
 }
 
-// ---- 关键词高亮设置的 localStorage 持久化 ----
-// 由于此功能为纯前端特性（不涉及后端），使用 localStorage 独立持久化
-const KEYWORD_HIGHLIGHT_STORAGE_KEY = 'terminator_keyword_highlight';
+// ---- 前端本地设置的 localStorage 持久化 ----
+// 这些功能为纯前端特性（不涉及后端），使用 localStorage 独立持久化
 
-/** 从 localStorage 读取关键词高亮初始值，默认开启 */
-function loadKeywordHighlight(): boolean {
+/** 从 localStorage 读取布尔值，未存储时返回默认值 */
+function loadBool(key: string, defaultValue: boolean): boolean {
     try {
-        const stored = localStorage.getItem(KEYWORD_HIGHLIGHT_STORAGE_KEY);
-        // 未存储时默认为 true（开启），存储值为 'false' 时关闭
-        return stored !== 'false';
+        const stored = localStorage.getItem(key);
+        if (stored === null) return defaultValue;
+        return stored === 'true';
     } catch {
-        // localStorage 不可用时默认开启
-        return true;
+        return defaultValue;
     }
 }
+
+/** 将布尔值持久化到 localStorage */
+function saveBool(key: string, value: boolean): void {
+    try {
+        localStorage.setItem(key, String(value));
+    } catch {
+        // localStorage 不可用时静默忽略
+    }
+}
+
+const STORAGE_KEYS = {
+    keywordHighlight: 'terminator_keyword_highlight',
+    broadcastEnabled: 'terminator_broadcast_enabled',
+    tabColorEnabled: 'terminator_tab_color_enabled',
+} as const;
 
 export const useUIStore = create<UIState>((set) => ({
     activeView: ViewType.Hosts,
@@ -67,7 +86,9 @@ export const useUIStore = create<UIState>((set) => ({
     accentColor: "monochrome",
     spaciness: 1,
     terminalColorLink: false,
-    keywordHighlight: loadKeywordHighlight(),
+    keywordHighlight: loadBool(STORAGE_KEYS.keywordHighlight, true),
+    broadcastEnabled: loadBool(STORAGE_KEYS.broadcastEnabled, false),
+    tabColorEnabled: loadBool(STORAGE_KEYS.tabColorEnabled, false),
     setActiveView: (view) => set({activeView: view}),
     toggleSidebar: () => set((state) => ({isSidebarVisible: !state.isSidebarVisible})),
     toggleFilePanel: () => set((state) => ({isFilePanelVisible: !state.isFilePanelVisible})),
@@ -81,14 +102,25 @@ export const useUIStore = create<UIState>((set) => ({
     setSpaciness: (s) => set({ spaciness: s }),
     setTerminalColorLink: (enabled) => set({ terminalColorLink: enabled }),
     setKeywordHighlight: (enabled) => {
-        // 持久化到 localStorage，刷新后保持设置
-        try {
-            localStorage.setItem(KEYWORD_HIGHLIGHT_STORAGE_KEY, String(enabled));
-        } catch {
-            // localStorage 不可用时静默忽略
-        }
+        saveBool(STORAGE_KEYS.keywordHighlight, enabled);
         set({ keywordHighlight: enabled });
     },
+    toggleBroadcastEnabled: () => set((state) => {
+        const newVal = !state.broadcastEnabled;
+        saveBool(STORAGE_KEYS.broadcastEnabled, newVal);
+        // 关闭功能时同时关闭广播模式（延迟导入避免循环依赖）
+        if (!newVal) {
+            import("@/store/sessionStore").then(({useSessionStore}) => {
+                useSessionStore.getState().setBroadcastMode(false);
+            });
+        }
+        return { broadcastEnabled: newVal };
+    }),
+    toggleTabColorEnabled: () => set((state) => {
+        const newVal = !state.tabColorEnabled;
+        saveBool(STORAGE_KEYS.tabColorEnabled, newVal);
+        return { tabColorEnabled: newVal };
+    }),
 }));
 
 /** 强调色预设列表，供设置页面渲染选择器 */

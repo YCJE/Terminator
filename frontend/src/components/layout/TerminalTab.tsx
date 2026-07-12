@@ -1,6 +1,7 @@
 import { X, Ban } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { TerminalSession } from "@/store/sessionStore";
+import { useUIStore } from "@/store/uiStore";
 import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
@@ -61,6 +62,7 @@ export function TerminalTab({
     onSetColor,
 }: TerminalTabProps) {
     const { t } = useTranslation("terminal");
+    const tabColorEnabled = useUIStore((s) => s.tabColorEnabled);
     const isDraggedOver = React.useRef(false);
 
     // 右键颜色选择菜单状态
@@ -92,8 +94,9 @@ export function TerminalTab({
         };
     }, [colorMenuOpen]);
 
-    /** 右键打开颜色选择菜单 */
+    /** 右键打开颜色选择菜单（仅在设置中开启标签页颜色功能时生效） */
     const handleContextMenu = (e: React.MouseEvent) => {
+        if (!tabColorEnabled) return; // 功能未开启时不拦截右键
         e.preventDefault();
         // 标记本次 contextmenu 来自本组件，close 监听器应跳过
         skipCloseRef.current = true;

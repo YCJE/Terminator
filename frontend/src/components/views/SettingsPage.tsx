@@ -45,7 +45,7 @@ export function SettingsPage() {
     const {setUnlocked, setHasUser} = useAuthStore();
     const {clearSessions} = useSessionStore();
     const {lastError} = useSyncStore();
-    const {theme, setTheme, accentColor, setAccentColor, spaciness, setSpaciness, terminalColorLink, setTerminalColorLink, keywordHighlight, setKeywordHighlight} = useUIStore();
+    const {theme, setTheme, accentColor, setAccentColor, spaciness, setSpaciness, terminalColorLink, setTerminalColorLink, keywordHighlight, setKeywordHighlight, broadcastEnabled, toggleBroadcastEnabled, tabColorEnabled, toggleTabColorEnabled} = useUIStore();
     const queryClient = useQueryClient();
 
     const [activeCategory, setActiveCategory] = useState<SettingsCategory>("appearance");
@@ -406,7 +406,8 @@ export function SettingsPage() {
 
                     {/* ============ 终端 ============ */}
                     {activeCategory === "terminal" && (
-                        <SettingsCard title={t("log_section_title")}>
+                        <>
+                        <SettingsCard title={t("terminal_features_title")} description={t("terminal_features_desc")}>
                             {/* 关键词高亮开关 */}
                             <div className="flex items-center justify-between">
                                 <div className="flex flex-col">
@@ -435,8 +436,65 @@ export function SettingsPage() {
 
                             <div className="my-2 h-px w-full bg-border"/>
 
+                            {/* 多终端广播模式开关 */}
+                            <div className="flex items-center justify-between">
+                                <div className="flex flex-col">
+                                    <span className="font-medium text-foreground">{t("broadcast_label")}</span>
+                                    <span className="text-xs text-muted-foreground">{t("broadcast_desc")}</span>
+                                </div>
+                                <button
+                                    role="switch"
+                                    aria-checked={broadcastEnabled}
+                                    onClick={toggleBroadcastEnabled}
+                                    className={cn(
+                                        "relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center",
+                                        "rounded-full border-2 border-transparent transition-colors",
+                                        broadcastEnabled ? "bg-primary" : "bg-muted"
+                                    )}
+                                >
+                                    <span
+                                        className={cn(
+                                            "pointer-events-none block size-5 rounded-full bg-background shadow-lg",
+                                            "transition-transform",
+                                            broadcastEnabled ? "translate-x-5" : "translate-x-0"
+                                        )}
+                                    />
+                                </button>
+                            </div>
+
+                            <div className="my-2 h-px w-full bg-border"/>
+
+                            {/* 标签页自定义颜色开关 */}
+                            <div className="flex items-center justify-between">
+                                <div className="flex flex-col">
+                                    <span className="font-medium text-foreground">{t("tab_color_label")}</span>
+                                    <span className="text-xs text-muted-foreground">{t("tab_color_desc")}</span>
+                                </div>
+                                <button
+                                    role="switch"
+                                    aria-checked={tabColorEnabled}
+                                    onClick={toggleTabColorEnabled}
+                                    className={cn(
+                                        "relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center",
+                                        "rounded-full border-2 border-transparent transition-colors",
+                                        tabColorEnabled ? "bg-primary" : "bg-muted"
+                                    )}
+                                >
+                                    <span
+                                        className={cn(
+                                            "pointer-events-none block size-5 rounded-full bg-background shadow-lg",
+                                            "transition-transform",
+                                            tabColorEnabled ? "translate-x-5" : "translate-x-0"
+                                        )}
+                                    />
+                                </button>
+                            </div>
+                        </SettingsCard>
+
+                        <SettingsCard title={t("log_section_title")}>
                             <LogViewer/>
                         </SettingsCard>
+                        </>
                     )}
 
                     {/* ============ 同步 ============ */}

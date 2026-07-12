@@ -16,6 +16,12 @@ export class Host {
     "password"?: string;
     "keyId"?: string;
     "jumpHostId"?: string;
+    "proxyType"?: string;
+    "proxyHost"?: string;
+    "proxyPort"?: number;
+    "proxyUsername"?: string;
+    "proxyPassword"?: string;
+    "agentForwarding"?: boolean;
 
     /** Creates a new Host instance. */
     constructor($$source: Partial<Host> = {}) {

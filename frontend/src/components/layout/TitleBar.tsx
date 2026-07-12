@@ -18,6 +18,7 @@ export function TitleBar() {
     const setSessionColor = useSessionStore((s) => s.setSessionColor);
     const broadcastMode = useSessionStore((s) => s.broadcastMode);
     const toggleBroadcastMode = useSessionStore((s) => s.toggleBroadcastMode);
+    const broadcastEnabled = useUIStore((s) => s.broadcastEnabled);
     const activeView = useUIStore((s) => s.activeView);
     const isSidebarVisible = useUIStore((s) => s.isSidebarVisible);
     const toggleSidebar = useUIStore((s) => s.toggleSidebar);
@@ -103,7 +104,7 @@ export function TitleBar() {
 
             {/* 文件管理面板切换按钮 + 窗口控制按钮 */}
             <div className="flex h-full items-center gap-1 pr-1">
-                {isTerminalView && activeSessionId && (
+                {isTerminalView && activeSessionId && broadcastEnabled && (
                     <Button
                         variant="ghost"
                         size="icon-sm"

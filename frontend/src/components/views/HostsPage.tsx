@@ -143,6 +143,12 @@ export function HostsPage() {
             password: password || host.password,
             privateKey: keyString,
             title: host.name || host.host,
+            proxyType: host.proxyType,
+            proxyHost: host.proxyHost,
+            proxyPort: host.proxyPort,
+            proxyUsername: host.proxyUsername,
+            proxyPassword: host.proxyPassword,
+            agentForwarding: host.agentForwarding,
         });
     }, [keys, addSession]);
 

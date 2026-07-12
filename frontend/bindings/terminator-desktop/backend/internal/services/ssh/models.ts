@@ -33,6 +33,12 @@ export class SSHConnectionConfig {
     "password"?: string;
     "privateKey"?: string;
     "jumpHost"?: JumpHostConfig;
+    "proxyType"?: string;
+    "proxyHost"?: string;
+    "proxyPort"?: number;
+    "proxyUsername"?: string;
+    "proxyPassword"?: string;
+    "agentForwarding"?: boolean;
 
     constructor($$source: Partial<SSHConnectionConfig> = {}) {
         if (!("id" in $$source)) { this["id"] = ""; }

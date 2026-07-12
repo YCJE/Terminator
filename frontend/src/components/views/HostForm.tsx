@@ -9,6 +9,8 @@ import {
     Globe,
     User,
     Lock,
+    Network,
+    ShieldCheck,
 } from "lucide-react";
 import {Host, ItemType} from "../../../bindings/terminator-desktop/backend/internal/services/blob";
 import {Button} from "@/components/ui/button";
@@ -291,6 +293,132 @@ export function HostForm({initialData, isSaving, onSave, onCancel}: HostFormProp
                             </SelectContent>
                         </Select>
                     </div>
+                )}
+            </section>
+
+            <div className="h-px w-full bg-border/60"/>
+
+            {/* 代理与高级设置区 */}
+            <section className="flex flex-col gap-4">
+                <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                    <Network className="size-4 text-primary"/>
+                    {t("section_advanced")}
+                </div>
+
+                {/* SSH Agent 转发 */}
+                <div className="flex items-center justify-between rounded-lg border border-border/60 px-3 py-2.5">
+                    <div className="flex items-center gap-2">
+                        <ShieldCheck className="size-4 text-muted-foreground"/>
+                        <div>
+                            <Label className="cursor-pointer" htmlFor="agentForwarding">
+                                {t("agent_forwarding_label")}
+                            </Label>
+                            <p className="text-xs text-muted-foreground">
+                                {t("agent_forwarding_desc")}
+                            </p>
+                        </div>
+                    </div>
+                    <input
+                        id="agentForwarding"
+                        type="checkbox"
+                        className="size-4 accent-primary"
+                        checked={!!formData.agentForwarding}
+                        onChange={(e) =>
+                            setFormData(prev => ({...prev, agentForwarding: e.target.checked}))
+                        }
+                    />
+                </div>
+
+                {/* 代理配置 */}
+                <div className="grid gap-2">
+                    <Label>{t("proxy_type_label")}</Label>
+                    <Select
+                        value={formData.proxyType || "none"}
+                        onValueChange={(val) =>
+                            setFormData(prev => ({
+                                ...prev,
+                                proxyType: val === "none" ? undefined : val,
+                            }))
+                        }
+                    >
+                        <SelectTrigger className="w-full">
+                            <SelectValue/>
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="none">{t("proxy_none")}</SelectItem>
+                            <SelectItem value="http">HTTP</SelectItem>
+                            <SelectItem value="socks5">SOCKS5</SelectItem>
+                        </SelectContent>
+                    </Select>
+                </div>
+
+                {formData.proxyType && formData.proxyType !== "none" && (
+                    <>
+                        <div className="grid grid-cols-4 gap-3">
+                            <div className="col-span-3 grid gap-2">
+                                <Label htmlFor="proxyHost">{t("proxy_host")}</Label>
+                                <Input
+                                    id="proxyHost"
+                                    placeholder="127.0.0.1"
+                                    value={formData.proxyHost || ""}
+                                    onChange={(e) =>
+                                        setFormData(prev => ({...prev, proxyHost: e.target.value}))
+                                    }
+                                />
+                            </div>
+                            <div className="grid gap-2">
+                                <Label htmlFor="proxyPort">{t("proxy_port")}</Label>
+                                <Input
+                                    id="proxyPort"
+                                    type="number"
+                                    min={1}
+                                    max={65535}
+                                    placeholder="1080"
+                                    value={formData.proxyPort === undefined ? "" : formData.proxyPort}
+                                    onChange={(e) => {
+                                        const val = parseInt(e.target.value);
+                                        setFormData(prev => ({
+                                            ...prev,
+                                            proxyPort: isNaN(val) ? undefined : val,
+                                        }));
+                                    }}
+                                />
+                            </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                            <div className="grid gap-2">
+                                <Label htmlFor="proxyUsername">
+                                    {t("proxy_username")}
+                                </Label>
+                                <Input
+                                    id="proxyUsername"
+                                    value={formData.proxyUsername || ""}
+                                    onChange={(e) =>
+                                        setFormData(prev => ({
+                                            ...prev,
+                                            proxyUsername: e.target.value,
+                                        }))
+                                    }
+                                />
+                            </div>
+                            <div className="grid gap-2">
+                                <Label htmlFor="proxyPassword">
+                                    {t("proxy_password")}
+                                </Label>
+                                <Input
+                                    id="proxyPassword"
+                                    type="password"
+                                    value={formData.proxyPassword || ""}
+                                    onChange={(e) =>
+                                        setFormData(prev => ({
+                                            ...prev,
+                                            proxyPassword: e.target.value,
+                                        }))
+                                    }
+                                />
+                            </div>
+                        </div>
+                    </>
                 )}
             </section>
 

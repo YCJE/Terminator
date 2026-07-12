@@ -23,6 +23,16 @@ type Host struct {
 	Password   string   `json:"password,omitempty"`
 	KeyID      string   `json:"keyId,omitempty"`
 	JumpHostID string   `json:"jumpHostId,omitempty"` // 跳板机 Host ID，支持 SSH 多跳
+
+	// 代理配置（可选）
+	ProxyType     string `json:"proxyType,omitempty"`     // "http" | "socks5" | "" (无代理)
+	ProxyHost     string `json:"proxyHost,omitempty"`
+	ProxyPort     int    `json:"proxyPort,omitempty"`
+	ProxyUsername string `json:"proxyUsername,omitempty"`
+	ProxyPassword string `json:"proxyPassword,omitempty"`
+
+	// SSH Agent 转发（可选）
+	AgentForwarding bool `json:"agentForwarding,omitempty"`
 }
 
 type SavedKey struct {
