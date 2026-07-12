@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
-import { Search, Plus, Pencil, Trash2, ChevronDown, Terminal as TerminalIcon } from "lucide-react";
+import { Search, Plus, Pencil, Trash2, ChevronDown, Terminal as TerminalIcon, FolderOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -56,6 +56,15 @@ export function SnippetPanel({ sessionId }: SnippetPanelProps) {
     useEffect(() => {
         loadSnippets();
     }, [loadSnippets]);
+
+    // 收集已有分组用于自动补全
+    const existingGroups = useMemo(() => {
+        const groups = new Set<string>();
+        snippets.forEach((s) => {
+            if (s.group) groups.add(s.group);
+        });
+        return Array.from(groups).sort();
+    }, [snippets]);
 
     // 执行代码片段：将命令发送到活跃终端
     const handleExecute = (snippet: Snippet) => {
@@ -259,11 +268,22 @@ export function SnippetPanel({ sessionId }: SnippetPanelProps) {
                         </div>
                         <div className="flex flex-col gap-1.5">
                             <Label>{t("snippet_group_label")}</Label>
-                            <Input
-                                value={formGroup}
-                                onChange={(e) => setFormGroup(e.target.value)}
-                                placeholder={t("snippet_group_placeholder")}
-                            />
+                            <div className="relative">
+                                <FolderOpen
+                                    className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"/>
+                                <Input
+                                    list="snippet-existing-groups"
+                                    className="pl-9"
+                                    value={formGroup}
+                                    onChange={(e) => setFormGroup(e.target.value)}
+                                    placeholder={t("snippet_group_placeholder")}
+                                />
+                                <datalist id="snippet-existing-groups">
+                                    {existingGroups.map((g) => (
+                                        <option key={g} value={g}/>
+                                    ))}
+                                </datalist>
+                            </div>
                         </div>
                         <div className="flex flex-col gap-1.5">
                             <Label>{t("snippet_command_label")}</Label>
@@ -323,21 +343,25 @@ function SnippetChip({ snippet, sessionId, onExecute, onEdit, onDelete }: Snippe
     // 右键菜单处理
     const handleContextMenu = (e: React.MouseEvent) => {
         e.preventDefault();
-        // 模拟点击触发下拉菜单
         menuTriggerRef.current?.click();
+    };
+
+    // 阻止操作按钮的点击冒泡到外层执行按钮
+    const stopPropagation = (e: React.MouseEvent) => {
+        e.stopPropagation();
     };
 
     return (
         <DropdownMenu>
-            {/* 代码片段按钮：左键执行，右键弹出菜单 */}
-            <div className="relative inline-flex">
+            <div className="group relative inline-flex">
+                {/* 代码片段按钮：左键执行，右键弹出菜单 */}
                 <button
                     onClick={() => onExecute(snippet)}
                     onContextMenu={handleContextMenu}
                     disabled={!sessionId}
                     title={snippet.command}
                     className={cn(
-                        "inline-flex items-center gap-1.5 rounded-md border border-border bg-input/30 px-2.5 py-1 text-xs font-medium transition-colors",
+                        "inline-flex items-center gap-1.5 rounded-md border border-border bg-input/30 px-2.5 py-1 pr-7 text-xs font-medium transition-colors",
                         "hover:bg-primary/10 hover:border-primary/30 hover:text-primary",
                         "disabled:cursor-not-allowed disabled:opacity-50",
                         "cursor-pointer select-none"
@@ -346,12 +370,40 @@ function SnippetChip({ snippet, sessionId, onExecute, onEdit, onDelete }: Snippe
                     <TerminalIcon className="size-3 shrink-0 text-muted-foreground"/>
                     <span className="max-w-32 truncate">{snippet.name}</span>
                 </button>
+
                 {/* 右键菜单触发器（隐藏，由右键事件触发） */}
                 <DropdownMenuTrigger asChild>
                     <button ref={menuTriggerRef} className="sr-only" aria-label="menu">
                         <ChevronDown className="size-3"/>
                     </button>
                 </DropdownMenuTrigger>
+
+                {/* 可见的编辑按钮（hover 时显示） */}
+                <button
+                    onClick={(e) => { stopPropagation(e); onEdit(snippet); }}
+                    title={t("snippet_edit")}
+                    aria-label={t("snippet_edit")}
+                    className={cn(
+                        "absolute right-5 top-1/2 flex size-4 -translate-y-1/2 items-center justify-center rounded-sm",
+                        "text-muted-foreground transition-all hover:bg-accent hover:text-accent-foreground",
+                        "opacity-0 group-hover:opacity-100"
+                    )}
+                >
+                    <Pencil className="size-3"/>
+                </button>
+                {/* 可见的删除按钮（hover 时显示） */}
+                <button
+                    onClick={(e) => { stopPropagation(e); onDelete(snippet); }}
+                    title={t("snippet_delete")}
+                    aria-label={t("snippet_delete")}
+                    className={cn(
+                        "absolute right-1 top-1/2 flex size-4 -translate-y-1/2 items-center justify-center rounded-sm",
+                        "text-muted-foreground transition-all hover:bg-destructive/20 hover:text-destructive",
+                        "opacity-0 group-hover:opacity-100"
+                    )}
+                >
+                    <Trash2 className="size-3"/>
+                </button>
             </div>
 
             <DropdownMenuContent align="start">
