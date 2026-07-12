@@ -1,7 +1,7 @@
 import { X, Ban } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { TerminalSession } from "@/store/sessionStore";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 
@@ -66,11 +66,20 @@ export function TerminalTab({
     // 右键颜色选择菜单状态
     const [colorMenuOpen, setColorMenuOpen] = useState(false);
     const [menuPos, setMenuPos] = useState({ x: 0, y: 0 });
+    // 标记当前 contextmenu 事件来自本组件，避免 close 监听器误关闭自身菜单
+    const skipCloseRef = useRef(false);
 
     // 点击页面任意位置关闭颜色菜单
     useEffect(() => {
         if (!colorMenuOpen) return;
-        const close = () => setColorMenuOpen(false);
+        const close = (e: Event) => {
+            // contextmenu 事件来自本标签页时跳过关闭（允许重新定位菜单）
+            if (e.type === "contextmenu" && skipCloseRef.current) {
+                skipCloseRef.current = false;
+                return;
+            }
+            setColorMenuOpen(false);
+        };
         // 延迟注册，避免触发本次 contextmenu 之后的 click 事件立即关闭
         const timer = setTimeout(() => {
             window.addEventListener("click", close);
@@ -86,6 +95,8 @@ export function TerminalTab({
     /** 右键打开颜色选择菜单 */
     const handleContextMenu = (e: React.MouseEvent) => {
         e.preventDefault();
+        // 标记本次 contextmenu 来自本组件，close 监听器应跳过
+        skipCloseRef.current = true;
         // 不调用 stopPropagation，让 contextmenu 事件冒泡到 window，
         // 以便其他标签页的 close 监听器关闭已有菜单，避免多个菜单同时打开
         // 右键时选中该标签页（符合常见标签页交互习惯）

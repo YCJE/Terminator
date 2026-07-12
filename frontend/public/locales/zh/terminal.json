@@ -31,6 +31,7 @@
   "snippet_cancel": "取消",
   "snippet_save": "保存",
   "snippet_saving": "保存中...",
+  "snippet_save_failed": "保存失败",
   "snippet_delete_title": "删除代码片段",
   "snippet_delete_desc": "确定要删除\"{{name}}\"吗？",
   "snippet_run": "执行",

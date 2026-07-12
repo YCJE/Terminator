@@ -66,7 +66,7 @@ export function HostsPage() {
             a.click();
             URL.revokeObjectURL(url);
             toast.success(t("export_success", { count: exportData.length }));
-        } catch (e) {
+        } catch {
             toast.error(t("export_failed"));
         }
     };

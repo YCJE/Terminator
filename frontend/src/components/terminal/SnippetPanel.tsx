@@ -24,6 +24,7 @@ import { useSessionStore } from "@/store/sessionStore";
 import { SshService } from "../../../bindings/terminator-desktop/backend/internal/services/ssh";
 import { Snippet, ItemType } from "../../../bindings/terminator-desktop/backend/internal/services/blob";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 
 interface SnippetPanelProps {
     /** 当前活跃终端会话 ID */
@@ -103,6 +104,7 @@ export function SnippetPanel({ sessionId }: SnippetPanelProps) {
             setShowForm(false);
         } catch (error) {
             console.error("保存代码片段失败:", error);
+            toast.error(t("snippet_save_failed"));
         } finally {
             setIsSaving(false);
         }
