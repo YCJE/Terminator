@@ -82,6 +82,7 @@ type activeSession struct {
 	connConfig *SSHConnectionConfig    // 保存配置用于连接池释放
 	logFile    *os.File                // 会话日志文件（可选）
 	logMu      sync.Mutex              // 保护 logFile 的并发写入
+	agentCloser io.Closer              // SSH Agent 转发连接（可选，清理时关闭）
 }
 
 type SshService struct {
@@ -184,10 +185,14 @@ func (s *SshService) Connect(config *SSHConnectionConfig) error {
 	// Agent 转发：必须在 Shell() 之前调用 RequestAgentForwarding()，
 	// 因为 SSH 库在 session 启动后会拒绝该请求。
 	// ForwardToAgent 将本地 agent 注册到 SSH client，处理服务器发起的 agent 通道。
+	var agentCloser io.Closer
 	if config.AgentForwarding {
-		if ag, _, agentErr := sshagent.New(); agentErr == nil {
+		if ag, ac, agentErr := sshagent.New(); agentErr == nil {
 			if ferr := agent.ForwardToAgent(client, ag); ferr != nil {
+				_ = ac.Close()
 				slog.Debug("failed to set up agent forwarding on client", "session", config.ID, "error", ferr)
+			} else {
+				agentCloser = ac // 保存 closer，会话结束时关闭
 			}
 		} else {
 			slog.Debug("SSH agent not available for forwarding", "session", config.ID, "error", agentErr)
@@ -261,13 +266,14 @@ func (s *SshService) Connect(config *SSHConnectionConfig) error {
 	s.mu.Lock()
 	old := s.sessions[config.ID]
 	currentSession := &activeSession{
-		client:     client,
-		session:    session,
-		stdin:      stdin,
-		stdout:     pr,
-		pipeCloser: pw,
-		connConfig: config,
-		logFile:    logFile,
+		client:      client,
+		session:     session,
+		stdin:       stdin,
+		stdout:      pr,
+		pipeCloser:  pw,
+		connConfig:  config,
+		logFile:     logFile,
+		agentCloser: agentCloser,
 	}
 	s.sessions[config.ID] = currentSession
 	s.mu.Unlock()
@@ -275,6 +281,9 @@ func (s *SshService) Connect(config *SSHConnectionConfig) error {
 	if old != nil {
 		if old.logFile != nil {
 			_ = old.logFile.Close()
+		}
+		if old.agentCloser != nil {
+			_ = old.agentCloser.Close()
 		}
 		if old.sftpClient != nil {
 			_ = old.sftpClient.Close()
@@ -430,8 +439,12 @@ func (s *SshService) dialSSH(config *SSHConnectionConfig) (*ssh.Client, error) {
 
 	// Agent 认证：如果启用 AgentForwarding，尝试从 SSH agent 获取密钥并作为首选认证方式
 	if config.AgentForwarding {
-		if agentAuth := buildAgentAuthMethod(); agentAuth != nil {
+		if agentAuth, agentCloser := buildAgentAuthMethod(); agentAuth != nil {
 			authMethods = append([]ssh.AuthMethod{agentAuth}, authMethods...)
+			// 认证在 dial 过程中完成，dial 返回后 agent 连接不再需要
+			if agentCloser != nil {
+				defer func() { _ = agentCloser.Close() }()
+			}
 		}
 	}
 
@@ -516,7 +529,7 @@ func dialWithProxy(network, addr string, sshConfig *ssh.ClientConfig, config *SS
 	}
 
 	proxyAddr := fmt.Sprintf("%s:%d", config.ProxyHost, config.ProxyPort)
-	var dialer proxy.Dialer
+	var conn net.Conn
 
 	switch strings.ToLower(config.ProxyType) {
 	case "socks5":
@@ -524,24 +537,35 @@ func dialWithProxy(network, addr string, sshConfig *ssh.ClientConfig, config *SS
 		if config.ProxyUsername != "" {
 			auth = &proxy.Auth{User: config.ProxyUsername, Password: config.ProxyPassword}
 		}
-		d, err := proxy.SOCKS5("tcp", proxyAddr, auth, proxy.Direct)
+		d, err := proxy.SOCKS5("tcp", proxyAddr, auth, &netDialer{timeout: timeout})
 		if err != nil {
 			return nil, fmt.Errorf("failed to create SOCKS5 dialer: %w", err)
 		}
-		dialer = d
+		// SOCKS5 拨号无内置超时，用 context 限制总时间
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+		// proxy.SOCKS5 返回的 dialer 实现了 ContextDialer 接口
+		if cd, ok := d.(proxy.ContextDialer); ok {
+			conn, err = cd.DialContext(ctx, network, addr)
+		} else {
+			conn, err = d.Dial(network, addr)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("failed to dial %s through SOCKS5 proxy: %w", addr, err)
+		}
 	case "http":
-		dialer = &httpConnectDialer{
+		hd := &httpConnectDialer{
 			proxyAddr:     proxyAddr,
 			proxyUsername: config.ProxyUsername,
 			proxyPassword: config.ProxyPassword,
 		}
+		var err error
+		conn, err = hd.Dial(network, addr)
+		if err != nil {
+			return nil, err
+		}
 	default:
 		return nil, fmt.Errorf("unsupported proxy type: %s", config.ProxyType)
-	}
-
-	conn, err := dialer.Dial(network, addr)
-	if err != nil {
-		return nil, fmt.Errorf("failed to dial %s through proxy: %w", addr, err)
 	}
 
 	ncc, chans, reqs, err := ssh.NewClientConn(conn, addr, sshConfig)
@@ -551,6 +575,15 @@ func dialWithProxy(network, addr string, sshConfig *ssh.ClientConfig, config *SS
 	}
 
 	return ssh.NewClient(ncc, chans, reqs), nil
+}
+
+// netDialer 包装 net.Dialer，实现 proxy.Dialer 的底层网络连接超时控制
+type netDialer struct {
+	timeout time.Duration
+}
+
+func (d *netDialer) Dial(network, addr string) (net.Conn, error) {
+	return net.DialTimeout(network, addr, d.timeout)
 }
 
 // httpConnectDialer 实现 proxy.Dialer 接口，使用 HTTP CONNECT 方法建立隧道。
@@ -565,6 +598,9 @@ func (d *httpConnectDialer) Dial(network, addr string) (net.Conn, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to HTTP proxy %s: %w", d.proxyAddr, err)
 	}
+
+	// 设置读写超时，防止代理无响应时无限阻塞
+	_ = conn.SetDeadline(time.Now().Add(timeout))
 
 	// 使用 bufio.Reader 读取 HTTP 响应，避免 http.ReadResponse 读到 SSH 握手数据
 	br := bufio.NewReader(conn)
@@ -592,6 +628,9 @@ func (d *httpConnectDialer) Dial(network, addr string) (net.Conn, error) {
 		_ = conn.Close()
 		return nil, fmt.Errorf("HTTP proxy %s rejected CONNECT to %s: %s", d.proxyAddr, addr, resp.Status)
 	}
+
+	// 清除超时，后续 SSH 握手和数据传输不受限制
+	_ = conn.SetDeadline(time.Time{})
 
 	// 包装连接，确保 bufio.Reader 中缓存的 SSH 握手数据不丢失
 	return &bufferedConn{Conn: conn, r: br}, nil
@@ -624,24 +663,27 @@ func buildAuthMethods(privateKey, password string) []ssh.AuthMethod {
 	return authMethods
 }
 
-// buildAgentAuthMethod 连接本地 SSH agent 并返回基于 agent 的认证方法。
-// 如果 agent 不可用或没有密钥，返回 nil。
+// buildAgentAuthMethod 连接本地 SSH agent 并返回基于 agent 的认证方法和 closer。
+// closer 非 nil 时，调用方在认证完成后（dial 返回后）必须调用 Close() 释放资源。
+// 如果 agent 不可用或没有密钥，返回 (nil, nil)。
 // 在 Windows 上通过命名管道 \\.\pipe\openssh-ssh-agent 连接，
 // 在 Unix 上通过 SSH_AUTH_SOCK 环境变量指定的 Unix socket 连接。
-func buildAgentAuthMethod() ssh.AuthMethod {
+func buildAgentAuthMethod() (ssh.AuthMethod, io.Closer) {
 	if !sshagent.Available() {
 		slog.Debug("SSH agent not available")
-		return nil
+		return nil, nil
 	}
 
-	ag, _, err := sshagent.New()
+	ag, closer, err := sshagent.New()
 	if err != nil {
 		slog.Debug("failed to connect to SSH agent", "error", err)
-		return nil
+		return nil, nil
 	}
 
-	// PublicKeysCallback 在认证时调用 ag.Signers() 从 agent 获取签名者
-	return ssh.PublicKeysCallback(ag.Signers)
+	// PublicKeysCallback 在认证时调用 ag.Signers() 从 agent 获取签名者。
+	// Signers 返回的签名者在 Sign() 时会向 agent 发送签名请求，
+	// 因此 closer 必须在认证（dial）完成后才能关闭。
+	return ssh.PublicKeysCallback(ag.Signers), closer
 }
 
 // makeHostKeyCallback returns a callback that enforces Trust-On-First-Use.
@@ -763,6 +805,9 @@ func (s *SshService) Disconnect(sessionID string) {
 		s.cleanupForwards(sessionID)
 		if active.logFile != nil {
 			_ = active.logFile.Close()
+		}
+		if active.agentCloser != nil {
+			_ = active.agentCloser.Close()
 		}
 		if active.sftpClient != nil {
 			_ = active.sftpClient.Close()
@@ -1196,6 +1241,9 @@ func (s *SshService) cleanupSession(sessionID string, current *activeSession) {
 		s.cleanupForwards(sessionID)
 		if current.logFile != nil {
 			_ = current.logFile.Close()
+		}
+		if current.agentCloser != nil {
+			_ = current.agentCloser.Close()
 		}
 		if current.sftpClient != nil {
 			_ = current.sftpClient.Close()

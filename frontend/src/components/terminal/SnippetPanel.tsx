@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { ConfirmModal } from "@/components/ui/confirm-modal";
 import { useSnippetStore } from "@/store/snippetStore";
+import { useSessionStore } from "@/store/sessionStore";
 import { SshService } from "../../../bindings/terminator-desktop/backend/internal/services/ssh";
 import { Snippet, ItemType } from "../../../bindings/terminator-desktop/backend/internal/services/blob";
 import { cn } from "@/lib/utils";
@@ -59,6 +60,14 @@ export function SnippetPanel({ sessionId }: SnippetPanelProps) {
     const handleExecute = (snippet: Snippet) => {
         if (!sessionId) return;
         SshService.Input(sessionId, snippet.command + "\n").catch(console.error);
+        // 广播模式：同时发送到其他所有活跃终端
+        const {broadcastMode, getActiveSessionIds} = useSessionStore.getState();
+        if (broadcastMode) {
+            const others = getActiveSessionIds().filter((id) => id !== sessionId);
+            for (const id of others) {
+                SshService.Input(id, snippet.command + "\n").catch(() => {});
+            }
+        }
     };
 
     // 打开新增弹窗

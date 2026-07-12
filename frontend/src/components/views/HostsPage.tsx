@@ -1,5 +1,6 @@
 import { useState, useMemo, useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
+import { useQueryClient } from "@tanstack/react-query";
 import { Plus, Search, Server, ChevronRight, FolderOpen, Download, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,8 +12,7 @@ import { SlidePanel } from "@/components/ui/slide-panel";
 import { useHosts, useSaveHost, useDeleteHost } from "@/hooks/useHosts";
 import { useKeys } from "@/hooks/useKeys";
 import { useSessionStore } from "@/store/sessionStore";
-import { HostService } from "../../../bindings/terminator-desktop/backend/internal/services/blob";
-import { Host } from "../../../bindings/terminator-desktop/backend/internal/services/blob";
+import { HostService, Host, ItemType } from "../../../bindings/terminator-desktop/backend/internal/services/blob";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -26,6 +26,7 @@ export function HostsPage() {
     const saveMutation = useSaveHost();
     const deleteMutation = useDeleteHost();
     const {addSession} = useSessionStore();
+    const queryClient = useQueryClient();
 
     const [showForm, setShowForm] = useState(false);
     const [editingHost, setEditingHost] = useState<Host | null>(null);
@@ -86,7 +87,7 @@ export function HostsPage() {
                 if (!item.host || !item.username) continue;
                 await HostService.Save({
                     id: "",
-                    type: "host" as any,
+                    type: ItemType.TypeHost,
                     name: item.name || `${item.host}:${item.port || 22}`,
                     group: item.group || "",
                     host: item.host,
@@ -95,12 +96,12 @@ export function HostsPage() {
                     password: "",
                     keyId: "",
                     jumpHostId: item.jumpHostId || "",
-                } as any);
+                } as Host);
                 count++;
             }
             toast.success(t("import_success", { count }));
-            // 刷新主机列表
-            window.location.reload();
+            // 刷新主机列表，不刷新整个页面以免丢失终端会话
+            queryClient.invalidateQueries({ queryKey: ["hosts"] });
         } catch (e) {
             toast.error(t("import_failed"));
         }

@@ -35,17 +35,17 @@ function getStatusColor(status: string): string {
 
 /**
  * 标签页颜色预设（8 色 + 无色）
- * 用于右键菜单中的颜色选择器
+ * 用于右键菜单中的颜色选择器，label 为 i18n key
  */
-const TAB_COLOR_PRESETS: { value: string; label: string }[] = [
-    { value: "#ef4444", label: "红色" },
-    { value: "#f97316", label: "橙色" },
-    { value: "#eab308", label: "黄色" },
-    { value: "#22c55e", label: "绿色" },
-    { value: "#06b6d4", label: "青色" },
-    { value: "#3b82f6", label: "蓝色" },
-    { value: "#a855f7", label: "紫色" },
-    { value: "#ec4899", label: "粉色" },
+const TAB_COLOR_PRESETS: { value: string; labelKey: string }[] = [
+    { value: "#ef4444", labelKey: "tab_color_red" },
+    { value: "#f97316", labelKey: "tab_color_orange" },
+    { value: "#eab308", labelKey: "tab_color_yellow" },
+    { value: "#22c55e", labelKey: "tab_color_green" },
+    { value: "#06b6d4", labelKey: "tab_color_cyan" },
+    { value: "#3b82f6", labelKey: "tab_color_blue" },
+    { value: "#a855f7", labelKey: "tab_color_purple" },
+    { value: "#ec4899", labelKey: "tab_color_pink" },
 ];
 
 export function TerminalTab({
@@ -208,8 +208,8 @@ export function TerminalTab({
                                         : "ring-1 ring-border"
                                 )}
                                 style={{ backgroundColor: preset.value }}
-                                title={preset.label}
-                                aria-label={preset.label}
+                                title={t(preset.labelKey)}
+                                aria-label={t(preset.labelKey)}
                             />
                         ))}
                     </div>

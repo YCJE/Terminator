@@ -155,7 +155,8 @@ func (s *SftpService) ReadFile(sessionID string, path string) (string, error) {
 	return string(data), nil
 }
 
-// WriteFile 将文本内容写入远程文件（覆盖写入），用于远程文件编辑保存
+// WriteFile 将文本内容写入远程文件（覆盖写入），用于远程文件编辑保存。
+// 保留原文件权限；写入失败时不影响原文件内容（先写临时文件再重命名）。
 func (s *SftpService) WriteFile(sessionID string, path string, content string) error {
 	client, err := s.sshSvc.GetSFTPClient(sessionID)
 	if err != nil {
@@ -163,25 +164,43 @@ func (s *SftpService) WriteFile(sessionID string, path string, content string) e
 	}
 
 	// 检查文件类型，拒绝目录和非常规文件
+	var origMode os.FileMode
 	info, err := client.Stat(path)
-	if err == nil { // 文件已存在时检查类型
+	if err == nil { // 文件已存在时检查类型并记录权限
 		if info.IsDir() {
 			return fmt.Errorf("%q 是目录，无法写入", path)
 		}
 		if !info.Mode().IsRegular() {
 			return fmt.Errorf("%q 不是常规文件，无法写入", path)
 		}
+		origMode = info.Mode().Perm()
 	}
 
-	file, err := client.Create(path)
+	// 写入临时文件再重命名，确保写入失败时原文件内容不丢失
+	tmpPath := path + ".terminator-tmp"
+	file, err := client.Create(tmpPath)
 	if err != nil {
-		return fmt.Errorf("创建文件 %q 失败: %w", path, err)
+		return fmt.Errorf("创建临时文件 %q 失败: %w", tmpPath, err)
 	}
-	defer file.Close()
 
-	_, err = file.Write([]byte(content))
-	if err != nil {
-		return fmt.Errorf("写入文件 %q 失败: %w", path, err)
+	_, writeErr := file.Write([]byte(content))
+	_ = file.Close()
+	if writeErr != nil {
+		_ = client.Remove(tmpPath) // 清理临时文件
+		return fmt.Errorf("写入文件 %q 失败: %w", path, writeErr)
+	}
+
+	// 恢复原文件权限（如有）
+	if origMode != 0 {
+		_ = client.Chmod(tmpPath, origMode)
+	}
+
+	// 原子重命名（PosixRename 优先，回退到普通 Rename）
+	if err := client.PosixRename(tmpPath, path); err != nil {
+		if err2 := client.Rename(tmpPath, path); err2 != nil {
+			_ = client.Remove(tmpPath)
+			return fmt.Errorf("重命名临时文件失败: %w (posix: %v)", err2, err)
+		}
 	}
 	return nil
 }
