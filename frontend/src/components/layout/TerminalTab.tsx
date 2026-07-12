@@ -86,7 +86,8 @@ export function TerminalTab({
     /** 右键打开颜色选择菜单 */
     const handleContextMenu = (e: React.MouseEvent) => {
         e.preventDefault();
-        e.stopPropagation();
+        // 不调用 stopPropagation，让 contextmenu 事件冒泡到 window，
+        // 以便其他标签页的 close 监听器关闭已有菜单，避免多个菜单同时打开
         // 右键时选中该标签页（符合常见标签页交互习惯）
         onClick();
         // 计算菜单位置，确保不超出视口边界

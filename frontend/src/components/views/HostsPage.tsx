@@ -100,10 +100,11 @@ export function HostsPage() {
                 count++;
             }
             toast.success(t("import_success", { count }));
-            // 刷新主机列表，不刷新整个页面以免丢失终端会话
-            queryClient.invalidateQueries({ queryKey: ["hosts"] });
-        } catch (e) {
+        } catch (err) {
             toast.error(t("import_failed"));
+        } finally {
+            // 无论成功还是部分失败，都刷新主机列表以显示已导入的数据
+            queryClient.invalidateQueries({ queryKey: ["hosts"] });
         }
         e.target.value = ""; // 重置 input 以便重复导入同一文件
     };

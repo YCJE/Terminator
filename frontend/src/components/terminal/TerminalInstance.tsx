@@ -290,6 +290,13 @@ export function TerminalInstance({sessionId, isActive, config, disconnected}: Te
             if (data?.id === sessionId) {
                 isReadyRef.current = false;
                 setSessionStatus(sessionId, "disconnected");
+                // 刷新关键词高亮解码器中残留的字节，避免丢失最后一小段输出
+                if (keywordHighlighterRef.current && terminalRef.current) {
+                    const flushed = keywordHighlighterRef.current.flush();
+                    if (flushed) {
+                        terminalRef.current.write(flushed);
+                    }
+                }
             }
         });
 

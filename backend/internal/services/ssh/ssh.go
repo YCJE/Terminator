@@ -657,7 +657,9 @@ func buildAuthMethods(privateKey, password string) []ssh.AuthMethod {
 			slog.Warn("private key parse failed, falling back to password if available", "error", err)
 		}
 	}
-	if password != "" && len(authMethods) == 0 {
+	// 密码作为备选认证方式：即使密钥解析成功也添加，
+	// 服务器拒绝密钥时 SSH 库会自动尝试下一个认证方法
+	if password != "" {
 		authMethods = append(authMethods, ssh.Password(password))
 	}
 	return authMethods
