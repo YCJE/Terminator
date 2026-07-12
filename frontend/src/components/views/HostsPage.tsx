@@ -48,7 +48,7 @@ export function HostsPage() {
     const handleExport = async () => {
         try {
             const allHosts = await HostService.GetAll();
-            // 导出时清除 ID 和敏感字段，导入时重新生成
+            // 导出时清除 ID 和敏感字段（密码/代理密码），导入时重新生成
             const exportData = allHosts.map(h => ({
                 name: h.name,
                 group: h.group || "",
@@ -56,6 +56,11 @@ export function HostsPage() {
                 port: h.port,
                 username: h.username,
                 jumpHostId: h.jumpHostId || "",
+                proxyType: h.proxyType || "",
+                proxyHost: h.proxyHost || "",
+                proxyPort: h.proxyPort || 0,
+                proxyUsername: h.proxyUsername || "",
+                agentForwarding: h.agentForwarding || false,
             }));
             const json = JSON.stringify(exportData, null, 2);
             const blob = new Blob([json], { type: "application/json" });
@@ -96,6 +101,11 @@ export function HostsPage() {
                     password: "",
                     keyId: "",
                     jumpHostId: item.jumpHostId || "",
+                    proxyType: item.proxyType || undefined,
+                    proxyHost: item.proxyHost || undefined,
+                    proxyPort: item.proxyPort || undefined,
+                    proxyUsername: item.proxyUsername || undefined,
+                    agentForwarding: item.agentForwarding || false,
                 } as Host);
                 count++;
             }

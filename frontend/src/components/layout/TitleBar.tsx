@@ -29,7 +29,8 @@ export function TitleBar() {
     const showSidebarStyling = isTerminalView ? isSidebarVisible : true;
 
     const {isUnlocked} = useAuthStore();
-    const {t} = useTranslation("sftp");
+    const {t: tSftp} = useTranslation("sftp");
+    const {t: tTerm} = useTranslation("terminal");
 
     const scrollRef = useRef<HTMLDivElement>(null);
     const [dragIndex, setDragIndex] = useState<number | null>(null);
@@ -110,7 +111,7 @@ export function TitleBar() {
                         size="icon-sm"
                         onClick={toggleBroadcastMode}
                         className={cn("wails-no-drag", broadcastMode ? "text-primary" : "text-muted-foreground hover:text-foreground")}
-                        title={t("broadcast_mode")}
+                        title={broadcastMode ? tTerm("broadcast_on") : tTerm("broadcast_off")}
                     >
                         <Radio className="size-4"/>
                     </Button>
@@ -121,7 +122,7 @@ export function TitleBar() {
                         size="icon-sm"
                         onClick={toggleFilePanel}
                         className="wails-no-drag text-muted-foreground hover:text-foreground"
-                        title={t("toggle_panel")}
+                        title={tSftp("toggle_panel")}
                     >
                         {isFilePanelVisible
                             ? <PanelRightClose className="size-4"/>

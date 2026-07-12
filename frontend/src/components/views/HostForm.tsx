@@ -105,6 +105,11 @@ export function HostForm({initialData, isSaving, onSave, onCancel}: HostFormProp
         const port = Number(formData.port) || 22;
         const clampedPort = Math.max(1, Math.min(65535, port));
 
+        // 代理校验：选择了代理类型但未填地址时清空代理配置
+        const hasProxy = formData.proxyType && formData.proxyType !== "none" && formData.proxyHost;
+        const proxyPort = Number(formData.proxyPort) || 0;
+        const clampedProxyPort = hasProxy ? Math.max(1, Math.min(65535, proxyPort)) : undefined;
+
         const finalHost = new Host({
             ...formData,
             id: formData.id || "",
@@ -114,6 +119,12 @@ export function HostForm({initialData, isSaving, onSave, onCancel}: HostFormProp
             keyId: authMethod === "key" ? (formData.keyId === "none" ? undefined : formData.keyId) : undefined,
             // 如果选择密钥认证，清空密码
             password: authMethod === "key" ? undefined : (authMethod === "ask" ? undefined : formData.password),
+            // 清理代理字段：无代理时清空所有代理配置，避免残留
+            proxyType: hasProxy ? formData.proxyType : undefined,
+            proxyHost: hasProxy ? formData.proxyHost : undefined,
+            proxyPort: clampedProxyPort,
+            proxyUsername: hasProxy ? (formData.proxyUsername || undefined) : undefined,
+            proxyPassword: hasProxy ? (formData.proxyPassword || undefined) : undefined,
         });
 
         onSave(finalHost);
