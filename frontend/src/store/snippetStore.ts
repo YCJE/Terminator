@@ -41,7 +41,7 @@ export const useSnippetStore = create<SnippetState>((set, get) => ({
     // 删除代码片段
     deleteSnippet: async (id: string) => {
         await SnippetService.Delete(id);
-        // 删除成功后更新本地列表
+        // 后端删除成功后才更新本地列表，避免 UI 与后端不一致
         set((state) => ({
             snippets: state.snippets.filter((s) => s.id !== id),
         }));

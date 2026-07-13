@@ -35,6 +35,7 @@
   "snippet_save": "Save",
   "snippet_saving": "Saving...",
   "snippet_save_failed": "Save failed",
+  "snippet_delete_failed": "Delete failed",
   "snippet_delete_title": "Delete Snippet",
   "snippet_delete_desc": "Are you sure you want to delete \"{{name}}\"?",
   "snippet_run": "Run",

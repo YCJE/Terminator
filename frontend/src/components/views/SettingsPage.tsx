@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { useQueryClient } from "@tanstack/react-query";
-import { User, Server, Lock, Trash2, Globe, AlertTriangle, Palette, Moon, Sun, Unplug, FolderSync, ScrollText, Download, ExternalLink, Loader2, CheckCircle2, type LucideIcon } from "lucide-react";
+import { User, Server, Lock, Trash2, Globe, AlertTriangle, Palette, Moon, Sun, Unplug, FolderSync, ScrollText, Download, ExternalLink, Loader2, CheckCircle2, Info, type LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SwitchServerModal } from "@/components/views/SwitchServerModal";
 import { WebDAVModal } from "@/components/views/WebDAVModal";
@@ -490,6 +490,12 @@ export function SettingsPage() {
                                 </button>
                             </div>
                         </SettingsCard>
+
+                        {/* Agent 转发和代理说明 */}
+                        <div className="flex items-start gap-2 rounded-lg border border-border/60 bg-muted/30 px-3 py-2.5 text-xs text-muted-foreground">
+                            <Info className="mt-0.5 size-3.5 shrink-0"/>
+                            <span>{t("agent_forwarding_info")}</span>
+                        </div>
 
                         <SettingsCard title={t("log_section_title")}>
                             <LogViewer/>

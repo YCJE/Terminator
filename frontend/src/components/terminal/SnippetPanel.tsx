@@ -106,7 +106,7 @@ export function SnippetPanel({ sessionId }: SnippetPanelProps) {
             await saveSnippet({
                 id: editingSnippet?.id || "",
                 name: formName.trim(),
-                group: formGroup.trim(),
+                group: formGroup.trim() || undefined,
                 command: formCommand,
                 type: ItemType.TypeSnippet,
             });
@@ -121,9 +121,13 @@ export function SnippetPanel({ sessionId }: SnippetPanelProps) {
 
     // 确认删除
     const handleConfirmDelete = async () => {
-        if (snippetToDelete) {
+        if (!snippetToDelete) return;
+        try {
             await deleteSnippet(snippetToDelete.id);
             setSnippetToDelete(null);
+        } catch (error) {
+            console.error("删除代码片段失败:", error);
+            toast.error(t("snippet_delete_failed"));
         }
     };
 
