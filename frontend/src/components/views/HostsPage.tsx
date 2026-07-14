@@ -110,7 +110,7 @@ export function HostsPage() {
                 count++;
             }
             toast.success(t("import_success", { count }));
-        } catch (err) {
+        } catch {
             toast.error(t("import_failed"));
         } finally {
             // 无论成功还是部分失败，都刷新主机列表以显示已导入的数据

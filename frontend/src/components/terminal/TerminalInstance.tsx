@@ -213,7 +213,7 @@ export function TerminalInstance({sessionId, isActive, config, disconnected}: Te
                 if (!fitAddonRef.current || !terminalRef.current) return;
                 try {
                     fitAddonRef.current.fit();
-                } catch (e) {
+                } catch {
                     return;
                 }
                 if (!isReadyRef.current || !terminalRef.current) return;
@@ -315,7 +315,7 @@ export function TerminalInstance({sessionId, isActive, config, disconnected}: Te
                 fitAddonRef.current.fit();
                 SshService.Resize(sessionId, terminalRef.current.rows, terminalRef.current.cols).catch(() => {});
                 terminalRef.current.refresh(0, terminalRef.current.rows - 1);
-            } catch (e) {
+            } catch {
                 // 忽略
             }
         }, 120);
@@ -369,7 +369,7 @@ export function TerminalInstance({sessionId, isActive, config, disconnected}: Te
                                 setShowSearch(false);
                             }
                         }}
-                        placeholder={t("search_placeholder") || "搜索..."}
+                        placeholder={t("search_placeholder")}
                         className="h-7 w-48 rounded-sm bg-background px-2 text-xs outline-none"
                     />
                     <button
