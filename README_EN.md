@@ -27,6 +27,9 @@ Terminator is a cross-platform SSH client built with [Wails v3](https://v3.wails
 - Scroll anchoring — locks scroll position during large outputs
 - Tab status indicators (green=connected / yellow=connecting / red=disconnected)
 - Session recovery via SerializeAddon after crash
+- **Terminal search** — Ctrl+F to search output, prev/next navigation, Esc to close
+- **Keyword highlighting** — real-time highlight of ERROR/WARN/INFO/SUCCESS keywords, toggleable in settings
+- **Multi-terminal broadcast** — type in one terminal, commands sync to all connected terminals for batch ops
 
 ### SSH Connection
 
@@ -34,6 +37,8 @@ Terminator is a cross-platform SSH client built with [Wails v3](https://v3.wails
 - Jump Host support — connect through an intermediate host
 - Port Forwarding — Local and Remote forward with visual UI management
 - Connection pool health check, refCount prevents closing in-use connections
+- **SSH Agent Forwarding** — per-host Agent Forwarding config, allows remote server auth via local SSH Agent
+- **HTTP/SOCKS5 Proxy** — per-host proxy config for SSH connections via HTTP CONNECT or SOCKS5, with proxy auth
 
 ### Host & Key Management
 
@@ -43,6 +48,8 @@ Terminator is a cross-platform SSH client built with [Wails v3](https://v3.wails
 - Interactive password input — optionally don't save passwords
 - SSH key management — encrypted storage, key-based auth
 - Built-in key generation — Ed25519 and RSA, import from file
+- **Host import/export** — batch export and import host configs as JSON (passwords excluded)
+- **Custom tab colors** — right-click tab to pick from 8 preset colors, toggleable in settings
 
 ### Visual File Management
 
@@ -52,6 +59,16 @@ Terminator is a cross-platform SSH client built with [Wails v3](https://v3.wails
 - SFTP over existing SSH connection
 - Upload/download with 32KB chunking + real-time progress
 - File operations: mkdir, delete, rename, chmod, text preview
+- **File search** — current directory filter and full recursive search modes
+- **Scroll position memory** — restores browse position after navigating back
+- **Remote file editing** — preview dialog supports edit mode, save back to server
+
+### Snippets
+
+- Side panel for managing common command snippets, searchable and groupable
+- Click a snippet to execute in the current terminal; broadcasts to all terminals in broadcast mode
+- Hover any snippet chip to reveal edit/delete buttons; right-click menu also available
+- Add/edit dialog supports group autocomplete from existing groups
 
 ### End-to-End Encrypted Sync
 
@@ -65,9 +82,11 @@ Two sync methods, both E2E encrypted, freely switchable:
 ### Other
 
 - **Local-first** — no server required
-- **Accent color presets** — 6 colors, independent dark/light palettes
+- **Accent color presets** — 7 colors (default/sky/emerald/violet/amber/rose/cyan), independent dark/light palettes
 - **UI density** — compact/standard/relaxed, adjusts title bar/sidebar/spacing
 - **Terminal color link** — toggleable, terminal ANSI follows UI accent
+- **Feature toggles** — keyword highlight, broadcast, tab colors all toggleable in settings
+- **Session logging** — SSH output written to log files in real-time, viewable in settings
 - **Multi-language** — Chinese/English, Chinese default on first launch
 - **Dark/Light themes** — Abyss / Frost
 - **RAF batch merge** — high-frequency events merged via requestAnimationFrame
@@ -95,6 +114,17 @@ Two sync methods, both E2E encrypted, freely switchable:
 - [x] Tab recovery (SerializeAddon)
 - [x] RAF batch + error debounce
 - [x] ConfigProxy default value erasure
+- [x] Snippet management (groups, search, one-click execute, edit/delete)
+- [x] Multi-terminal broadcast mode (batch ops)
+- [x] Terminal keyword highlighting (ERROR/WARN/INFO/SUCCESS)
+- [x] SSH Agent forwarding (per-host config)
+- [x] HTTP/SOCKS5 proxy (per-host config)
+- [x] Custom tab colors (8 presets)
+- [x] Host config import/export (JSON)
+- [x] Remote file editing (preview → edit → save)
+- [x] Terminal search (Ctrl+F)
+- [x] Session logging + settings viewer
+- [x] Unified feature toggles (settings → terminal)
 - [ ] Multiple profiles (teams)
 - [ ] Shortcuts
 - [ ] Android client
