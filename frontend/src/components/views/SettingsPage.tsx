@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { useQueryClient } from "@tanstack/react-query";
-import { User, Server, Lock, Trash2, Globe, AlertTriangle, Palette, Moon, Sun, Unplug, FolderSync, ScrollText, Download, ExternalLink, Loader2, CheckCircle2, Info, type LucideIcon } from "lucide-react";
+import { User, Server, Lock, Trash2, Globe, AlertTriangle, Palette, Moon, Sun, Unplug, FolderSync, ScrollText, Download, ExternalLink, Loader2, CheckCircle2, Info, Keyboard, type LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SwitchServerModal } from "@/components/views/SwitchServerModal";
 import { WebDAVModal } from "@/components/views/WebDAVModal";
@@ -29,11 +29,12 @@ import { useUIStore, Theme, ACCENT_PRESETS, SPACINESS_PRESETS, type AccentColor,
 import { applyTerminalColorLink } from "@/lib/terminalTheme";
 import { cn } from "@/lib/utils";
 
-type SettingsCategory = "appearance" | "terminal" | "sync" | "security" | "about";
+type SettingsCategory = "appearance" | "terminal" | "shortcuts" | "sync" | "security" | "about";
 
 const NAV_ITEMS: { id: SettingsCategory; labelKey: string; icon: LucideIcon }[] = [
     { id: "appearance", labelKey: "nav_appearance", icon: Palette },
     { id: "terminal", labelKey: "nav_terminal", icon: ScrollText },
+    { id: "shortcuts", labelKey: "nav_shortcuts", icon: Keyboard },
     { id: "sync", labelKey: "nav_sync", icon: Server },
     { id: "security", labelKey: "nav_security", icon: Lock },
     { id: "about", labelKey: "nav_about", icon: Download },
@@ -628,6 +629,52 @@ export function SettingsPage() {
                                     <Trash2 className="mr-2 size-4"/>
                                     {t("wipe_btn")}
                                 </Button>
+                            </div>
+                        </SettingsCard>
+                    )}
+
+                    {/* ============ 快捷键 ============ */}
+                    {activeCategory === "shortcuts" && (
+                        <SettingsCard title={t("shortcuts_title")} description={t("shortcuts_desc")}>
+                            <div className="flex flex-col gap-1">
+                                {/* 终端快捷键 */}
+                                <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-foreground">
+                                    <ScrollText className="size-4 text-primary"/>
+                                    {t("shortcuts_terminal")}
+                                </div>
+                                {[
+                                    { keys: "Ctrl+F", desc: t("shortcut_search") },
+                                    { keys: "Ctrl+Shift+C", desc: t("shortcut_copy") },
+                                    { keys: "Ctrl+Shift+V", desc: t("shortcut_paste") },
+                                    { keys: "Esc", desc: t("shortcut_close_search") },
+                                ].map((item) => (
+                                    <div key={item.keys} className="flex items-center justify-between rounded-lg px-3 py-2 hover:bg-muted/40 transition-colors">
+                                        <span className="text-sm text-muted-foreground">{item.desc}</span>
+                                        <kbd className="inline-flex items-center gap-1 rounded-md border border-border bg-muted px-2 py-0.5 font-mono text-xs font-medium text-foreground">
+                                            {item.keys}
+                                        </kbd>
+                                    </div>
+                                ))}
+
+                                <div className="my-3 h-px w-full bg-border"/>
+
+                                {/* 标签页快捷键 */}
+                                <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-foreground">
+                                    <FolderSync className="size-4 text-primary"/>
+                                    {t("shortcuts_tabs")}
+                                </div>
+                                {[
+                                    { keys: "Enter", desc: t("shortcut_tab_activate") },
+                                    { keys: "Drag", desc: t("shortcut_tab_reorder") },
+                                    { keys: "Right-Click", desc: t("shortcut_tab_color") },
+                                ].map((item) => (
+                                    <div key={item.keys} className="flex items-center justify-between rounded-lg px-3 py-2 hover:bg-muted/40 transition-colors">
+                                        <span className="text-sm text-muted-foreground">{item.desc}</span>
+                                        <kbd className="inline-flex items-center gap-1 rounded-md border border-border bg-muted px-2 py-0.5 font-mono text-xs font-medium text-foreground">
+                                            {item.keys}
+                                        </kbd>
+                                    </div>
+                                ))}
                             </div>
                         </SettingsCard>
                     )}
