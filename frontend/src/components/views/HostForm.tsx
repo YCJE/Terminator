@@ -105,10 +105,20 @@ export function HostForm({initialData, isSaving, onSave, onCancel}: HostFormProp
         const port = Number(formData.port) || 22;
         const clampedPort = Math.max(1, Math.min(65535, port));
 
-        // 代理校验：选择了代理类型但未填地址时清空代理配置
-        const hasProxy = formData.proxyType && formData.proxyType !== "none" && formData.proxyHost;
-        const proxyPort = Number(formData.proxyPort) || 0;
-        const clampedProxyPort = hasProxy ? Math.max(1, Math.min(65535, proxyPort)) : undefined;
+        // 代理校验：选择了代理类型时，地址和端口为必填
+        const hasProxyType = formData.proxyType && formData.proxyType !== "none";
+        if (hasProxyType) {
+            if (!formData.proxyHost?.trim()) {
+                toast.error(t("proxy_host_required"));
+                return;
+            }
+            if (!formData.proxyPort || formData.proxyPort < 1 || formData.proxyPort > 65535) {
+                toast.error(t("proxy_port_required"));
+                return;
+            }
+        }
+        const hasProxy = !!hasProxyType;
+        const clampedProxyPort = hasProxy ? Math.max(1, Math.min(65535, formData.proxyPort!)) : undefined;
 
         const finalHost = new Host({
             ...formData,

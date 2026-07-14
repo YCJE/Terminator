@@ -375,14 +375,14 @@ export function TerminalInstance({sessionId, isActive, config, disconnected}: Te
                     <button
                         onClick={() => handleSearch("prev")}
                         className="flex size-6 items-center justify-center rounded-sm hover:bg-accent"
-                        title="上一个"
+                        title={t("search_prev")}
                     >
                         <ChevronUp className="size-3.5"/>
                     </button>
                     <button
                         onClick={() => handleSearch("next")}
                         className="flex size-6 items-center justify-center rounded-sm hover:bg-accent"
-                        title="下一个"
+                        title={t("search_next")}
                     >
                         <ChevronDown className="size-3.5"/>
                     </button>
@@ -392,7 +392,7 @@ export function TerminalInstance({sessionId, isActive, config, disconnected}: Te
                             setSearchQuery("");
                         }}
                         className="flex size-6 items-center justify-center rounded-sm hover:bg-accent"
-                        title="关闭"
+                        title={t("search_close")}
                     >
                         <X className="size-3.5"/>
                     </button>

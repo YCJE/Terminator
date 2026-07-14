@@ -45,6 +45,8 @@
   "proxy_port": "端口",
   "proxy_username": "代理用户名（可选）",
   "proxy_password": "代理密码（可选）",
+  "proxy_host_required": "请填写代理地址",
+  "proxy_port_required": "请填写有效的代理端口（1-65535）",
   "import_hosts": "导入主机",
   "export_hosts": "导出主机",
   "export_success": "已导出 {{count}} 台主机",

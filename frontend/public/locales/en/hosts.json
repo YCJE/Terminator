@@ -45,6 +45,8 @@
   "proxy_port": "Port",
   "proxy_username": "Proxy Username (optional)",
   "proxy_password": "Proxy Password (optional)",
+  "proxy_host_required": "Proxy host is required",
+  "proxy_port_required": "Please enter a valid proxy port (1-65535)",
   "import_hosts": "Import Hosts",
   "export_hosts": "Export Hosts",
   "export_success": "Exported {{count}} hosts",
