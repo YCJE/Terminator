@@ -17,7 +17,7 @@ import { useTranslation } from "react-i18next";
 import { AppEvent } from "@/lib/events.ts";
 import { useUIStore } from "@/store/uiStore.ts";
 import { useSessionStore } from "@/store/sessionStore.ts";
-import { X, ChevronUp, ChevronDown } from "lucide-react";
+import { X, ChevronUp, ChevronDown, Search } from "lucide-react";
 
 interface TerminalInstanceProps {
     sessionId: string;
@@ -352,6 +352,20 @@ export function TerminalInstance({sessionId, isActive, config, disconnected}: Te
             }}
         >
             <div ref={containerRef} className="h-full w-full"/>
+
+            {/* 搜索按钮（搜索面板未打开时显示在右上角） */}
+            {isActive && !showSearch && (
+                <button
+                    onClick={() => {
+                        setShowSearch(true);
+                        setTimeout(() => searchInputRef.current?.focus(), 50);
+                    }}
+                    title={t("search_open")}
+                    className="absolute right-3 top-3 z-20 flex size-7 items-center justify-center rounded-md border border-border bg-popover/80 text-muted-foreground shadow-sm backdrop-blur-sm transition-colors hover:bg-accent hover:text-accent-foreground"
+                >
+                    <Search className="size-3.5"/>
+                </button>
+            )}
 
             {/* 终端搜索面板（借鉴 Tabby） */}
             {showSearch && isActive && (

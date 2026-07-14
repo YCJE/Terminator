@@ -2,6 +2,7 @@
   "error_message": "错误：{{message}}\r\n{{error}}",
   "session_disconnected": "── SSH 会话已断开 ──",
   "search_placeholder": "搜索终端输出...",
+  "search_open": "搜索 (Ctrl+F)",
   "search_prev": "上一个",
   "search_next": "下一个",
   "search_close": "关闭",
