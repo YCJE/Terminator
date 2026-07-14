@@ -261,8 +261,8 @@ export function SnippetPanel({ sessionId }: SnippetPanelProps) {
                             {editingSnippet ? t("snippet_edit_title") : t("snippet_new_title")}
                         </DialogTitle>
                     </DialogHeader>
-                    <div className="flex flex-col gap-4 py-2">
-                        <div className="flex flex-col gap-1.5">
+                    <div className="flex w-full flex-col gap-4 py-2">
+                        <div className="flex w-full flex-col gap-1.5">
                             <Label>{t("snippet_name_label")}</Label>
                             <Input
                                 value={formName}
@@ -270,9 +270,9 @@ export function SnippetPanel({ sessionId }: SnippetPanelProps) {
                                 placeholder={t("snippet_name_placeholder")}
                             />
                         </div>
-                        <div className="flex flex-col gap-1.5">
+                        <div className="flex w-full flex-col gap-1.5">
                             <Label>{t("snippet_group_label")}</Label>
-                            <div className="relative">
+                            <div className="relative w-full">
                                 <FolderOpen
                                     className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"/>
                                 <Input
@@ -289,7 +289,7 @@ export function SnippetPanel({ sessionId }: SnippetPanelProps) {
                                 </datalist>
                             </div>
                         </div>
-                        <div className="flex flex-col gap-1.5">
+                        <div className="flex w-full flex-col gap-1.5">
                             <Label>{t("snippet_command_label")}</Label>
                             <Textarea
                                 value={formCommand}
