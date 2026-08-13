@@ -955,7 +955,13 @@ func (s *SshService) AddPortForward(spec *PortForwardSpec) error {
 }
 
 func (s *SshService) startLocalForward(spec *PortForwardSpec, client *ssh.Client) error {
-	localAddr := fmt.Sprintf("%s:%d", spec.LocalHost, spec.LocalPort)
+	// 安全加固：LocalHost 为空时默认绑定回环地址 127.0.0.1，
+	// 避免 net.Listen("tcp", ":port") 绑定 0.0.0.0 将所有网卡暴露到局域网。
+	localHost := strings.TrimSpace(spec.LocalHost)
+	if localHost == "" {
+		localHost = "127.0.0.1"
+	}
+	localAddr := fmt.Sprintf("%s:%d", localHost, spec.LocalPort)
 	listener, err := net.Listen("tcp", localAddr)
 	if err != nil {
 		// 友好提示端口占用

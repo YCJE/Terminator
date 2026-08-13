@@ -88,8 +88,11 @@ function parentPath(path: string): string {
 }
 
 // 取路径中的文件名
+// 同时兼容 POSIX（/）与 Windows（\）路径分隔符：
+// Windows 上 Dialogs.OpenFile 返回的本地路径使用反斜杠，
+// 仅按 "/" 分割会导致整个路径被当作文件名上传到远程。
 function basename(p: string): string {
-    const parts = p.split("/").filter(Boolean);
+    const parts = p.split(/[\\/]/).filter(Boolean);
     return parts[parts.length - 1] ?? p;
 }
 

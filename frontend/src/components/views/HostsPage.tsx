@@ -69,7 +69,8 @@ export function HostsPage() {
             a.href = url;
             a.download = `terminator-hosts-${new Date().toISOString().slice(0, 10)}.json`;
             a.click();
-            URL.revokeObjectURL(url);
+            // 延迟撤销对象 URL：立即 revoke 在部分浏览器/WebView 中会中断尚未开始的下载
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
             toast.success(t("export_success", { count: exportData.length }));
         } catch {
             toast.error(t("export_failed"));
