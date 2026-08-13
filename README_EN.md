@@ -86,6 +86,7 @@ Two sync methods, both E2E encrypted, freely switchable:
 - **UI density** — compact/standard/relaxed, adjusts title bar/sidebar/spacing
 - **Terminal color link** — toggleable, terminal ANSI follows UI accent
 - **Feature toggles** — keyword highlight, broadcast, tab colors all toggleable in settings
+- **Shortcut reference** — settings page "Shortcuts" section lists all terminal and tab shortcuts (Ctrl+F search, Ctrl+Shift+C/V copy/paste, Esc close search, etc.)
 - **Session logging** — SSH output written to log files in real-time, viewable in settings
 - **Multi-language** — Chinese/English, Chinese default on first launch
 - **Dark/Light themes** — Abyss / Frost
@@ -125,8 +126,8 @@ Two sync methods, both E2E encrypted, freely switchable:
 - [x] Terminal search (Ctrl+F)
 - [x] Session logging + settings viewer
 - [x] Unified feature toggles (settings → terminal)
+- [x] Shortcut reference (settings → Shortcuts section)
 - [ ] Multiple profiles (teams)
-- [ ] Shortcuts
 - [ ] Android client
 - [ ] CLI client
 
