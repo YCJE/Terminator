@@ -120,6 +120,36 @@ func (q *Queries) UpsertBlob(ctx context.Context, arg UpsertBlobParams) error {
 	return err
 }
 
+const upsertBlobIfNewer = `-- name: UpsertBlobIfNewer :exec
+INSERT INTO encrypted_blobs (
+    id, blob, updated_at, is_deleted
+) VALUES (
+    ?, ?, ?, ?
+)
+ON CONFLICT(id) DO UPDATE SET
+    blob = excluded.blob,
+    updated_at = excluded.updated_at,
+    is_deleted = excluded.is_deleted
+WHERE excluded.updated_at > encrypted_blobs.updated_at
+`
+
+type UpsertBlobIfNewerParams struct {
+	ID        string
+	Blob      string
+	UpdatedAt string
+	IsDeleted bool
+}
+
+func (q *Queries) UpsertBlobIfNewer(ctx context.Context, arg UpsertBlobIfNewerParams) error {
+	_, err := q.db.ExecContext(ctx, upsertBlobIfNewer,
+		arg.ID,
+		arg.Blob,
+		arg.UpdatedAt,
+		arg.IsDeleted,
+	)
+	return err
+}
+
 const wipeBlobs = `-- name: WipeBlobs :exec
 DELETE FROM encrypted_blobs
 `

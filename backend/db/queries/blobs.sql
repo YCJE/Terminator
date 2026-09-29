@@ -17,6 +17,18 @@ ON CONFLICT(id) DO UPDATE SET
     updated_at = excluded.updated_at,
     is_deleted = excluded.is_deleted;
 
+-- name: UpsertBlobIfNewer :exec
+INSERT INTO encrypted_blobs (
+    id, blob, updated_at, is_deleted
+) VALUES (
+    ?, ?, ?, ?
+)
+ON CONFLICT(id) DO UPDATE SET
+    blob = excluded.blob,
+    updated_at = excluded.updated_at,
+    is_deleted = excluded.is_deleted
+WHERE excluded.updated_at > encrypted_blobs.updated_at;
+
 -- name: SoftDeleteBlob :exec
 UPDATE encrypted_blobs
 SET is_deleted = 1, updated_at = ?

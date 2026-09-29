@@ -60,3 +60,12 @@ func SinceBound(lastSync string) string {
 	}
 	return Format(t.Add(-syncMargin))
 }
+
+// SinceBoundNow 返回以本地当前时间为基准的增量查询下界（定长字符串）。
+//
+// 与 SinceBound 不同，该下界不依赖任何外部时钟，因此必然早于调用时刻。
+// 用于本地变更的增量查询：同步游标来自服务器时间，可能晚于本次查询时刻，
+// 若仅以游标为下界，请求耗时超过 syncMargin 时产生的本地修改会被永久跳过。
+func SinceBoundNow() string {
+	return Format(time.Now().Add(-syncMargin))
+}

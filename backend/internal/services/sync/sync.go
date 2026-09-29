@@ -184,9 +184,18 @@ func (s *SyncService) Sync(ctx context.Context) (err error) {
 		lastSyncTime = time.Unix(0, 0).UTC()
 	}
 
-	// 查询下界回退安全余量：旧版本写入的可变宽度时间戳与当前定长格式
-	// 混用做文本比较时，同一秒内的记录可能被误判为"更旧"而漏查。
-	localChanges, err := s.q.GetBlobsSince(ctx, timeutil.SinceBound(lastSyncString))
+	// 本地变更查询下界取「上次同步游标回退余量」与「本地当前时间回退余量」的较小值。
+	//
+	// 游标写入的是服务器返回的 SyncTime，可能晚于本次本地查询时刻：一旦同步请求
+	// 耗时（含超时重试）超过安全余量，请求期间产生的本地修改会小于下一轮的下界，
+	// 从而被永久跳过、静默丢失。以本地时钟为准的下界必然早于本地查询时刻，
+	// 可保证这些修改在下一轮仍被纳入；重复上传是幂等 upsert，无副作用。
+	pushBound := timeutil.SinceBound(lastSyncString)
+	if localBound := timeutil.SinceBoundNow(); localBound < pushBound {
+		pushBound = localBound
+	}
+
+	localChanges, err := s.q.GetBlobsSince(ctx, pushBound)
 	if err != nil {
 		return err
 	}
@@ -230,7 +239,10 @@ func (s *SyncService) Sync(ctx context.Context) (err error) {
 		for _, incoming := range res.Blobs {
 			updatedAtStr := timeutil.Format(incoming.UpdatedAt)
 
-			err = s.q.UpsertBlob(ctx, dbgen.UpsertBlobParams{
+			// 仅当服务端副本严格更新时才覆盖本地：本轮的本地修改会随请求一并上传，
+			// 但服务端返回的可能是更旧的副本（例如来自另一台设备），无条件覆盖会把
+			// 刚产生的本地编辑冲掉，且因时间戳回退到游标之前而再也不会被重新上传。
+			err = s.q.UpsertBlobIfNewer(ctx, dbgen.UpsertBlobIfNewerParams{
 				ID:        incoming.ID,
 				Blob:      incoming.Blob,
 				UpdatedAt: updatedAtStr,
