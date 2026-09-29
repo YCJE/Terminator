@@ -33,6 +33,20 @@ export function OpenReleasePage(url: string): $CancellablePromise<void> {
     return $Call.ByID(2057714281, url);
 }
 
+/**
+ * DownloadAndVerifyUpdate 下载当前平台安装包并校验 SHA256。
+ */
+export function DownloadAndVerifyUpdate(): $CancellablePromise<string> {
+    return $Call.ByID(653596082);
+}
+
+/**
+ * OpenVerifiedDownload 用系统默认程序打开最近一次校验通过的安装包。
+ */
+export function OpenVerifiedDownload(): $CancellablePromise<void> {
+    return $Call.ByID(203029157);
+}
+
 // Private type creation functions
 const $$createType0 = $models.UpdateInfo.createFrom;
 const $$createType1 = $Create.Nullable($$createType0);

@@ -7,5 +7,7 @@ export {
 };
 
 export {
-    UpdateInfo
+    UpdateInfo,
+    ReleaseAsset,
+    GitHubReleaseInfo
 } from "./models.js";

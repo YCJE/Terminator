@@ -61,6 +61,19 @@ jobs:
             --merge \
             --tag "v${{ env.VERSION }}"
 
+      - name: Generate checksums
+        shell: bash
+        run: |
+          cd releases
+          # 生成除校验和文件自身外所有发布资产的 SHA256，供客户端校验下载完整性
+          find . -maxdepth 1 -type f ! -name 'SHA256SUMS-*' -printf '%f\n' | sort | while read -r f; do sha256sum "$f"; done > SHA256SUMS-windows.txt
+
+      - name: Upload checksums
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "v${{ env.VERSION }}" releases/SHA256SUMS-windows.txt --clobber
+
   build-linux:
     runs-on: ubuntu-latest
     permissions:
@@ -127,6 +140,19 @@ jobs:
             --merge \
             --tag "v${{ env.VERSION }}"
 
+      - name: Generate checksums
+        shell: bash
+        run: |
+          cd releases
+          # 生成除校验和文件自身外所有发布资产的 SHA256，供客户端校验下载完整性
+          find . -maxdepth 1 -type f ! -name 'SHA256SUMS-*' -printf '%f\n' | sort | while read -r f; do sha256sum "$f"; done > SHA256SUMS-linux.txt
+
+      - name: Upload checksums
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "v${{ env.VERSION }}" releases/SHA256SUMS-linux.txt --clobber
+
   build-mac:
     runs-on: macos-latest
     permissions:
@@ -185,3 +211,16 @@ jobs:
             --outputDir releases \
             --merge \
             --tag "v${{ env.VERSION }}"
+
+      - name: Generate checksums
+        shell: bash
+        run: |
+          cd releases
+          # 生成除校验和文件自身外所有发布资产的 SHA256，供客户端校验下载完整性
+          find . -maxdepth 1 -type f ! -name 'SHA256SUMS-*' -printf '%f\n' | sort | while read -r f; do sha256sum "$f"; done > SHA256SUMS-macos.txt
+
+      - name: Upload checksums
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "v${{ env.VERSION }}" releases/SHA256SUMS-macos.txt --clobber

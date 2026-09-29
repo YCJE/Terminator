@@ -1,17 +1,12 @@
 package updater
 
 import (
-	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"net/http"
 	"os/exec"
 	"runtime"
 	"runtime/debug"
 	"sync"
-	"time"
 
 	"github.com/quaadgras/velopack-go/velopack"
 )
@@ -38,6 +33,8 @@ type GitHubReleaseInfo struct {
 	PublishedAt    string `json:"publishedAt"`
 	ReleaseNotes   string `json:"releaseNotes"`
 	HtmlURL        string `json:"htmlUrl"`
+	// Assets 发布资产，供前端展示可下载的安装包及其校验和文件
+	Assets []ReleaseAsset `json:"assets"`
 }
 
 // updaterState 更新器内部状态机
@@ -59,6 +56,11 @@ type UpdaterService struct {
 	mu         sync.Mutex
 	// downloading 标记是否有下载任务在进行中，防止并发重复下载
 	downloading bool
+	// manualDownloading 标记手动「下载并校验」是否在进行中，
+	// 与 velopack 的 downloading 分开，避免两条下载路径互相干扰
+	manualDownloading bool
+	// verifiedPath 最近一次通过 SHA256 校验的安装包路径
+	verifiedPath string
 	// cgoUnavailable 标记 cgo 是否可用，避免反复尝试创建 manager
 	cgoUnavailable bool
 }
@@ -96,43 +98,9 @@ func (s *UpdaterService) getCurrentVersion() string {
 func (s *UpdaterService) CheckGitHubReleases() (*GitHubReleaseInfo, error) {
 	currentVersion := s.getCurrentVersion()
 
-	url := fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", s.githubRepo)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	release, err := s.fetchLatestRelease()
 	if err != nil {
-		return nil, fmt.Errorf("创建请求失败: %w", err)
-	}
-	req.Header.Set("Accept", "application/vnd.github+json")
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("请求 GitHub API 失败: %w", err)
-	}
-	defer func() {
-		_, _ = io.Copy(io.Discard, resp.Body)
-		resp.Body.Close()
-	}()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("GitHub API 返回状态码: %d", resp.StatusCode)
-	}
-
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 2<<20)) // 限制 2MB
-	if err != nil {
-		return nil, fmt.Errorf("读取响应失败: %w", err)
-	}
-
-	var release struct {
-		TagName     string `json:"tag_name"`
-		PublishedAt string `json:"published_at"`
-		Body        string `json:"body"`
-		HtmlURL     string `json:"html_url"`
-	}
-	if err := json.Unmarshal(body, &release); err != nil {
-		return nil, fmt.Errorf("解析响应失败: %w", err)
+		return nil, err
 	}
 
 	latestVersion := normalizeVersion(release.TagName)
@@ -146,6 +114,7 @@ func (s *UpdaterService) CheckGitHubReleases() (*GitHubReleaseInfo, error) {
 		PublishedAt:    release.PublishedAt,
 		ReleaseNotes:   release.Body,
 		HtmlURL:        release.HtmlURL,
+		Assets:         release.Assets,
 	}, nil
 }
 
