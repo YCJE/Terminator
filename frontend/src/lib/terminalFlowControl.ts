@@ -74,7 +74,9 @@ export function createFlowControlledWriter(term: Terminal) {
 
     function reset(): void {
         generation++; // 使所有已排队的写入失效
-        chainDepth = 0;
+        // 不重置 chainDepth：已排队写入在完成时仍会执行 chainDepth--，
+        // 若在此清零会让计数变为负数并使背压（chainDepth >= MAX_CHAIN_DEPTH）永久失效。
+        // 让旧写入的增减自然抵消，chainDepth 始终等于未完成写入数。
         pendingCount = 0;
         writeChain = Promise.resolve();
     }
