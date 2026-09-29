@@ -2,6 +2,7 @@
   "NOT_FOUND": "未找到请求的项目。",
   "VALIDATION_FAILED": "请检查输入后重试。",
   "DECRYPTION_FAILED": "密码无效或数据已损坏。",
+  "LOGIN_THROTTLED": "登录失败次数过多，请稍后再试。",
   "VAULT_LOCKED": "你的保险库当前已锁定，请登录。",
   "NETWORK_FAILED": "无法连接到服务器，请检查网络。",
   "SSH_CONNECTION_FAILED": "无法建立到该主机的 SSH 连接。",

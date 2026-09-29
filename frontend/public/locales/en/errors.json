@@ -2,6 +2,7 @@
   "NOT_FOUND": "The requested item could not be found.",
   "VALIDATION_FAILED": "Please check your input and try again.",
   "DECRYPTION_FAILED": "Invalid password or corrupted data.",
+  "LOGIN_THROTTLED": "Too many failed login attempts. Please try again later.",
   "VAULT_LOCKED": "Your vault is currently locked. Please log in.",
   "NETWORK_FAILED": "Failed to connect to the server. Check your connection.",
   "SSH_CONNECTION_FAILED": "Could not establish an SSH connection to the host.",

@@ -6,6 +6,7 @@ const (
 	CodeNotFound           = ErrorCode("NOT_FOUND")
 	CodeValidationFailed   = ErrorCode("VALIDATION_FAILED")
 	CodeDecryptionFailed   = ErrorCode("DECRYPTION_FAILED")
+	CodeLoginThrottled     = ErrorCode("LOGIN_THROTTLED")
 	CodeVaultLocked        = ErrorCode("VAULT_LOCKED")
 	CodeNetworkFailed      = ErrorCode("NETWORK_FAILED")
 	CodeSSHConnectionError = ErrorCode("SSH_CONNECTION_FAILED")

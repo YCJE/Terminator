@@ -7,6 +7,10 @@ import (
 	"encoding/base64"
 	"errors"
 	"runtime/debug"
+	"sync"
+	"time"
+	"unicode/utf8"
+
 	"terminator-desktop/backend/internal/api"
 	"terminator-desktop/backend/internal/apperror"
 	"terminator-desktop/backend/internal/crypto"
@@ -28,6 +32,12 @@ type AuthService struct {
 	vault      *vault.Vault
 	client     *api.Client
 	sshDisconn SessionDisconnector
+
+	// 登录失败退避状态：Argon2id 已让单次尝试变慢，此处再叠加应用层退避，
+	// 抬高通过 UI 反复试错的成本
+	loginMu         sync.Mutex
+	loginFailures   int
+	loginLockedTill time.Time
 }
 
 type UserInfo struct {
@@ -38,6 +48,12 @@ type UserInfo struct {
 const (
 	saltLength = 16
 	keyLength  = 32
+
+	// 登录退避参数：前 loginMaxFreeAttempts 次失败不延迟，之后按 2s、4s、8s…
+	// 指数增长，上限 loginMaxBackoff。计数在成功登录后清零。
+	loginMaxFreeAttempts = 5
+	loginBaseBackoff     = 2 * time.Second
+	loginMaxBackoff      = 5 * time.Minute
 )
 
 func NewAuthService(
@@ -75,14 +91,30 @@ func (s *AuthService) HasUser(ctx context.Context) (bool, error) {
 	return count > 0, nil
 }
 
-func (s *AuthService) RegisterLocal(ctx context.Context, username, password string) error {
-	// 密码最小长度校验
-	if len(password) < 6 {
+// validatePasswordLength 按字符数校验口令长度。
+//
+// 必须按 rune 而非 byte 计数：4 个汉字即 12 字节，按字节判断会错误地
+// 放过远低于下限的口令。
+func validatePasswordLength(password string) error {
+	if utf8.RuneCountInString(password) < 6 {
 		return apperror.Validation("password must be at least 6 characters")
+	}
+	return nil
+}
+
+func (s *AuthService) RegisterLocal(ctx context.Context, username, password string) error {
+	if err := validatePasswordLength(password); err != nil {
+		return err
 	}
 
 	// 防御性检查：防止通过 Wails binding 直接调用绕过 UI 守卫创建重复用户
-	if exists, _ := s.HasUser(ctx); exists {
+	exists, err := s.HasUser(ctx)
+	if err != nil {
+		// 不能吞掉错误：查询失败时若按"不存在"继续，会插入第二个用户行，
+		// 而 GetUser 取的是 LIMIT 1，可能导致原用户永久无法解锁
+		return err
+	}
+	if exists {
 		return apperror.Validation("user already exists")
 	}
 
@@ -153,8 +185,76 @@ func (s *AuthService) RegisterLocal(ctx context.Context, username, password stri
 	return nil
 }
 
+// loginThrottleRemaining 返回距离下次允许尝试的剩余时间；未处于锁定期时返回 0。
+func (s *AuthService) loginThrottleRemaining() time.Duration {
+	s.loginMu.Lock()
+	defer s.loginMu.Unlock()
+
+	if s.loginLockedTill.IsZero() {
+		return 0
+	}
+	if remaining := time.Until(s.loginLockedTill); remaining > 0 {
+		return remaining
+	}
+	// 锁定期已结束：清零计数，重新开始计数
+	s.loginLockedTill = time.Time{}
+	s.loginFailures = 0
+	return 0
+}
+
+// recordLoginFailure 记录一次口令错误，超过免费次数后按指数退避设置锁定期。
+func (s *AuthService) recordLoginFailure() {
+	s.loginMu.Lock()
+	defer s.loginMu.Unlock()
+
+	s.loginFailures++
+	if s.loginFailures <= loginMaxFreeAttempts {
+		return
+	}
+
+	// 位移量先夹取，避免失败次数很大时溢出成负数
+	shift := s.loginFailures - loginMaxFreeAttempts - 1
+	if shift > 20 {
+		shift = 20
+	}
+	backoff := loginBaseBackoff << shift
+	if backoff <= 0 || backoff > loginMaxBackoff {
+		backoff = loginMaxBackoff
+	}
+	s.loginLockedTill = time.Now().Add(backoff)
+}
+
+func (s *AuthService) resetLoginFailures() {
+	s.loginMu.Lock()
+	defer s.loginMu.Unlock()
+	s.loginFailures = 0
+	s.loginLockedTill = time.Time{}
+}
+
 // Login - "unlock vault"
+//
+// 外层负责失败退避，真正的校验逻辑在 login 中。
 func (s *AuthService) Login(ctx context.Context, password string) error {
+	if remaining := s.loginThrottleRemaining(); remaining > 0 {
+		return apperror.LoginThrottled(int(remaining.Seconds()) + 1)
+	}
+
+	err := s.login(ctx, password)
+	if err == nil {
+		s.resetLoginFailures()
+		return nil
+	}
+
+	// 仅口令错误计入失败次数：AuthSalt 缺失等数据损坏问题重试无意义，
+	// 不该把用户锁在门外
+	var appErr *apperror.AppError
+	if errors.As(err, &appErr) && appErr.Code == apperror.CodeDecryptionFailed {
+		s.recordLoginFailure()
+	}
+	return err
+}
+
+func (s *AuthService) login(ctx context.Context, password string) error {
 	dbUser, err := s.q.GetUser(ctx)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -218,13 +318,17 @@ func (s *AuthService) Login(ctx context.Context, password string) error {
 
 // LoginFromSync - "connect and restore"
 func (s *AuthService) LoginFromSync(ctx context.Context, serverUrl, username, password string) error {
-	// 密码最小长度校验
-	if len(password) < 6 {
-		return apperror.Validation("password must be at least 6 characters")
+	if err := validatePasswordLength(password); err != nil {
+		return err
 	}
 
 	// 防御性检查：防止通过 Wails binding 直接调用绕过 UI 守卫创建重复用户
-	if exists, _ := s.HasUser(ctx); exists {
+	exists, err := s.HasUser(ctx)
+	if err != nil {
+		// 同上：查询失败时不能按"不存在"继续，否则可能插入第二个用户行
+		return err
+	}
+	if exists {
 		return apperror.Validation("user already exists")
 	}
 

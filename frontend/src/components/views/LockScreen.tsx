@@ -19,10 +19,45 @@ import { AuthService } from "../../../bindings/terminator-desktop/backend/intern
 import { SyncService } from "../../../bindings/terminator-desktop/backend/internal/services/sync";
 import { useAuthStore } from "@/store/authStore";
 import { handleAppError } from "@/lib/error";
-import { formatServerUrl } from "@/lib/utils.ts";
+import { cn, formatServerUrl } from "@/lib/utils.ts";
 import { defaultServerUrl } from "@/lib/defaultServer.ts";
 
 type Mode = "select" | "create" | "connect" | "login";
+
+// 主密码强度分级：0 表示未输入，1-4 依次为弱 / 一般 / 较强 / 强。
+// 仅作创建时的提示，真正的长度校验由后端负责。
+function passwordStrength(password: string): number {
+    if (!password) return 0;
+
+    const length = [...password].length;
+    let score = 0;
+    if (length >= 8) score++;
+    if (length >= 12) score++;
+    if (/[a-z]/.test(password) && /[A-Z]/.test(password)) score++;
+    if (/\d/.test(password)) score++;
+    if (/[^A-Za-z0-9]/.test(password)) score++;
+
+    if (score <= 1) return 1;
+    if (score === 2) return 2;
+    if (score === 3) return 3;
+    return 4;
+}
+
+const STRENGTH_LABEL_KEYS = [
+    "",
+    "password_strength_weak",
+    "password_strength_fair",
+    "password_strength_good",
+    "password_strength_strong",
+] as const;
+
+const STRENGTH_COLOR_CLASSES = [
+    "",
+    "bg-destructive",
+    "bg-warning",
+    "bg-info",
+    "bg-success",
+] as const;
 
 export function LockScreen() {
     const {t} = useTranslation(["auth", "common"]);
@@ -33,6 +68,8 @@ export function LockScreen() {
 
     const [username, setUsername] = useState("");
     const [password, setPassword] = useState("");
+    const [confirmPassword, setConfirmPassword] = useState("");
+    const [createError, setCreateError] = useState("");
     const [url, setUrl] = useState(defaultServerUrl);
     const [isLoading, setIsLoading] = useState(false);
 
@@ -69,10 +106,22 @@ export function LockScreen() {
 
     const handleCreateLocal = async (e: SyntheticEvent) => {
         e.preventDefault();
+        // 主密码用于派生加密密钥且无法找回，输错即永久丢失数据，
+        // 因此创建前必须做长度与二次确认校验
+        if ([...password].length < 6) {
+            setCreateError(t("master_password_too_short"));
+            return;
+        }
+        if (password !== confirmPassword) {
+            setCreateError(t("password_mismatch"));
+            return;
+        }
+        setCreateError("");
         setIsLoading(true);
         try {
             await AuthService.RegisterLocal(username, password);
             setPassword("");
+            setConfirmPassword("");
             setHasUser(true);
             setUnlocked(true);
         } catch (error) {
@@ -112,6 +161,8 @@ export function LockScreen() {
             await AuthService.WipeData();
             setHasUser(false);
             setPassword("");
+            setConfirmPassword("");
+            setCreateError("");
             setUsername("");
             setMode("select");
         } catch (error) {
@@ -120,6 +171,8 @@ export function LockScreen() {
             setIsLoading(false);
         }
     };
+
+    const strength = passwordStrength(password);
 
     if (isChecking) return (
         <div className="flex h-full items-center justify-center bg-background text-muted-foreground">
@@ -142,6 +195,8 @@ export function LockScreen() {
                         onClick={() => {
                             setMode("select");
                             setPassword("");
+                            setConfirmPassword("");
+                            setCreateError("");
                         }}
                         className="absolute left-4 top-4 text-muted-foreground"
                     >
@@ -268,11 +323,51 @@ export function LockScreen() {
                             <Input
                                 type="password"
                                 value={password}
-                                onChange={(e) =>
-                                    setPassword(e.target.value)}
+                                onChange={(e) => {
+                                    setPassword(e.target.value);
+                                    setCreateError("");
+                                }}
                                 required
                             />
                         </div>
+                        {password && (
+                            <div className="space-y-1">
+                                <div className="flex gap-1">
+                                    {[1, 2, 3, 4].map((level) => (
+                                        <div
+                                            key={level}
+                                            className={cn(
+                                                "h-1 flex-1 rounded-full transition-colors",
+                                                level <= strength
+                                                    ? STRENGTH_COLOR_CLASSES[strength]
+                                                    : "bg-muted"
+                                            )}
+                                        />
+                                    ))}
+                                </div>
+                                <p className={cn(
+                                    "text-xs",
+                                    strength === 1 ? "text-destructive" : "text-muted-foreground"
+                                )}>
+                                    {t(STRENGTH_LABEL_KEYS[strength])}
+                                </p>
+                            </div>
+                        )}
+                        <div className="space-y-2">
+                            <Label>{t("confirm_master_password")}</Label>
+                            <Input
+                                type="password"
+                                value={confirmPassword}
+                                onChange={(e) => {
+                                    setConfirmPassword(e.target.value);
+                                    setCreateError("");
+                                }}
+                                required
+                            />
+                        </div>
+                        {createError && (
+                            <p className="text-xs text-destructive">{createError}</p>
+                        )}
                         <Button type="submit" className="w-full" disabled={isLoading}>
                             {isLoading ? t("creating", {ns: "common"}) : t("create_unlock_btn")}
                         </Button>

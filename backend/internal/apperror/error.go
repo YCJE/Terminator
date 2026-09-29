@@ -41,6 +41,17 @@ func DecryptionFailed(err error) *AppError {
 	}
 }
 
+// LoginThrottled 表示口令错误次数过多，需要等待一段时间再重试。
+func LoginThrottled(retryAfterSeconds int) *AppError {
+	message := fmt.Sprintf("too many failed login attempts; try again in %d seconds", retryAfterSeconds)
+	return &AppError{
+		Code:        CodeLoginThrottled,
+		Message:     message,
+		Err:         errors.New(message),
+		ErrorString: message,
+	}
+}
+
 func VaultLocked() *AppError {
 	message := "vault is locked"
 
