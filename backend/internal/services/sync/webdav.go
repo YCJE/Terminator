@@ -115,14 +115,9 @@ func (s *SyncService) syncWebDAV(ctx context.Context, cfg WebDAVConfig) error {
 			continue
 		}
 
-		localTime, err := parseTime(existing.UpdatedAt)
-		if err != nil {
-			return fmt.Errorf("解析本地 blob 时间失败 (id=%s): %w", id, err)
-		}
-		remoteTime, err := parseTime(rb.UpdatedAt)
-		if err != nil {
-			return fmt.Errorf("解析远端 blob 时间失败 (id=%s): %w", id, err)
-		}
+		// 时间戳解析失败时退化为零值，保证可解析的一方胜出，不中断整轮同步
+		localTime := parseTimeOrZero(existing.UpdatedAt)
+		remoteTime := parseTimeOrZero(rb.UpdatedAt)
 
 		if remoteTime.After(localTime) {
 			merged[id] = rb
@@ -158,7 +153,7 @@ func (s *SyncService) syncWebDAV(ctx context.Context, cfg WebDAVConfig) error {
 			hasLocalUpdates = true
 			break
 		}
-		if lb.UpdatedAt != rb.UpdatedAt || lb.IsDeleted != rb.IsDeleted {
+		if !sameTimestamp(lb.UpdatedAt, rb.UpdatedAt) || lb.IsDeleted != rb.IsDeleted {
 			hasLocalUpdates = true // 本地有更新或删除
 			break
 		}
@@ -249,11 +244,24 @@ func buildSyncFileURL(baseURL string) (string, error) {
 	return u.String(), nil
 }
 
-// parseTime 解析 RFC3339Nano 时间字符串
-func parseTime(s string) (time.Time, error) {
-	t, err := time.Parse(time.RFC3339Nano, s)
+// parseTimeOrZero 解析 RFC3339 时间字符串，失败时返回零值。
+// 单条脏数据不应中断整轮同步，退化为零值后由较新的一方胜出。
+func parseTimeOrZero(s string) time.Time {
+	t, err := timeutil.Parse(s)
 	if err != nil {
-		t, err = time.Parse(time.RFC3339, s)
+		return time.Time{}
 	}
-	return t, err
+	return t
+}
+
+// sameTimestamp 按时间值比较两个时间戳字符串，兼容旧版可变宽度格式与当前定长格式。
+// 二者表示同一时刻但字符串不同时（如 ".5Z" 与 ".500000000Z"）视为相同，
+// 避免无变更时的冗余上传；任一无法解析时退化为字符串比较。
+func sameTimestamp(a, b string) bool {
+	ta, errA := timeutil.Parse(a)
+	tb, errB := timeutil.Parse(b)
+	if errA != nil || errB != nil {
+		return a == b
+	}
+	return ta.Equal(tb)
 }

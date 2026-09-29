@@ -31,3 +31,32 @@ func Now() string {
 func Epoch() string {
 	return epoch
 }
+
+// syncMargin 增量同步查询的时间回退量。
+//
+// 历史版本写入的时间戳为可变宽度（time.RFC3339Nano 会去掉小数末尾的 0），
+// 与定长格式混用做文本比较时，同一秒内的值可能被误判为"更旧"而漏查。
+// 例如 last_sync_time 为旧格式 ".5Z"、新记录为定长 ".500000000Z" 时，
+// 文本比较会认为新记录更小（'0' < 'Z'），导致该记录永久无法上传。
+//
+// 查询时统一下界回退该余量，使边界附近的数据被保守地重新纳入。
+// 重复上传是幂等的 upsert，不会产生副作用。
+const syncMargin = 2 * time.Second
+
+// Parse 解析 RFC3339 时间字符串，同时兼容定长与可变宽度（含无小数部分）格式。
+func Parse(s string) (time.Time, error) {
+	return time.Parse(time.RFC3339Nano, s)
+}
+
+// SinceBound 根据上次同步时间计算增量查询下界（定长字符串）。
+// 为空或无法解析时返回 Epoch（退化为全量同步），避免因单条脏数据导致同步永久失败。
+func SinceBound(lastSync string) string {
+	if lastSync == "" {
+		return epoch
+	}
+	t, err := Parse(lastSync)
+	if err != nil {
+		return epoch
+	}
+	return Format(t.Add(-syncMargin))
+}

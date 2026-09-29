@@ -173,31 +173,30 @@ func (s *SyncService) Sync(ctx context.Context) (err error) {
 		return err
 	}
 
-	epoch := timeutil.Epoch()
-	lastSyncString := epoch
-
+	lastSyncString := ""
 	if user.LastSyncTime.Valid {
 		lastSyncString = user.LastSyncTime.String
 	}
 
-	lastSyncTime, err := time.Parse(time.RFC3339Nano, lastSyncString)
-	if err != nil {
-		lastSyncTime, err = time.Parse(time.RFC3339, lastSyncString)
-		if err != nil {
-			return err
-		}
+	// 解析失败时退化为 epoch（全量同步），避免单条脏数据让同步永久失败
+	lastSyncTime, parseErr := timeutil.Parse(lastSyncString)
+	if parseErr != nil {
+		lastSyncTime = time.Unix(0, 0).UTC()
 	}
 
-	localChanges, err := s.q.GetBlobsSince(ctx, lastSyncString)
+	// 查询下界回退安全余量：旧版本写入的可变宽度时间戳与当前定长格式
+	// 混用做文本比较时，同一秒内的记录可能被误判为"更旧"而漏查。
+	localChanges, err := s.q.GetBlobsSince(ctx, timeutil.SinceBound(lastSyncString))
 	if err != nil {
 		return err
 	}
 
 	apiBlobs := make([]api.EncryptedBlob, 0)
 	for _, b := range localChanges {
-		parsedTime, err := time.Parse(time.RFC3339Nano, b.UpdatedAt)
-		if err != nil {
-			return err
+		// 单条时间戳异常不应中断整轮同步：退化为 epoch 仍会正常上传该条
+		parsedTime, parseErr := timeutil.Parse(b.UpdatedAt)
+		if parseErr != nil {
+			parsedTime = time.Unix(0, 0).UTC()
 		}
 
 		apiBlobs = append(apiBlobs, api.EncryptedBlob{
