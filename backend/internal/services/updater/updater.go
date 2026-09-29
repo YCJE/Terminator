@@ -3,6 +3,7 @@ package updater
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -14,6 +15,11 @@ import (
 
 	"github.com/quaadgras/velopack-go/velopack"
 )
+
+// ErrDownloadInProgress 表示已有一个下载任务在进行中。
+// 并发调用返回该错误而非重复下载，避免同一更新包被下载多次、
+// 以及调用方在下载未完成时误以为已就绪。
+var ErrDownloadInProgress = errors.New("update download already in progress")
 
 type Emitter interface {
 	EmitProgress(percent uint)
@@ -51,6 +57,8 @@ type UpdaterService struct {
 	latest     *velopack.UpdateInfo
 	state      updaterState
 	mu         sync.Mutex
+	// downloading 标记是否有下载任务在进行中，防止并发重复下载
+	downloading bool
 	// cgoUnavailable 标记 cgo 是否可用，避免反复尝试创建 manager
 	cgoUnavailable bool
 }
@@ -255,18 +263,33 @@ func (s *UpdaterService) CheckForUpdates() (*UpdateInfo, error) {
 
 func (s *UpdaterService) DownloadUpdate() error {
 	s.mu.Lock()
+	// 并发调用只允许一个下载进行，其余立即返回错误：
+	// 避免重复下载，也避免调用方在下载未完成时误判为已就绪
+	if s.downloading {
+		s.mu.Unlock()
+		return ErrDownloadInProgress
+	}
+
 	manager := s.manager
 	latest := s.latest
-	state := s.state
-	s.mu.Unlock()
-
 	if manager == nil || latest == nil {
+		s.mu.Unlock()
 		return fmt.Errorf("no update pending")
 	}
 	// 已下载完成则跳过，避免重复下载
-	if state == stateDownloaded {
+	if s.state == stateDownloaded {
+		s.mu.Unlock()
 		return nil
 	}
+
+	s.downloading = true
+	s.mu.Unlock()
+
+	defer func() {
+		s.mu.Lock()
+		s.downloading = false
+		s.mu.Unlock()
+	}()
 
 	err := manager.DownloadUpdates(latest, func(progress uint) {
 		s.emitter.EmitProgress(progress)
