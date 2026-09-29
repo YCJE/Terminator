@@ -20,6 +20,13 @@ export function formatServerUrl(inputUrl: string): string {
     const lower = cleanUrl.toLowerCase();
     const hasScheme = lower.startsWith("https://") || lower.startsWith("http://");
 
+    // 含其他协议（ftp://、ssh:// 等）时不能直接拼接 https://：
+    // "https://ftp://x" 会被解析成 hostname="ftp" 的畸形地址，
+    // 校验能通过但请求时才失败，报错信息与用户输入毫无关联
+    if (!hasScheme && cleanUrl.includes("://")) {
+        throw new Error("invalid server URL");
+    }
+
     if (!hasScheme) {
         cleanUrl = `https://${cleanUrl}`;
     }
@@ -27,7 +34,7 @@ export function formatServerUrl(inputUrl: string): string {
     // 校验 URL 合法性：hostname 非空且协议为 http/https
     try {
         const parsed = new URL(cleanUrl);
-        if (!parsed.hostname) {
+        if (!parsed.hostname || (parsed.protocol !== "https:" && parsed.protocol !== "http:")) {
             throw new Error("missing hostname");
         }
     } catch {

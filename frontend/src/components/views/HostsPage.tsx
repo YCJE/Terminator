@@ -19,6 +19,20 @@ import { toast } from "sonner";
 
 const UNGROUPED = "__ungrouped__";
 
+// 无名主机的展示名回退规则。导出与导入必须使用同一规则，
+// 否则导入时 jumpHostName 匹配不到目标主机，跳板关联会被静默丢弃。
+function fallbackHostName(username: string, host: string): string {
+    return `${username}@${host}`;
+}
+
+// 导入的主机端口做规范化：只接受 1-65535 的整数，其余回退到 22。
+// 导入文件可能被手工编辑过，非法端口会让连接时报出难以理解的错误。
+function normalizePort(value: unknown): number {
+    const n = typeof value === "number" ? value : Number(value);
+    if (!Number.isInteger(n) || n < 1 || n > 65535) return 22;
+    return n;
+}
+
 // 递归解析跳板机链：返回最外层跳板机配置，其 jumpHost 字段嵌套下一级跳板。
 // visited 记录已访问的 host id，避免 A→B→A 这类循环引用导致无限递归。
 function resolveJumpHostChain(
@@ -84,7 +98,7 @@ export function HostsPage() {
             const allHosts = await HostService.GetAll();
             // 导出时清除 ID 和敏感字段（密码/代理密码），导入时重新生成
             // 跳板机以「名称」导出：ID 在导入时会重新生成，无法跨 vault 直接引用
-            const idToName = new Map(allHosts.map(h => [h.id, h.name || `${h.username}@${h.host}`]));
+            const idToName = new Map(allHosts.map(h => [h.id, h.name || fallbackHostName(h.username, h.host)]));
             const exportData = allHosts.map(h => ({
                 name: h.name,
                 group: h.group || "",
@@ -128,13 +142,13 @@ export function HostsPage() {
             const imported: { id: string; name: string; jumpHostName: string; base: Record<string, unknown> }[] = [];
             for (const item of data) {
                 if (!item.host || !item.username) continue;
-                const name = item.name || `${item.host}:${item.port || 22}`;
+                const name = item.name || fallbackHostName(item.username, item.host);
                 const base = {
                     type: ItemType.TypeHost,
                     name,
                     group: item.group || "",
                     host: item.host,
-                    port: item.port || 22,
+                    port: normalizePort(item.port),
                     username: item.username,
                     password: "",
                     keyId: "",
@@ -218,8 +232,12 @@ export function HostsPage() {
         const hasKey = host.keyId && keys?.some(k => k.id === host.keyId);
         const keyNotLoaded = !!host.keyId && !keys;
 
-        // keys 尚未加载但主机配置了 keyId，不连接（等 keys 加载后重试）
-        if (keyNotLoaded) return;
+        // keys 尚未加载但主机配置了 keyId：此时连接会因缺少私钥而失败。
+        // 必须给出提示，否则用户点击后毫无反应
+        if (keyNotLoaded) {
+            toast.error(t("keys_not_loaded"));
+            return;
+        }
 
         if (!host.password && !hasKey) {
             // 需要交互式输入密码

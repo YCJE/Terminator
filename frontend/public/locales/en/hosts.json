@@ -49,11 +49,12 @@
   "proxy_port_required": "Please enter a valid proxy port (1-65535)",
   "jump_host_label": "Jump Host",
   "jump_host_none": "No jump host",
-  "jump_host_desc": "Connect through an intermediate host (single hop only; save that host first)",
+  "jump_host_desc": "Connect through intermediate hosts (multi-hop supported; save those hosts first)",
   "import_hosts": "Import Hosts",
   "export_hosts": "Export Hosts",
   "export_success": "Exported {{count}} hosts",
   "export_failed": "Export failed",
   "import_success": "Imported {{count}} hosts",
-  "import_failed": "Import failed, please check file format"
+  "import_failed": "Import failed, please check file format",
+  "keys_not_loaded": "Keys are still loading, please try again"
 }

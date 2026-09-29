@@ -49,11 +49,12 @@
   "proxy_port_required": "请填写有效的代理端口（1-65535）",
   "jump_host_label": "跳板机",
   "jump_host_none": "不使用跳板机",
-  "jump_host_desc": "通过中间主机跳转连接目标（仅支持单级跳板，需先保存该跳板机主机）",
+  "jump_host_desc": "通过中间主机跳转连接目标（支持多级跳板，需先保存这些跳板机主机）",
   "import_hosts": "导入主机",
   "export_hosts": "导出主机",
   "export_success": "已导出 {{count}} 台主机",
   "export_failed": "导出失败",
   "import_success": "已导入 {{count}} 台主机",
-  "import_failed": "导入失败，请检查文件格式"
+  "import_failed": "导入失败，请检查文件格式",
+  "keys_not_loaded": "密钥列表尚未加载完成，请稍后重试"
 }
