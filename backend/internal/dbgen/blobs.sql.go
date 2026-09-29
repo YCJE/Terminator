@@ -42,6 +42,38 @@ func (q *Queries) GetActiveBlobs(ctx context.Context) ([]EncryptedBlob, error) {
 	return items, nil
 }
 
+const getAllBlobs = `-- name: GetAllBlobs :many
+SELECT id, blob, updated_at, is_deleted FROM encrypted_blobs
+`
+
+func (q *Queries) GetAllBlobs(ctx context.Context) ([]EncryptedBlob, error) {
+	rows, err := q.db.QueryContext(ctx, getAllBlobs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []EncryptedBlob
+	for rows.Next() {
+		var i EncryptedBlob
+		if err := rows.Scan(
+			&i.ID,
+			&i.Blob,
+			&i.UpdatedAt,
+			&i.IsDeleted,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getBlobsSince = `-- name: GetBlobsSince :many
 SELECT id, blob, updated_at, is_deleted FROM encrypted_blobs
 WHERE updated_at > ?

@@ -6,6 +6,11 @@ WHERE is_deleted = 0;
 SELECT * FROM encrypted_blobs
 WHERE updated_at > ?;
 
+-- name: GetAllBlobs :many
+-- 备份导出需要完整快照，包含已软删除的行：墓碑记录必须一并导出，
+-- 否则恢复后被删除的条目会被其他设备上的旧副本重新同步回来。
+SELECT * FROM encrypted_blobs;
+
 -- name: UpsertBlob :exec
 INSERT INTO encrypted_blobs (
     id, blob, updated_at, is_deleted

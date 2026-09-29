@@ -18,6 +18,7 @@ import (
 	"terminator-desktop/backend/internal/dbgen"
 	"terminator-desktop/backend/internal/migration"
 	"terminator-desktop/backend/internal/services/auth"
+	"terminator-desktop/backend/internal/services/backup"
 	"terminator-desktop/backend/internal/services/blob"
 	"terminator-desktop/backend/internal/services/settings"
 	"terminator-desktop/backend/internal/services/sftp"
@@ -187,15 +188,30 @@ func main() {
 	settingsService := settings.NewSettingsService(appDir)
 	syncService := sync.NewSyncService(queries, client, v, syncEmitter, nil, settingsService)
 	sshService := ssh.NewSshService(sshEmitter, sshLogDir)
+
+	// 会话日志默认关闭，开关由设置实时控制；启动时按保留期回收历史日志，
+	// 避免含口令/令牌的终端内容无限期留在磁盘上。
+	sshService.SetSessionLogConfig(settingsService)
+	if removed, err := ssh.CleanupSessionLogs(sshLogDir, settingsService.SessionLogRetentionDays()); err != nil {
+		slog.Warn("failed to clean up session logs", "error", err)
+	} else if removed > 0 {
+		slog.Info("cleaned up expired session logs", "removed", removed)
+	}
 	// sftpService 复用 sshService 的 SSH 连接提供文件管理能力
 	sftpService := sftp.NewSftpService(sshService, sftpEmitter)
 	hostService := blob.NewHostService(queries, v)
 	keyService := blob.NewKeyService(queries, v)
 	snippetService := blob.NewSnippetService(queries, v) // 代码片段服务
 	updaterService := updater.NewUpdaterService(updateUrl, githubRepo, updaterEmitter)
+	// 备份导出/导入：内容为密文，需原登录口令才能还原
+	backupService := backup.NewBackupService(queries, db, v, client, newWailsFileDialog(app), func() string {
+		return updater.Version
+	})
 
 	// 注入 SSH 服务到 AuthService，使 WipeData 能断开所有连接
 	authService.SetSessionDisconnector(sshService)
+	// 导入会整体替换主机列表，同样需要先断开所有连接
+	backupService.SetSessionDisconnector(sshService)
 
 	app.RegisterService(application.NewService(authService))
 	app.RegisterService(application.NewService(syncService))
@@ -206,6 +222,7 @@ func main() {
 	app.RegisterService(application.NewService(snippetService)) // 注册代码片段服务
 	app.RegisterService(application.NewService(settingsService))
 	app.RegisterService(application.NewService(updaterService))
+	app.RegisterService(application.NewService(backupService))
 	app.RegisterService(application.NewService(NewWebDAVService(settingsService)))
 
 	// Create a new window with the necessary options.
