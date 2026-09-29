@@ -115,11 +115,7 @@ func (s *SyncService) syncWebDAV(ctx context.Context, cfg WebDAVConfig) error {
 			continue
 		}
 
-		// 时间戳解析失败时退化为零值，保证可解析的一方胜出，不中断整轮同步
-		localTime := parseTimeOrZero(existing.UpdatedAt)
-		remoteTime := parseTimeOrZero(rb.UpdatedAt)
-
-		if remoteTime.After(localTime) {
+		if remoteWins(existing, rb) {
 			merged[id] = rb
 			localDBWrites = append(localDBWrites, dbgen.UpsertBlobParams{
 				ID:        rb.ID,
@@ -242,6 +238,15 @@ func buildSyncFileURL(baseURL string) (string, error) {
 	}
 	u = u.JoinPath(syncFileName)
 	return u.String(), nil
+}
+
+// remoteWins 判断 WebDAV 冲突合并时远端条目是否应覆盖本地条目。
+//
+// 仅当远端严格更新时覆盖；时间戳相同时保留本地（本地为基准），
+// 避免多端在同一时刻写入导致反复互相覆盖。
+// 时间戳解析失败时退化为零值，使可解析的一方胜出，不中断整轮同步。
+func remoteWins(local, remote webdavBlob) bool {
+	return parseTimeOrZero(remote.UpdatedAt).After(parseTimeOrZero(local.UpdatedAt))
 }
 
 // parseTimeOrZero 解析 RFC3339 时间字符串，失败时返回零值。
