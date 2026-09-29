@@ -60,14 +60,24 @@ export function WebDAVModal({isOpen, onClose, onSuccess}: WebDAVModalProps) {
         setIsSaving(true);
         try {
             await SaveWebDAVConfig(url, username, password);
+        } catch (error) {
+            // 保存失败：保持弹窗打开，让用户修正后重试
+            handleAppError(error);
+            setIsSaving(false);
+            return;
+        }
+
+        // 配置已落库。此后启动自动同步失败不应再表现为"保存失败"，
+        // 否则用户会重复保存，且设置页的同步方式不会刷新
+        try {
             await SyncService.StartAutoSync();
-            onSuccess();
-            onClose();
         } catch (error) {
             handleAppError(error);
-        } finally {
-            setIsSaving(false);
         }
+
+        setIsSaving(false);
+        onSuccess();
+        onClose();
     };
 
     return (

@@ -113,6 +113,9 @@ export function SettingsPage() {
             await SyncService.StopAutoSync();
             await AuthService.DisconnectCloud();
             await refetch();
+            // ConfirmModal 的确认按钮会 preventDefault，不会自动关闭；
+            // 成功后才关闭，失败时保持打开以便用户重试
+            setIsDisconnectModalOpen(false);
         } catch (error) {
             handleAppError(error);
         }
