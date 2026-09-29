@@ -29,11 +29,22 @@ func (v *Vault) Unlock(masterKey []byte, loginKey []byte) {
 	clear(v.loginKey)
 
 	// Store copies to prevent callers from mutating internal state.
-	v.masterKey = make([]byte, len(masterKey))
-	copy(v.masterKey, masterKey)
+	// 空切片归一化为 nil：否则 make([]byte, 0) 会得到非 nil 的空切片，
+	// IsUnlocked / GetLoginKey 的 nil 判断会失效，调用方可能拿到零长度密钥
+	// 而不报错。
+	if len(masterKey) > 0 {
+		v.masterKey = make([]byte, len(masterKey))
+		copy(v.masterKey, masterKey)
+	} else {
+		v.masterKey = nil
+	}
 
-	v.loginKey = make([]byte, len(loginKey))
-	copy(v.loginKey, loginKey)
+	if len(loginKey) > 0 {
+		v.loginKey = make([]byte, len(loginKey))
+		copy(v.loginKey, loginKey)
+	} else {
+		v.loginKey = nil
+	}
 }
 
 // Lock clears keys from memory
