@@ -75,3 +75,9 @@ jobs:
       - name: Type check
         working-directory: frontend
         run: pnpm exec tsc --noEmit
+
+      # en/zh 语言包键集合必须一致：漏键时界面会直接显示原始 key，
+      # 而 tsc 与构建都不会报错
+      - name: i18n key parity
+        working-directory: frontend
+        run: pnpm check:i18n
