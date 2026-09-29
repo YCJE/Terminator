@@ -1,10 +1,14 @@
 import { useState, useEffect } from "react";
+import { Events } from "@wailsio/runtime";
+import { AppEvent } from "@/lib/events";
 import { useTranslation } from "react-i18next";
 import { useQueryClient } from "@tanstack/react-query";
-import { User, Server, Lock, Trash2, Globe, AlertTriangle, Palette, Moon, Sun, Unplug, FolderSync, ScrollText, Download, ExternalLink, Loader2, CheckCircle2, Info, Keyboard, type LucideIcon } from "lucide-react";
+import { User, Server, Lock, Trash2, Globe, AlertTriangle, Palette, Moon, Sun, Unplug, FolderSync, ScrollText, Download, ExternalLink, Loader2, CheckCircle2, Info, Keyboard, ShieldCheck, type LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SwitchServerModal } from "@/components/views/SwitchServerModal";
 import { WebDAVModal } from "@/components/views/WebDAVModal";
+import { SyncConflictPanel } from "@/components/views/SyncConflictPanel";
+import { KnownHostsPanel } from "@/components/views/KnownHostsPanel";
 import { LogViewer } from "@/components/views/LogViewer";
 import { ConfirmModal } from "@/components/ui/confirm-modal";
 import { SettingsCard } from "@/components/ui/settings-card";
@@ -25,11 +29,9 @@ import {
     SelectValue,
 } from "@/components/ui/select";
 import { useSyncStore } from "@/store/syncStore.ts";
-import { useUIStore, Theme, ACCENT_PRESETS, SPACINESS_PRESETS, type AccentColor, type Spaciness } from "@/store/uiStore.ts";
+import { useUIStore, Theme, ACCENT_PRESETS, SPACINESS_PRESETS, type AccentColor, type Spaciness, type SettingsCategory } from "@/store/uiStore.ts";
 import { applyTerminalColorLink } from "@/lib/terminalTheme";
 import { cn } from "@/lib/utils";
-
-type SettingsCategory = "appearance" | "terminal" | "shortcuts" | "sync" | "security" | "about";
 
 const NAV_ITEMS: { id: SettingsCategory; labelKey: string; icon: LucideIcon }[] = [
     { id: "appearance", labelKey: "nav_appearance", icon: Palette },
@@ -49,17 +51,23 @@ export function SettingsPage() {
     const {theme, setTheme, accentColor, setAccentColor, spaciness, setSpaciness, terminalColorLink, setTerminalColorLink, keywordHighlight, setKeywordHighlight, broadcastEnabled, toggleBroadcastEnabled, tabColorEnabled, toggleTabColorEnabled} = useUIStore();
     const queryClient = useQueryClient();
 
-    const [activeCategory, setActiveCategory] = useState<SettingsCategory>("appearance");
+    const {settingsCategory: activeCategory, setSettingsCategory: setActiveCategory} = useUIStore();
     const [isServerModalOpen, setIsServerModalOpen] = useState(false);
     const [isWipeModalOpen, setIsWipeModalOpen] = useState(false);
     const [isDisconnectModalOpen, setIsDisconnectModalOpen] = useState(false);
     const [isWebDAVModalOpen, setIsWebDAVModalOpen] = useState(false);
     const [syncMethod, setSyncMethod] = useState<string>("server");
     const [webdavUrl, setWebdavUrl] = useState<string>("");
+    const [sessionLogEnabled, setSessionLogEnabled] = useState(false);
+    const [sessionLogRetentionDays, setSessionLogRetentionDays] = useState(7);
 
     // 更新检查状态
     const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
     const [releaseInfo, setReleaseInfo] = useState<GitHubReleaseInfo | null>(null);
+    // 下载并校验状态
+    const [isDownloading, setIsDownloading] = useState(false);
+    const [downloadPercent, setDownloadPercent] = useState(0);
+    const [verifiedPath, setVerifiedPath] = useState("");
 
     // 读取当前同步方式
     useEffect(() => {
@@ -67,6 +75,8 @@ export function SettingsPage() {
             .then((s) => {
                 setSyncMethod(s.sync_method || "server");
                 setWebdavUrl(s.webdav_url || "");
+                setSessionLogEnabled(s.session_log_enabled);
+                setSessionLogRetentionDays(s.session_log_retention_days || 7);
             })
             .catch(() => {});
     }, [isWebDAVModalOpen, isServerModalOpen]);
@@ -84,6 +94,17 @@ export function SettingsPage() {
             applyTerminalColorLink(theme, accentColor, true);
         }
     }, [theme, terminalColorLink, accentColor]);
+
+    // 手动下载安装包时后端会持续上报进度百分比
+    useEffect(() => {
+        const unsubscribe = Events.On(AppEvent.UpdaterProgress, (event) => {
+            const percent = event?.data;
+            if (typeof percent === "number") {
+                setDownloadPercent(percent);
+            }
+        });
+        return () => unsubscribe();
+    }, []);
 
     const handleLockVault = async () => {
         try {
@@ -145,6 +166,28 @@ export function SettingsPage() {
             } catch {
                 window.open(releaseInfo.htmlUrl, "_blank");
             }
+        }
+    };
+
+    // 下载安装包并在后端校验 SHA256，校验失败会返回错误且不落地文件
+    const handleDownloadAndVerify = async () => {
+        setIsDownloading(true);
+        setDownloadPercent(0);
+        setVerifiedPath("");
+        try {
+            setVerifiedPath(await UpdaterService.DownloadAndVerifyUpdate());
+        } catch (error) {
+            handleAppError(error);
+        } finally {
+            setIsDownloading(false);
+        }
+    };
+
+    const handleOpenVerified = async () => {
+        try {
+            await UpdaterService.OpenVerifiedDownload();
+        } catch (error) {
+            handleAppError(error);
         }
     };
 
@@ -226,6 +269,37 @@ export function SettingsPage() {
             }));
         } catch (error) {
             setTerminalColorLink(!enabled);
+            handleAppError(error);
+        }
+    };
+
+    const handleSessionLogToggle = async (enabled: boolean) => {
+        const prev = sessionLogEnabled;
+        try {
+            setSessionLogEnabled(enabled);
+            const current = await SettingsService.GetSettings();
+            await SettingsService.SaveSettings(new AppSettings({
+                ...current,
+                session_log_enabled: enabled,
+            }));
+        } catch (error) {
+            setSessionLogEnabled(prev);
+            handleAppError(error);
+        }
+    };
+
+    const handleSessionLogRetentionChange = async (days: string) => {
+        const value = Number(days);
+        const prev = sessionLogRetentionDays;
+        try {
+            setSessionLogRetentionDays(value);
+            const current = await SettingsService.GetSettings();
+            await SettingsService.SaveSettings(new AppSettings({
+                ...current,
+                session_log_retention_days: value,
+            }));
+        } catch (error) {
+            setSessionLogRetentionDays(prev);
             handleAppError(error);
         }
     };
@@ -501,6 +575,68 @@ export function SettingsPage() {
                             <span>{t("agent_forwarding_info")}</span>
                         </div>
 
+                        <SettingsCard title={t("session_log_title")} description={t("session_log_desc")}>
+                            {/* 会话日志开关 */}
+                            <div className="flex items-center justify-between">
+                                <div className="flex flex-col">
+                                    <span className="font-medium text-foreground">{t("session_log_enable_label")}</span>
+                                    <span className="text-xs text-muted-foreground">{t("session_log_enable_desc")}</span>
+                                </div>
+                                <button
+                                    role="switch"
+                                    aria-checked={sessionLogEnabled}
+                                    onClick={() => handleSessionLogToggle(!sessionLogEnabled)}
+                                    className={cn(
+                                        "relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center",
+                                        "rounded-full border-2 border-transparent transition-colors",
+                                        sessionLogEnabled ? "bg-primary" : "bg-muted"
+                                    )}
+                                >
+                                    <span
+                                        className={cn(
+                                            "pointer-events-none block size-5 rounded-full bg-background shadow-lg",
+                                            "transition-transform",
+                                            sessionLogEnabled ? "translate-x-5" : "translate-x-0"
+                                        )}
+                                    />
+                                </button>
+                            </div>
+
+                            {/* 保留期仅在开启时可调 */}
+                            {sessionLogEnabled && (
+                                <>
+                                    <div className="my-2 h-px w-full bg-border"/>
+
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex flex-col">
+                                            <span className="font-medium text-foreground">{t("session_log_retention_label")}</span>
+                                            <span className="text-xs text-muted-foreground">{t("session_log_retention_desc")}</span>
+                                        </div>
+                                        <Select
+                                            value={String(sessionLogRetentionDays)}
+                                            onValueChange={handleSessionLogRetentionChange}
+                                        >
+                                            <SelectTrigger className="w-45">
+                                                <SelectValue/>
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {[1, 7, 30, 90].map((days) => (
+                                                    <SelectItem key={days} value={String(days)}>
+                                                        {t("session_log_days", {count: days})}
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                </>
+                            )}
+
+                            <div className="flex items-start gap-2 rounded-lg border border-border/60 bg-muted/30 px-3 py-2.5 text-xs text-muted-foreground">
+                                <AlertTriangle className="mt-0.5 size-3.5 shrink-0"/>
+                                <span>{t("session_log_warning")}</span>
+                            </div>
+                        </SettingsCard>
+
                         <SettingsCard title={t("log_section_title")}>
                             <LogViewer/>
                         </SettingsCard>
@@ -509,6 +645,7 @@ export function SettingsPage() {
 
                     {/* ============ 同步 ============ */}
                     {activeCategory === "sync" && (
+                        <>
                         <SettingsCard title={t("profile_sync_title")} description={t("profile_sync_desc")}>
                             {/* 账户信息 */}
                             <div className="flex items-center gap-4">
@@ -605,10 +742,14 @@ export function SettingsPage() {
                                 </Button>
                             </div>
                         </SettingsCard>
+
+                        <SyncConflictPanel/>
+                        </>
                     )}
 
                     {/* ============ 安全 ============ */}
                     {activeCategory === "security" && (
+                        <>
                         <SettingsCard title={t("security_title")} description={t("security_desc")}>
                             <div className="flex items-center justify-between">
                                 <div className="flex flex-col">
@@ -634,6 +775,9 @@ export function SettingsPage() {
                                 </Button>
                             </div>
                         </SettingsCard>
+
+                        <KnownHostsPanel/>
+                        </>
                     )}
 
                     {/* ============ 快捷键 ============ */}
@@ -723,10 +867,51 @@ export function SettingsPage() {
                                                     {t("published_at", {date: new Date(releaseInfo.publishedAt).toLocaleDateString()})}
                                                 </p>
                                             )}
-                                            <Button size="sm" variant="outline" onClick={handleOpenReleasePage} className="mt-2">
-                                                <ExternalLink className="mr-2 size-3"/>
-                                                {t("go_to_download")}
-                                            </Button>
+                                            <div className="mt-2 flex flex-wrap items-center gap-2">
+                                                <Button size="sm" onClick={handleDownloadAndVerify} disabled={isDownloading}>
+                                                    {isDownloading ? (
+                                                        <Loader2 className="mr-2 size-3 animate-spin"/>
+                                                    ) : (
+                                                        <Download className="mr-2 size-3"/>
+                                                    )}
+                                                    {isDownloading
+                                                        ? t("downloading_verified", {percent: downloadPercent})
+                                                        : t("download_and_verify")}
+                                                </Button>
+                                                <Button size="sm" variant="outline" onClick={handleOpenReleasePage}>
+                                                    <ExternalLink className="mr-2 size-3"/>
+                                                    {t("go_to_download")}
+                                                </Button>
+                                            </div>
+
+                                            {isDownloading && (
+                                                <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                                                    <div
+                                                        className="h-full bg-primary transition-all"
+                                                        style={{width: `${downloadPercent}%`}}
+                                                    />
+                                                </div>
+                                            )}
+
+                                            {verifiedPath && (
+                                                <div className="mt-3 flex flex-col gap-2 rounded-md border border-green-500/30 bg-green-500/5 p-3">
+                                                    <div className="flex items-center gap-2">
+                                                        <ShieldCheck className="size-3.5 text-green-500"/>
+                                                        <span className="text-xs font-medium text-foreground">
+                                                            {t("download_verified")}
+                                                        </span>
+                                                    </div>
+                                                    <span className="break-all font-mono text-xs text-muted-foreground">
+                                                        {verifiedPath}
+                                                    </span>
+                                                    <div>
+                                                        <Button size="sm" variant="outline" onClick={handleOpenVerified}>
+                                                            <ExternalLink className="mr-2 size-3"/>
+                                                            {t("open_installer")}
+                                                        </Button>
+                                                    </div>
+                                                </div>
+                                            )}
                                         </>
                                     ) : (
                                         <div className="flex items-center gap-2">
