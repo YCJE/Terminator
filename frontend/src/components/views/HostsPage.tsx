@@ -13,6 +13,7 @@ import { useHosts, useSaveHost, useDeleteHost } from "@/hooks/useHosts";
 import { useKeys } from "@/hooks/useKeys";
 import { useSessionStore } from "@/store/sessionStore";
 import { HostService, Host, ItemType } from "../../../bindings/terminator-desktop/backend/internal/services/blob";
+import { JumpHostConfig } from "../../../bindings/terminator-desktop/backend/internal/services/ssh/models";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -49,13 +50,15 @@ export function HostsPage() {
         try {
             const allHosts = await HostService.GetAll();
             // 导出时清除 ID 和敏感字段（密码/代理密码），导入时重新生成
+            // 跳板机以「名称」导出：ID 在导入时会重新生成，无法跨 vault 直接引用
+            const idToName = new Map(allHosts.map(h => [h.id, h.name || `${h.username}@${h.host}`]));
             const exportData = allHosts.map(h => ({
                 name: h.name,
                 group: h.group || "",
                 host: h.host,
                 port: h.port,
                 username: h.username,
-                jumpHostId: h.jumpHostId || "",
+                jumpHostName: h.jumpHostId ? (idToName.get(h.jumpHostId) || "") : "",
                 proxyType: h.proxyType || "",
                 proxyHost: h.proxyHost || "",
                 proxyPort: h.proxyPort || 0,
@@ -88,29 +91,39 @@ export function HostsPage() {
             const text = await file.text();
             const data = JSON.parse(text);
             if (!Array.isArray(data)) throw new Error("invalid format");
-            let count = 0;
+            // 第一遍：保存所有主机（跳板机关联留空），记录新 ID 与名称
+            const imported: { id: string; name: string; jumpHostName: string; base: Record<string, unknown> }[] = [];
             for (const item of data) {
                 if (!item.host || !item.username) continue;
-                await HostService.Save({
-                    id: "",
+                const name = item.name || `${item.host}:${item.port || 22}`;
+                const base = {
                     type: ItemType.TypeHost,
-                    name: item.name || `${item.host}:${item.port || 22}`,
+                    name,
                     group: item.group || "",
                     host: item.host,
                     port: item.port || 22,
                     username: item.username,
                     password: "",
                     keyId: "",
-                    jumpHostId: item.jumpHostId || "",
                     proxyType: item.proxyType || undefined,
                     proxyHost: item.proxyHost || undefined,
                     proxyPort: item.proxyPort || undefined,
                     proxyUsername: item.proxyUsername || undefined,
                     agentForwarding: item.agentForwarding || false,
-                } as Host);
-                count++;
+                };
+                const newId = await HostService.Save({ ...base, id: "" } as unknown as Host);
+                imported.push({ id: newId, name, jumpHostName: item.jumpHostName || "", base });
             }
-            toast.success(t("import_success", { count }));
+            // 第二遍：按名称解析跳板机并写回关联（ID 已重新生成，需映射到新 ID）
+            const nameToId = new Map<string, string>();
+            imported.forEach((h) => { if (!nameToId.has(h.name)) nameToId.set(h.name, h.id); });
+            for (const h of imported) {
+                if (!h.jumpHostName) continue;
+                const jumpId = nameToId.get(h.jumpHostName);
+                if (!jumpId || jumpId === h.id) continue;
+                await HostService.Save({ ...h.base, id: h.id, jumpHostId: jumpId } as unknown as Host);
+            }
+            toast.success(t("import_success", { count: imported.length }));
         } catch {
             toast.error(t("import_failed"));
         } finally {
@@ -147,6 +160,27 @@ export function HostsPage() {
             if (foundKey) keyString = foundKey.privateKey;
         }
 
+        // 解析跳板机配置：按 jumpHostId 找到跳板机主机并复用其地址与凭据
+        let jumpHost: JumpHostConfig | undefined = undefined;
+        if (host.jumpHostId && hosts) {
+            const jh = hosts.find(h => h.id === host.jumpHostId);
+            // 防止自引用导致的无效跳板
+            if (jh && jh.id !== host.id) {
+                let jhKey: string | undefined = undefined;
+                if (jh.keyId && keys) {
+                    const foundJhKey = keys.find(k => k.id === jh.keyId);
+                    if (foundJhKey) jhKey = foundJhKey.privateKey;
+                }
+                jumpHost = new JumpHostConfig({
+                    host: jh.host,
+                    port: jh.port,
+                    username: jh.username,
+                    password: jh.password || undefined,
+                    privateKey: jhKey,
+                });
+            }
+        }
+
         addSession({
             host: host.host,
             port: host.port,
@@ -154,6 +188,7 @@ export function HostsPage() {
             password: password || host.password,
             privateKey: keyString,
             title: host.name || host.host,
+            jumpHost,
             proxyType: host.proxyType,
             proxyHost: host.proxyHost,
             proxyPort: host.proxyPort,
@@ -161,7 +196,7 @@ export function HostsPage() {
             proxyPassword: host.proxyPassword,
             agentForwarding: host.agentForwarding,
         });
-    }, [keys, addSession]);
+    }, [keys, hosts, addSession]);
 
     // 连接主机：如果没有保存密码且没有密钥，弹出密码输入框
     const handleConnect = useCallback((host: Host) => {

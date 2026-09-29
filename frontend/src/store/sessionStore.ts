@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { SSHConnectionConfig, SshService } from "../../bindings/terminator-desktop/backend/internal/services/ssh";
+import { JumpHostConfig } from "../../bindings/terminator-desktop/backend/internal/services/ssh/models";
 import { useUIStore, ViewType } from "@/store/uiStore";
 import { useTransferStore } from "@/store/transferStore";
 
@@ -22,6 +23,8 @@ export interface CreateSessionParams {
     password?: string;
     privateKey?: string;
     title?: string;
+    /** 跳板机配置（可选），通过中间主机跳转连接目标 */
+    jumpHost?: JumpHostConfig;
     proxyType?: string;
     proxyHost?: string;
     proxyPort?: number;
@@ -82,6 +85,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
             username: params.username,
             password: params.password,
             privateKey: params.privateKey,
+            jumpHost: params.jumpHost,
             proxyType: params.proxyType,
             proxyHost: params.proxyHost,
             proxyPort: params.proxyPort,

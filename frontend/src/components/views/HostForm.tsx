@@ -11,6 +11,7 @@ import {
     Lock,
     Network,
     ShieldCheck,
+    Route,
 } from "lucide-react";
 import {Host, ItemType} from "../../../bindings/terminator-desktop/backend/internal/services/blob";
 import {Button} from "@/components/ui/button";
@@ -67,6 +68,12 @@ export function HostForm({initialData, isSaving, onSave, onCancel}: HostFormProp
         });
         return Array.from(groups).sort();
     }, [hosts]);
+
+    // 可选跳板机候选：排除自身，以及本身已配置跳板机的主机（后端仅支持单级跳板）
+    const jumpHostCandidates = useMemo(
+        () => (hosts || []).filter((h) => !!h.id && h.id !== formData.id && !h.jumpHostId),
+        [hosts, formData.id]
+    );
 
     // 当切换编辑目标（或从新建切换到编辑）时同步表单数据
     useEffect(() => {
@@ -135,6 +142,8 @@ export function HostForm({initialData, isSaving, onSave, onCancel}: HostFormProp
             proxyPort: clampedProxyPort,
             proxyUsername: hasProxy ? (formData.proxyUsername || undefined) : undefined,
             proxyPassword: hasProxy ? (formData.proxyPassword || undefined) : undefined,
+            // 清理跳板机字段：未选择或自引用时置空
+            jumpHostId: formData.jumpHostId && formData.jumpHostId !== formData.id ? formData.jumpHostId : undefined,
         });
 
         onSave(finalHost);
@@ -348,6 +357,38 @@ export function HostForm({initialData, isSaving, onSave, onCancel}: HostFormProp
                             setFormData(prev => ({...prev, agentForwarding: e.target.checked}))
                         }
                     />
+                </div>
+
+                {/* 跳板机配置 */}
+                <div className="grid gap-2">
+                    <div className="flex items-center gap-2">
+                        <Route className="size-4 text-muted-foreground"/>
+                        <Label>{t("jump_host_label")}</Label>
+                    </div>
+                    <Select
+                        value={formData.jumpHostId || "none"}
+                        onValueChange={(val) =>
+                            setFormData(prev => ({
+                                ...prev,
+                                jumpHostId: val === "none" ? undefined : val,
+                            }))
+                        }
+                    >
+                        <SelectTrigger className="w-full">
+                            <SelectValue/>
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="none">{t("jump_host_none")}</SelectItem>
+                            {jumpHostCandidates.map((h) => (
+                                <SelectItem key={h.id} value={h.id!}>
+                                    {h.name || `${h.username}@${h.host}`}
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                        {t("jump_host_desc")}
+                    </p>
                 </div>
 
                 {/* 代理配置 */}
