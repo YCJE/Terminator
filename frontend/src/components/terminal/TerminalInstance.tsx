@@ -190,6 +190,11 @@ export function TerminalInstance({sessionId, isActive, config, disconnected}: Te
                     if (cancelled) return;
                     setSessionStatus(sessionId, "disconnected");
                     printErrorToTerminal(err);
+                    // 主机密钥变更属于需要用户介入的安全事件：仅打印原始错误
+                    // 用户无法知道如何处理，这里补一条可操作的指引。
+                    if (parseAppError(err).message.includes("has changed")) {
+                        terminalRef.current?.write(`\x1b[33m${t("host_key_changed_hint")}\x1b[0m\r\n`);
+                    }
                 });
         }
 

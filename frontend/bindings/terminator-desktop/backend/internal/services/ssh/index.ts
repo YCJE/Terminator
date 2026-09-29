@@ -7,5 +7,6 @@ export {
 };
 
 export {
-    SSHConnectionConfig
+    SSHConnectionConfig,
+    KnownHostEntry
 } from "./models.js";

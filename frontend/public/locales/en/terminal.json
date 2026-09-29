@@ -1,5 +1,6 @@
 {
   "error_message": "Error: {{message}}\r\n{{error}}",
+  "host_key_changed_hint": "The host key has changed; this may indicate a man-in-the-middle attack. If the change is legitimate (e.g. a server reinstall), remove the entry under Settings → Security → Known Hosts and reconnect.",
   "session_disconnected": "── SSH session disconnected ──",
   "search_placeholder": "Search terminal output...",
   "search_open": "Search (Ctrl+F)",

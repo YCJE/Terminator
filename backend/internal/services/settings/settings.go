@@ -24,7 +24,20 @@ type AppSettings struct {
 	AccentColor       string  `json:"accent_color"`        // "monochrome"|"sky"|"emerald"|"violet"|"amber"|"rose"|"cyan" (默认 monochrome)
 	Spaciness         float64 `json:"spaciness"`           // 0.8|1|1.2 (默认 1)
 	TerminalColorLink bool    `json:"terminal_color_link"` // 终端配色联动 (默认 false)
+
+	// 会话日志：把完整终端输出写入磁盘。输出中可能包含用户输入的
+	// 口令、令牌、连接串等敏感内容，因此默认关闭，开启后按保留期回收。
+	SessionLogEnabled       bool `json:"session_log_enabled"`        // 默认 false
+	SessionLogRetentionDays int  `json:"session_log_retention_days"` // 默认 7 天
 }
+
+// sessionLogRetentionMin/Max 限定保留期取值范围。
+// 下界避免设置为 0 导致日志刚写出就被判定过期；
+// 上界避免误填大数使清理形同虚设。
+const (
+	sessionLogRetentionMin = 1
+	sessionLogRetentionMax = 365
+)
 
 type SettingsService struct {
 	configPath string
@@ -82,6 +95,13 @@ func (s *SettingsService) GetSettings() (AppSettings, error) {
 	}
 	def.TerminalColorLink = raw.TerminalColorLink
 
+	// 会话日志：bool 无法区分"未设置"与 false，直接采用磁盘值，
+	// 与 TerminalColorLink 的处理方式一致
+	def.SessionLogEnabled = raw.SessionLogEnabled
+	if raw.SessionLogRetentionDays != 0 {
+		def.SessionLogRetentionDays = raw.SessionLogRetentionDays
+	}
+
 	return def, nil
 }
 
@@ -89,13 +109,36 @@ func (s *SettingsService) GetSettings() (AppSettings, error) {
 // 借鉴 Tabby 的 ConfigProxy：保存时自动擦除等于默认值的字段，配置文件只保留用户实际修改项
 func defaultSettings() AppSettings {
 	return AppSettings{
-		Language:          "zh",
-		Theme:             "dark",
-		SyncMethod:        "server",
-		AccentColor:       "monochrome",
-		Spaciness:         1,
-		TerminalColorLink: false,
+		Language:                "zh",
+		Theme:                   "dark",
+		SyncMethod:              "server",
+		AccentColor:             "monochrome",
+		Spaciness:               1,
+		TerminalColorLink:       false,
+		SessionLogEnabled:       false,
+		SessionLogRetentionDays: 7,
 	}
+}
+
+// SessionLogEnabled 供 SSH 服务在建立会话时查询日志开关。
+//
+// 读取失败时返回 false：会话日志会把完整终端内容明文落盘，
+// 配置不可信时宁可不记录，也不要凭默认值意外开启。
+func (s *SettingsService) SessionLogEnabled() bool {
+	settings, err := s.GetSettings()
+	if err != nil {
+		return false
+	}
+	return settings.SessionLogEnabled
+}
+
+// SessionLogRetentionDays 返回会话日志保留天数（已按合法区间收敛）。
+func (s *SettingsService) SessionLogRetentionDays() int {
+	settings, err := s.GetSettings()
+	if err != nil {
+		return defaultSettings().SessionLogRetentionDays
+	}
+	return settings.SessionLogRetentionDays
 }
 
 func (s *SettingsService) SaveSettings(settings AppSettings) error {
@@ -109,15 +152,17 @@ func (s *SettingsService) SaveSettings(settings AppSettings) error {
 		_ = json.Unmarshal(data, &existing)
 	}
 	merged := AppSettings{
-		Language:          settings.Language,
-		Theme:             settings.Theme,
-		SyncMethod:        settings.SyncMethod,
-		WebDAVURL:         settings.WebDAVURL,
-		WebDAVUsername:    settings.WebDAVUsername,
-		WebDAVPassword:    settings.WebDAVPassword,
-		AccentColor:       settings.AccentColor,
-		Spaciness:         settings.Spaciness,
-		TerminalColorLink: settings.TerminalColorLink,
+		Language:                settings.Language,
+		Theme:                   settings.Theme,
+		SyncMethod:              settings.SyncMethod,
+		WebDAVURL:               settings.WebDAVURL,
+		WebDAVUsername:          settings.WebDAVUsername,
+		WebDAVPassword:          settings.WebDAVPassword,
+		AccentColor:             settings.AccentColor,
+		Spaciness:               settings.Spaciness,
+		TerminalColorLink:       settings.TerminalColorLink,
+		SessionLogEnabled:       settings.SessionLogEnabled,
+		SessionLogRetentionDays: settings.SessionLogRetentionDays,
 	}
 	// 如果调用方传入空字符串/零值，保留现有值
 	if merged.Language == "" && existing.Language != "" {
@@ -144,6 +189,12 @@ func (s *SettingsService) SaveSettings(settings AppSettings) error {
 	if merged.Spaciness == 0 && existing.Spaciness != 0 {
 		merged.Spaciness = existing.Spaciness
 	}
+	// SessionLogEnabled 与 TerminalColorLink 同理：前端始终发送完整设置对象，
+	// 直接采用传入值，否则用户无法从 true 关回 false。
+	// 保留期为零值视为"未提供"，沿用磁盘上的值。
+	if merged.SessionLogRetentionDays == 0 && existing.SessionLogRetentionDays != 0 {
+		merged.SessionLogRetentionDays = existing.SessionLogRetentionDays
+	}
 	// TerminalColorLink: 前端始终发送完整设置对象，无需部分合并
 	// 之前用 !merged.TerminalColorLink && existing.TerminalColorLink 保留旧值，
 	// 但这导致用户无法从 true 切换到 false。移除此合并逻辑，直接使用前端传入的值。
@@ -165,6 +216,11 @@ func (s *SettingsService) SaveSettings(settings AppSettings) error {
 	}
 	if merged.Spaciness != 0.8 && merged.Spaciness != 1 && merged.Spaciness != 1.2 {
 		merged.Spaciness = def.Spaciness
+	}
+	// 保留期收敛到合法区间：越界值回退为默认，
+	// 避免 0（日志刚写出即过期）或极大值（清理失效）被写入配置
+	if merged.SessionLogRetentionDays < sessionLogRetentionMin || merged.SessionLogRetentionDays > sessionLogRetentionMax {
+		merged.SessionLogRetentionDays = def.SessionLogRetentionDays
 	}
 
 	// ConfigProxy 默认值擦除：等于默认值的字段不写入配置文件
@@ -190,6 +246,12 @@ func (s *SettingsService) SaveSettings(settings AppSettings) error {
 	}
 	if merged.TerminalColorLink != def.TerminalColorLink {
 		sanitized.TerminalColorLink = merged.TerminalColorLink
+	}
+	if merged.SessionLogEnabled != def.SessionLogEnabled {
+		sanitized.SessionLogEnabled = merged.SessionLogEnabled
+	}
+	if merged.SessionLogRetentionDays != def.SessionLogRetentionDays {
+		sanitized.SessionLogRetentionDays = merged.SessionLogRetentionDays
 	}
 
 	data, err := json.MarshalIndent(sanitized, "", "  ")

@@ -15,6 +15,8 @@ export class AppSettings {
     "accent_color": string;
     "spaciness": number;
     "terminal_color_link": boolean;
+    "session_log_enabled": boolean;
+    "session_log_retention_days": number;
 
     /** Creates a new AppSettings instance. */
     constructor($$source: Partial<AppSettings> = {}) {
@@ -52,6 +54,14 @@ export class AppSettings {
 
         if (!("terminal_color_link" in $$source)) {
             this["terminal_color_link"] = false;
+        }
+
+        if (!("session_log_enabled" in $$source)) {
+            this["session_log_enabled"] = false;
+        }
+
+        if (!("session_log_retention_days" in $$source)) {
+            this["session_log_retention_days"] = 0;
         }
 
         Object.assign(this, $$source);

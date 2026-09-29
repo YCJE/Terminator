@@ -41,3 +41,17 @@ export function AddPortForward(spec: $models.PortForwardSpec | null): $Cancellab
 export function RemovePortForward(forwardID: string): $CancellablePromise<void> {
     return $Call.ByID(2328052775, forwardID);
 }
+
+/**
+ * ListKnownHosts 返回当前固定的主机密钥列表，按地址排序。
+ */
+export function ListKnownHosts(): $CancellablePromise<$models.KnownHostEntry[]> {
+    return $Call.ByID(1488588359);
+}
+
+/**
+ * RemoveKnownHost 删除指定地址的主机密钥记录。
+ */
+export function RemoveKnownHost(address: string): $CancellablePromise<void> {
+    return $Call.ByID(1278251162, address);
+}

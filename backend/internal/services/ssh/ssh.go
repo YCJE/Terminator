@@ -3,6 +3,7 @@ package ssh
 import (
 	"bufio"
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
 	"io"
@@ -29,6 +30,12 @@ import (
 type SSHEmitter interface {
 	EmitData(sessionID string, data []byte)
 	EmitClosed(sessionID string)
+}
+
+// SessionLogConfig 提供会话日志的运行时开关。
+// 用接口而非固定布尔值，使设置变更无需重启应用即可生效。
+type SessionLogConfig interface {
+	SessionLogEnabled() bool
 }
 
 type SSHConnectionConfig struct {
@@ -115,6 +122,8 @@ type SshService struct {
 
 	// logDir 会话日志输出目录（空则不记录日志）
 	logDir string
+	// logConfig 会话日志开关，为 nil 时视为关闭
+	logConfig SessionLogConfig
 }
 
 // pooledConn 池化 SSH 连接，引用计数管理生命周期
@@ -145,6 +154,68 @@ func defaultKnownHostsPath() string {
 		return filepath.Join(dir, "Terminator", "known_hosts")
 	}
 	return "known_hosts"
+}
+
+// SetSessionLogConfig 注入会话日志开关。未注入时视为关闭：
+// 会话日志会把完整终端输出明文落盘，不应在未明确开启的情况下记录。
+func (s *SshService) SetSessionLogConfig(cfg SessionLogConfig) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.logConfig = cfg
+}
+
+// sessionLogEnabled 判断当前是否应记录会话日志。
+func (s *SshService) sessionLogEnabled() bool {
+	s.mu.RLock()
+	cfg := s.logConfig
+	s.mu.RUnlock()
+	return cfg != nil && cfg.SessionLogEnabled()
+}
+
+// CleanupSessionLogs 删除会话日志目录中超过保留期的日志文件，返回删除数量。
+// 目录不存在或为空视为无需清理，不报错。
+func CleanupSessionLogs(dir string, retentionDays int) (int, error) {
+	return cleanupSessionLogsBefore(dir, retentionDays, time.Now())
+}
+
+// cleanupSessionLogsBefore 是 CleanupSessionLogs 的可测实现，基准时间由调用方给出。
+//
+// 会话日志记录完整终端输出（可能含口令、令牌、连接串），必须按保留期回收，
+// 否则敏感内容会无限期留在磁盘上。清理失败不视为致命错误：
+// 单个文件删除失败只跳过该文件，避免一个异常文件阻塞整轮回收。
+func cleanupSessionLogsBefore(dir string, retentionDays int, now time.Time) (int, error) {
+	if dir == "" {
+		return 0, nil
+	}
+	if retentionDays < 1 {
+		retentionDays = 1
+	}
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, nil
+		}
+		return 0, err
+	}
+
+	cutoff := now.AddDate(0, 0, -retentionDays)
+	removed := 0
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".log") {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil || info.ModTime().After(cutoff) {
+			continue
+		}
+		if err := os.Remove(filepath.Join(dir, entry.Name())); err != nil {
+			slog.Debug("failed to remove expired session log", "name", entry.Name(), "error", err)
+			continue
+		}
+		removed++
+	}
+	return removed, nil
 }
 
 // Connect establishes an SSH session with connection pooling and optional Jump Host support.
@@ -217,9 +288,10 @@ func (s *SshService) Connect(config *SSHConnectionConfig) error {
 		return apperror.SSHConnectionFailed("failed to start shell", err)
 	}
 
-	// 会话日志：如果配置了 logDir，为该会话创建日志文件
+	// 会话日志：仅在用户明确开启且配置了 logDir 时记录。
+	// 日志内容为完整终端输出，可能含口令与令牌，默认不落盘。
 	var logFile *os.File
-	if s.logDir != "" {
+	if s.logDir != "" && s.sessionLogEnabled() {
 		logPath := filepath.Join(s.logDir, fmt.Sprintf("%s.log", config.ID))
 		logFile, err = os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
 		if err != nil {
@@ -821,6 +893,69 @@ func (s *SshService) saveKnownHosts(known map[string]string) error {
 		return err
 	}
 	return os.Rename(tmp, s.knownHostsPath)
+}
+
+// KnownHostEntry 描述一条已固定的主机密钥，供设置界面展示与管理。
+type KnownHostEntry struct {
+	Address     string `json:"address"`
+	KeyType     string `json:"keyType"`
+	Fingerprint string `json:"fingerprint"` // OpenSSH 风格 SHA256 指纹
+}
+
+// ListKnownHosts 返回当前固定的主机密钥列表，按地址排序。
+func (s *SshService) ListKnownHosts() ([]KnownHostEntry, error) {
+	s.hostsMu.Lock()
+	defer s.hostsMu.Unlock()
+
+	known, err := s.loadKnownHosts()
+	if err != nil {
+		return nil, err
+	}
+
+	entries := make([]KnownHostEntry, 0, len(known))
+	for addr, line := range known {
+		parts := strings.SplitN(line, " ", 3)
+		if len(parts) != 3 {
+			continue
+		}
+		entries = append(entries, KnownHostEntry{
+			Address:     addr,
+			KeyType:     parts[1],
+			Fingerprint: fingerprintFromBase64(parts[2]),
+		})
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Address < entries[j].Address })
+	return entries, nil
+}
+
+// RemoveKnownHost 删除指定地址的主机密钥记录。
+//
+// 仅在用户确认服务器密钥变更确实可信（如重装系统）后调用；
+// 删除后下次连接会重新按 TOFU 固定新密钥。地址不存在时视为已删除，不报错。
+func (s *SshService) RemoveKnownHost(address string) error {
+	s.hostsMu.Lock()
+	defer s.hostsMu.Unlock()
+
+	known, err := s.loadKnownHosts()
+	if err != nil {
+		return err
+	}
+	if _, ok := known[address]; !ok {
+		return nil
+	}
+	delete(known, address)
+	return s.saveKnownHosts(known)
+}
+
+// fingerprintFromBase64 从 base64 编码的公钥 blob 计算 OpenSSH 风格 SHA256 指纹。
+// 解码失败时返回空串，由前端展示为"未知指纹"。
+func fingerprintFromBase64(encoded string) string {
+	raw, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(raw)
+	return "SHA256:" + base64.RawStdEncoding.EncodeToString(sum[:])
 }
 
 func (s *SshService) Input(sessionID string, data string) error {

@@ -80,3 +80,21 @@ export class PortForwardSpec {
         return new PortForwardSpec($$parsedSource as Partial<PortForwardSpec>);
     }
 }
+
+export class KnownHostEntry {
+    "address": string;
+    "keyType": string;
+    "fingerprint": string;
+
+    constructor($$source: Partial<KnownHostEntry> = {}) {
+        if (!("address" in $$source)) { this["address"] = ""; }
+        if (!("keyType" in $$source)) { this["keyType"] = ""; }
+        if (!("fingerprint" in $$source)) { this["fingerprint"] = ""; }
+        Object.assign(this, $$source);
+    }
+
+    static createFrom($$source: any = {}): KnownHostEntry {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new KnownHostEntry($$parsedSource as Partial<KnownHostEntry>);
+    }
+}
