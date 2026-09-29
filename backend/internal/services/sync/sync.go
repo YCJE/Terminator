@@ -9,6 +9,7 @@ import (
 	"terminator-desktop/backend/internal/api"
 	"terminator-desktop/backend/internal/dbgen"
 	"terminator-desktop/backend/internal/services/settings"
+	"terminator-desktop/backend/internal/timeutil"
 	"terminator-desktop/backend/internal/vault"
 	"time"
 )
@@ -172,7 +173,7 @@ func (s *SyncService) Sync(ctx context.Context) (err error) {
 		return err
 	}
 
-	epoch := time.Unix(0, 0).UTC().Format(time.RFC3339)
+	epoch := timeutil.Epoch()
 	lastSyncString := epoch
 
 	if user.LastSyncTime.Valid {
@@ -228,7 +229,7 @@ func (s *SyncService) Sync(ctx context.Context) (err error) {
 
 	if len(res.Blobs) > 0 {
 		for _, incoming := range res.Blobs {
-			updatedAtStr := incoming.UpdatedAt.Format(time.RFC3339Nano)
+			updatedAtStr := timeutil.Format(incoming.UpdatedAt)
 
 			err = s.q.UpsertBlob(ctx, dbgen.UpsertBlobParams{
 				ID:        incoming.ID,
@@ -243,7 +244,7 @@ func (s *SyncService) Sync(ctx context.Context) (err error) {
 		s.emitter.EmitUpdatesAvailable()
 	}
 
-	newSyncTimeStr := res.SyncTime.Format(time.RFC3339Nano)
+	newSyncTimeStr := timeutil.Format(res.SyncTime)
 	err = s.q.UpdateUserLastSyncTime(ctx, dbgen.UpdateUserLastSyncTimeParams{
 		LastSyncTime: sql.NullString{String: newSyncTimeStr, Valid: true},
 		ID:           user.ID,

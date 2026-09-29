@@ -11,6 +11,7 @@ import (
 
 	"terminator-desktop/backend/internal/crypto"
 	"terminator-desktop/backend/internal/dbgen"
+	"terminator-desktop/backend/internal/timeutil"
 	"terminator-desktop/backend/internal/webdav"
 )
 
@@ -30,8 +31,8 @@ const maxSyncFileSize = 10 * 1024 * 1024
 // webdavBlob 是 WebDAV 同步数据包中单个 blob 的结构
 type webdavBlob struct {
 	ID        string `json:"id"`
-	Blob      string `json:"blob"`         // base64 密文
-	UpdatedAt string `json:"updated_at"`   // RFC3339Nano
+	Blob      string `json:"blob"`       // base64 密文
+	UpdatedAt string `json:"updated_at"` // RFC3339Nano
 	IsDeleted bool   `json:"is_deleted"`
 }
 
@@ -175,7 +176,7 @@ func (s *SyncService) syncWebDAV(ctx context.Context, cfg WebDAVConfig) error {
 	// 7. 打包合并后的数据并加密上传
 	syncData := webdavSyncData{
 		Blobs:    make([]webdavBlob, 0, len(merged)),
-		SyncTime: time.Now().UTC().Format(time.RFC3339Nano),
+		SyncTime: timeutil.Now(),
 	}
 	for _, b := range merged {
 		syncData.Blobs = append(syncData.Blobs, b)
@@ -201,7 +202,7 @@ func (s *SyncService) syncWebDAV(ctx context.Context, cfg WebDAVConfig) error {
 	}
 
 	// 更新本地最后同步时间
-	nowStr := time.Now().UTC().Format(time.RFC3339Nano)
+	nowStr := timeutil.Now()
 	user, err := s.q.GetUser(ctx)
 	if err != nil {
 		return fmt.Errorf("读取用户信息失败: %w", err)
@@ -226,7 +227,7 @@ func (s *SyncService) syncWebDAV(ctx context.Context, cfg WebDAVConfig) error {
 func (s *SyncService) loadAllLocalBlobs(ctx context.Context) (map[string]dbgen.EncryptedBlob, error) {
 	result := make(map[string]dbgen.EncryptedBlob)
 
-	epoch := time.Unix(0, 0).UTC().Format(time.RFC3339Nano)
+	epoch := timeutil.Epoch()
 	allBlobs, err := s.q.GetBlobsSince(ctx, epoch)
 	if err != nil {
 		return nil, err

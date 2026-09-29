@@ -11,8 +11,8 @@ import (
 	"terminator-desktop/backend/internal/apperror"
 	"terminator-desktop/backend/internal/crypto"
 	"terminator-desktop/backend/internal/dbgen"
+	"terminator-desktop/backend/internal/timeutil"
 	"terminator-desktop/backend/internal/vault"
-	"time"
 
 	"github.com/google/uuid"
 )
@@ -283,7 +283,7 @@ func (s *AuthService) LoginFromSync(ctx context.Context, serverUrl, username, pa
 		return apperror.DecryptionFailed(err)
 	}
 
-	epochZero := time.Unix(0, 0).UTC().Format(time.RFC3339)
+	epochZero := timeutil.Epoch()
 	err = s.q.CreateUser(ctx, dbgen.CreateUserParams{
 		ID:                 uuid.New().String(),
 		Username:           username,
@@ -336,7 +336,7 @@ func (s *AuthService) RegisterOnServer(ctx context.Context, serverURL string) er
 
 	s.client.SetToken(authRes.AccessToken)
 
-	epochZero := time.Unix(0, 0).UTC().Format(time.RFC3339Nano)
+	epochZero := timeutil.Epoch()
 	err = s.q.UpdateUserServerUrl(ctx, dbgen.UpdateUserServerUrlParams{
 		ServerUrl:    sql.NullString{String: serverURL, Valid: true},
 		LastSyncTime: sql.NullString{String: epochZero, Valid: true},

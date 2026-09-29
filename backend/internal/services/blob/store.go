@@ -7,8 +7,8 @@ import (
 	"terminator-desktop/backend/internal/apperror"
 	"terminator-desktop/backend/internal/crypto"
 	"terminator-desktop/backend/internal/dbgen"
+	"terminator-desktop/backend/internal/timeutil"
 	"terminator-desktop/backend/internal/vault"
-	"time"
 
 	"github.com/google/uuid"
 )
@@ -41,7 +41,7 @@ func saveItem[T any](ctx context.Context, q *dbgen.Queries, v *vault.Vault, id s
 	err = q.UpsertBlob(ctx, dbgen.UpsertBlobParams{
 		ID:        id,
 		Blob:      packedBlob,
-		UpdatedAt: time.Now().UTC().Format(time.RFC3339Nano),
+		UpdatedAt: timeutil.Now(),
 		IsDeleted: false,
 	})
 	if err != nil {
@@ -104,6 +104,6 @@ func deleteItem(ctx context.Context, q *dbgen.Queries, v *vault.Vault, id string
 	}
 	return q.SoftDeleteBlob(ctx, dbgen.SoftDeleteBlobParams{
 		ID:        id,
-		UpdatedAt: time.Now().UTC().Format(time.RFC3339Nano),
+		UpdatedAt: timeutil.Now(),
 	})
 }
