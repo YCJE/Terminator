@@ -28,7 +28,7 @@ jobs:
           dotnet tool install -g vpk
           
           vpk download github \
-            --repoUrl "https://github.com/terminator-ssh/terminator-desktop" \
+            --repoUrl "https://github.com/YCJE/Terminator" \
             --channel windows-stable \
             --token "${{ github.token }}" \
             --outputDir releases || true
@@ -54,7 +54,7 @@ jobs:
         shell: bash
         run: |
           vpk upload github \
-            --repoUrl "https://github.com/terminator-ssh/terminator-desktop" \
+            --repoUrl "https://github.com/YCJE/Terminator" \
             --channel windows-stable \
             --token "${{ github.token }}" \
             --outputDir releases \
@@ -94,7 +94,7 @@ jobs:
           dotnet tool install -g vpk
           
           vpk download github \
-            --repoUrl "https://github.com/terminator-ssh/terminator-desktop" \
+            --repoUrl "https://github.com/YCJE/Terminator" \
             --channel linux-stable \
             --token "${{ github.token }}" \
             --outputDir releases || true
@@ -120,7 +120,7 @@ jobs:
         shell: bash
         run: |
           vpk upload github \
-            --repoUrl "https://github.com/terminator-ssh/terminator-desktop" \
+            --repoUrl "https://github.com/YCJE/Terminator" \
             --channel linux-stable \
             --token "${{ github.token }}" \
             --outputDir releases \
@@ -150,7 +150,7 @@ jobs:
           dotnet tool install -g vpk
           
           vpk download github \
-            --repoUrl "https://github.com/terminator-ssh/terminator-desktop" \
+            --repoUrl "https://github.com/YCJE/Terminator" \
             --channel macos-stable \
             --token "${{ github.token }}" \
             --outputDir releases || true
@@ -179,7 +179,7 @@ jobs:
         shell: bash
         run: |
           vpk upload github \
-            --repoUrl "https://github.com/terminator-ssh/terminator-desktop" \
+            --repoUrl "https://github.com/YCJE/Terminator" \
             --channel macos-stable \
             --token "${{ github.token }}" \
             --outputDir releases \

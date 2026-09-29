@@ -72,7 +72,9 @@ func NewUpdaterService(updateURL string, githubRepo string, emitter Emitter) *Up
 // 优先使用构建时注入的 Version 变量，其次从 debug.ReadBuildInfo 获取
 func (s *UpdaterService) getCurrentVersion() string {
 	if Version != "dev" && Version != "" {
-		return Version
+		// 构建注入的是 git tag（形如 v0.6.0），统一去掉 v 前缀，
+		// 避免界面出现「当前版本 v0.6.0 / 最新版本 0.6.0」的不一致展示。
+		return normalizeVersion(Version)
 	}
 	if info, ok := debug.ReadBuildInfo(); ok {
 		if info.Main.Version != "" && info.Main.Version != "(devel)" {
