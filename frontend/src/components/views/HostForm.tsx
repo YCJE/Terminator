@@ -69,9 +69,10 @@ export function HostForm({initialData, isSaving, onSave, onCancel}: HostFormProp
         return Array.from(groups).sort();
     }, [hosts]);
 
-    // 可选跳板机候选：排除自身，以及本身已配置跳板机的主机（后端仅支持单级跳板）
+    // 可选跳板机候选：排除自身。已配置跳板机的主机也可作为候选，
+    // 由此形成多级链式跳转（连接时按链逐级穿透）。
     const jumpHostCandidates = useMemo(
-        () => (hosts || []).filter((h) => !!h.id && h.id !== formData.id && !h.jumpHostId),
+        () => (hosts || []).filter((h) => !!h.id && h.id !== formData.id),
         [hosts, formData.id]
     );
 

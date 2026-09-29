@@ -52,14 +52,20 @@ type SSHConnectionConfig struct {
 	AgentForwarding bool `json:"agentForwarding,omitempty"`
 }
 
-// JumpHostConfig 跳板机配置
+// JumpHostConfig 跳板机配置。
+// JumpHost 支持嵌套，用于多级链式跳转：config.JumpHost 为最外层跳板
+// （由本机直接连接），其 JumpHost 字段指向再往内一层的跳板，依此类推。
 type JumpHostConfig struct {
-	Host       string `json:"host"`
-	Port       int    `json:"port"`
-	Username   string `json:"username"`
-	Password   string `json:"password,omitempty"`
-	PrivateKey string `json:"privateKey,omitempty"`
+	Host       string          `json:"host"`
+	Port       int             `json:"port"`
+	Username   string          `json:"username"`
+	Password   string          `json:"password,omitempty"`
+	PrivateKey string          `json:"privateKey,omitempty"`
+	JumpHost   *JumpHostConfig `json:"jumpHost,omitempty"`
 }
+
+// maxJumpHops 跳板机链的最大层级，防止异常配置导致建链过程长时间挂起。
+const maxJumpHops = 8
 
 // PortForwardSpec 端口转发规格
 type PortForwardSpec struct {
@@ -309,8 +315,9 @@ func (s *SshService) Connect(config *SSHConnectionConfig) error {
 // connKey 生成连接池的键
 func connKey(config *SSHConnectionConfig) string {
 	base := fmt.Sprintf("%s:%d:%s", config.Host, config.Port, config.Username)
-	if config.JumpHost != nil {
-		base += fmt.Sprintf("->%s:%d:%s", config.JumpHost.Host, config.JumpHost.Port, config.JumpHost.Username)
+	// 跳板机链的每一级都要参与键的构成，否则不同链路会错误复用同一连接
+	for jh := config.JumpHost; jh != nil; jh = jh.JumpHost {
+		base += fmt.Sprintf("->%s:%d:%s", jh.Host, jh.Port, jh.Username)
 	}
 	if config.ProxyType != "" {
 		base += fmt.Sprintf("@proxy:%s:%s:%d", config.ProxyType, config.ProxyHost, config.ProxyPort)
@@ -470,43 +477,90 @@ func (s *SshService) dialSSH(config *SSHConnectionConfig) (*ssh.Client, error) {
 	return client, nil
 }
 
-// dialThroughJumpHost 通过跳板机建立 SSH 隧道
+// dialThroughJumpHost 依次穿透跳板机链建立到目标的 SSH 连接。
+//
+// config.JumpHost 为最外层跳板（由本机直接连接），其嵌套的 JumpHost 指向下一级，
+// 依此类推，最后一段从最内层跳板机穿透到 targetAddr。单级跳板即为链长为 1 的特例。
+//
+// 任一步失败都会关闭已建立的各级连接；目标连接断开时同样清理整条链路，
+// 避免中间连接泄漏。
 func (s *SshService) dialThroughJumpHost(config *SSHConnectionConfig, targetConfig *ssh.ClientConfig, targetAddr string) (*ssh.Client, error) {
-	jh := config.JumpHost
-	jumpAddr := fmt.Sprintf("%s:%d", jh.Host, jh.Port)
+	// 展开跳板机链，最外层在前
+	var chain []*JumpHostConfig
+	for jh := config.JumpHost; jh != nil; jh = jh.JumpHost {
+		if len(chain) >= maxJumpHops {
+			return nil, apperror.SSHConnectionFailed(
+				fmt.Sprintf("跳板机层级超过上限 %d", maxJumpHops), nil)
+		}
+		chain = append(chain, jh)
+	}
 
-	jumpAuth := buildAuthMethods(jh.PrivateKey, jh.Password)
-	jumpCallback := s.makeHostKeyCallback(jh.Host, jh.Port)
+	// established 保存已建立的各级连接，失败或断开时统一清理
+	var established []*ssh.Client
+	cleanup := func() {
+		for _, c := range established {
+			_ = c.Close()
+		}
+	}
 
-	jumpConfig := &ssh.ClientConfig{
-		User:            jh.Username,
-		Auth:            jumpAuth,
-		HostKeyCallback: jumpCallback,
+	// 第一跳：本机（或经代理）直连最外层跳板机
+	first := chain[0]
+	firstAddr := fmt.Sprintf("%s:%d", first.Host, first.Port)
+	firstClient, err := dialWithProxy("tcp", firstAddr, &ssh.ClientConfig{
+		User:            first.Username,
+		Auth:            buildAuthMethods(first.PrivateKey, first.Password),
+		HostKeyCallback: s.makeHostKeyCallback(first.Host, first.Port),
 		Timeout:         timeout,
+	}, config)
+	if err != nil {
+		return nil, apperror.SSHConnectionFailed(fmt.Sprintf("failed to connect to jump host %s", firstAddr), err)
+	}
+	established = append(established, firstClient)
+
+	// 中间跳：从上一跳穿透到下一跳
+	cur := firstClient
+	for _, jh := range chain[1:] {
+		nextAddr := fmt.Sprintf("%s:%d", jh.Host, jh.Port)
+		conn, err := cur.Dial("tcp", nextAddr)
+		if err != nil {
+			cleanup()
+			return nil, apperror.SSHConnectionFailed(fmt.Sprintf("failed to tunnel to jump host %s", nextAddr), err)
+		}
+
+		ncc, chans, reqs, err := ssh.NewClientConn(conn, nextAddr, &ssh.ClientConfig{
+			User:            jh.Username,
+			Auth:            buildAuthMethods(jh.PrivateKey, jh.Password),
+			HostKeyCallback: s.makeHostKeyCallback(jh.Host, jh.Port),
+			Timeout:         timeout,
+		})
+		if err != nil {
+			_ = conn.Close()
+			cleanup()
+			return nil, apperror.SSHConnectionFailed(fmt.Sprintf("failed to establish SSH to jump host %s", nextAddr), err)
+		}
+
+		next := ssh.NewClient(ncc, chans, reqs)
+		established = append(established, next)
+		cur = next
 	}
 
-	// 跳板机连接也通过代理（如果配置了代理）
-	jumpClient, err := dialWithProxy("tcp", jumpAddr, jumpConfig, config)
+	// 最后一段：从最内层跳板机穿透到目标
+	conn, err := cur.Dial("tcp", targetAddr)
 	if err != nil {
-		return nil, apperror.SSHConnectionFailed(fmt.Sprintf("failed to connect to jump host %s", jumpAddr), err)
-	}
-
-	conn, err := jumpClient.Dial("tcp", targetAddr)
-	if err != nil {
-		_ = jumpClient.Close()
+		cleanup()
 		return nil, apperror.SSHConnectionFailed(fmt.Sprintf("failed to tunnel to %s via jump host", targetAddr), err)
 	}
 
 	ncc, chans, reqs, err := ssh.NewClientConn(conn, targetAddr, targetConfig)
 	if err != nil {
 		_ = conn.Close()
-		_ = jumpClient.Close()
+		cleanup()
 		return nil, apperror.SSHConnectionFailed(fmt.Sprintf("failed to establish SSH via jump host to %s", targetAddr), err)
 	}
 
 	targetClient := ssh.NewClient(ncc, chans, reqs)
 
-	// 监控目标连接状态，断开时清理跳板机资源
+	// 监控目标连接状态，断开时清理整条跳板链
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
@@ -515,7 +569,7 @@ func (s *SshService) dialThroughJumpHost(config *SSHConnectionConfig, targetConf
 		}()
 		_ = targetClient.Wait()
 		_ = conn.Close()
-		_ = jumpClient.Close()
+		cleanup()
 	}()
 
 	return targetClient, nil

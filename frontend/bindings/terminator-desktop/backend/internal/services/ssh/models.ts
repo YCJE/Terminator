@@ -11,6 +11,7 @@ export class JumpHostConfig {
     "username": string;
     "password"?: string;
     "privateKey"?: string;
+    "jumpHost"?: JumpHostConfig;
 
     constructor($$source: Partial<JumpHostConfig> = {}) {
         if (!("host" in $$source)) { this["host"] = ""; }

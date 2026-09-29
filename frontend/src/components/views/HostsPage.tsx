@@ -12,12 +12,45 @@ import { SlidePanel } from "@/components/ui/slide-panel";
 import { useHosts, useSaveHost, useDeleteHost } from "@/hooks/useHosts";
 import { useKeys } from "@/hooks/useKeys";
 import { useSessionStore } from "@/store/sessionStore";
-import { HostService, Host, ItemType } from "../../../bindings/terminator-desktop/backend/internal/services/blob";
+import { HostService, Host, ItemType, SavedKey } from "../../../bindings/terminator-desktop/backend/internal/services/blob";
 import { JumpHostConfig } from "../../../bindings/terminator-desktop/backend/internal/services/ssh/models";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
 const UNGROUPED = "__ungrouped__";
+
+// 递归解析跳板机链：返回最外层跳板机配置，其 jumpHost 字段嵌套下一级跳板。
+// visited 记录已访问的 host id，避免 A→B→A 这类循环引用导致无限递归。
+function resolveJumpHostChain(
+    host: Host,
+    hosts: Host[],
+    keys: SavedKey[] | undefined,
+    visited: Set<string> = new Set(),
+): JumpHostConfig | undefined {
+    if (!host.jumpHostId || visited.has(host.id)) return undefined;
+
+    const jh = hosts.find((h) => h.id === host.jumpHostId);
+    // 自引用或链上已出现过该主机时终止，避免死循环
+    if (!jh || visited.has(jh.id)) return undefined;
+
+    visited.add(host.id);
+    visited.add(jh.id);
+
+    let jhKey: string | undefined = undefined;
+    if (jh.keyId && keys) {
+        const foundJhKey = keys.find((k) => k.id === jh.keyId);
+        if (foundJhKey) jhKey = foundJhKey.privateKey;
+    }
+
+    return new JumpHostConfig({
+        host: jh.host,
+        port: jh.port,
+        username: jh.username,
+        password: jh.password || undefined,
+        privateKey: jhKey,
+        jumpHost: resolveJumpHostChain(jh, hosts, keys, visited),
+    });
+}
 
 export function HostsPage() {
     const {t} = useTranslation(["hosts", "common"]);
@@ -160,26 +193,8 @@ export function HostsPage() {
             if (foundKey) keyString = foundKey.privateKey;
         }
 
-        // 解析跳板机配置：按 jumpHostId 找到跳板机主机并复用其地址与凭据
-        let jumpHost: JumpHostConfig | undefined = undefined;
-        if (host.jumpHostId && hosts) {
-            const jh = hosts.find(h => h.id === host.jumpHostId);
-            // 防止自引用导致的无效跳板
-            if (jh && jh.id !== host.id) {
-                let jhKey: string | undefined = undefined;
-                if (jh.keyId && keys) {
-                    const foundJhKey = keys.find(k => k.id === jh.keyId);
-                    if (foundJhKey) jhKey = foundJhKey.privateKey;
-                }
-                jumpHost = new JumpHostConfig({
-                    host: jh.host,
-                    port: jh.port,
-                    username: jh.username,
-                    password: jh.password || undefined,
-                    privateKey: jhKey,
-                });
-            }
-        }
+        // 解析跳板机配置：按 jumpHostId 递归展开整条跳板链并复用各主机的地址与凭据
+        const jumpHost = hosts ? resolveJumpHostChain(host, hosts, keys) : undefined;
 
         addSession({
             host: host.host,
