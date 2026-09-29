@@ -23,6 +23,8 @@ out
 
 # local preferences
 settings.json
+# 例外：设置页的 i18n 文案必须随仓库分发，否则新克隆的构建会缺少全部设置页翻译
+!frontend/public/locales/*/settings.json
 
 # log
 terminator.log
