@@ -482,6 +482,11 @@ func (s *AuthService) WipeData(ctx context.Context) error {
 	if err := qtx.WipeBlobs(ctx); err != nil {
 		return err
 	}
+	// 冲突记录引用的是已加密的 blob 副本，必须与 blob 一并清除，
+	// 否则残留的冲突会指向不存在的数据
+	if err := qtx.WipeConflicts(ctx); err != nil {
+		return err
+	}
 	if err := qtx.WipeUsers(ctx); err != nil {
 		return err
 	}

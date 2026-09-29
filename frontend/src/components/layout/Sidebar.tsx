@@ -10,7 +10,7 @@ import { UpdatePopover } from "@/components/layout/UpdatePopover.tsx";
 export function Sidebar() {
     const {t} = useTranslation(["hosts", "keys", "portForwarding", "update", "settings"]);
     const {activeView, setActiveView, isSidebarVisible} = useUIStore();
-    const {status} = useSyncStore();
+    const {status, conflictCount} = useSyncStore();
 
     let dotColor = "bg-muted-foreground";
     if (status === SyncStatus.SyncStatusSyncing) dotColor = "bg-info activity-dot";
@@ -78,6 +78,18 @@ export function Sidebar() {
                         "absolute right-1 top-1 size-2 rounded-full border border-sidebar",
                         dotColor
                     )}/>
+
+                    {/* 未解决的同步冲突数量；点击设置进入同步分类处理 */}
+                    {conflictCount > 0 && (
+                        <span
+                            className="pointer-events-none absolute -bottom-1 -right-1 flex size-4 items-center
+                                       justify-center rounded-full bg-destructive text-[10px] font-medium
+                                       leading-none text-destructive-foreground"
+                            title={t("conflict_badge_tooltip", {ns: "settings", count: conflictCount})}
+                        >
+                            {conflictCount > 9 ? "9+" : conflictCount}
+                        </span>
+                    )}
                 </div>
             </nav>
         </aside>

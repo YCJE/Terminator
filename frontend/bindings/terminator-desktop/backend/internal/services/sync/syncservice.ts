@@ -5,8 +5,26 @@
 // @ts-ignore: Unused imports
 import { Call as $Call, CancellablePromise as $CancellablePromise, Create as $Create } from "@wailsio/runtime";
 
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
+import * as $models from "./models.js";
+
 export function Authenticate(): $CancellablePromise<void> {
     return $Call.ByID(380219982);
+}
+
+export function ConflictCount(): $CancellablePromise<number> {
+    return $Call.ByID(3391185764);
+}
+
+export function ListConflicts(): $CancellablePromise<$models.ConflictInfo[]> {
+    return $Call.ByID(2516926154).then(($result: any) => {
+        return $$createType1($result);
+    });
+}
+
+export function ResolveConflict(blobID: string, keepLocal: boolean): $CancellablePromise<void> {
+    return $Call.ByID(1673768531, blobID, keepLocal);
 }
 
 export function StartAutoSync(): $CancellablePromise<void> {
@@ -20,3 +38,7 @@ export function StopAutoSync(): $CancellablePromise<void> {
 export function Sync(): $CancellablePromise<void> {
     return $Call.ByID(956839344);
 }
+
+// Private type creation functions
+const $$createType0 = $models.ConflictInfo.createFrom;
+const $$createType1 = $Create.Array($$createType0);

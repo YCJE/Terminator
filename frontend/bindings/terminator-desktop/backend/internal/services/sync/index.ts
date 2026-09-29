@@ -7,5 +7,6 @@ export {
 };
 
 export {
+    ConflictInfo,
     SyncStatus
 } from "./models.js";

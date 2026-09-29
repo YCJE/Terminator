@@ -54,6 +54,18 @@ func (s *SyncService) syncWebDAV(ctx context.Context, cfg WebDAVConfig) error {
 		}
 	}()
 
+	// 读取上次同步游标，作为「本轮之前已经同步过」的时间下界。
+	// 同一条目的两端时间戳都晚于该下界且密文不同，说明双方各自改过同一项。
+	user, err := s.q.GetUser(ctx)
+	if err != nil {
+		return fmt.Errorf("读取用户信息失败: %w", err)
+	}
+	lastSyncString := ""
+	if user.LastSyncTime.Valid {
+		lastSyncString = user.LastSyncTime.String
+	}
+	baseBound := timeutil.SinceBound(lastSyncString)
+
 	syncFileURL, err := buildSyncFileURL(cfg.URL)
 	if err != nil {
 		return fmt.Errorf("构造 WebDAV 同步文件 URL 失败: %w", err)
@@ -102,8 +114,12 @@ func (s *SyncService) syncWebDAV(ctx context.Context, cfg WebDAVConfig) error {
 		}
 	}
 
+	// 冲突检测：同一条目在本轮之前两端都被各自改动过，且密文不同，
+	// 说明双方分别编辑了同一项。无论哪一端胜出，另一端的修改都会被覆盖，
+	// 因此留存双方副本交由用户选择；胜者仍按较新者写回，界面不因冲突而停摆。
+	hasConflicts := false
 	for id, rb := range remoteBlobs {
-		existing, ok := merged[id]
+		local, ok := merged[id]
 		if !ok {
 			merged[id] = rb
 			localDBWrites = append(localDBWrites, dbgen.UpsertBlobParams{
@@ -115,7 +131,22 @@ func (s *SyncService) syncWebDAV(ctx context.Context, cfg WebDAVConfig) error {
 			continue
 		}
 
-		if remoteWins(existing, rb) {
+		if isConcurrentEdit(local.Blob, rb.Blob, local.UpdatedAt, rb.UpdatedAt, baseBound) {
+			if err = s.recordConflict(ctx, dbgen.UpsertConflictParams{
+				BlobID:          id,
+				LocalBlob:       local.Blob,
+				RemoteBlob:      rb.Blob,
+				LocalUpdatedAt:  local.UpdatedAt,
+				RemoteUpdatedAt: rb.UpdatedAt,
+				LocalDeleted:    local.IsDeleted,
+				RemoteDeleted:   rb.IsDeleted,
+			}); err != nil {
+				return fmt.Errorf("记录同步冲突失败 (id=%s): %w", id, err)
+			}
+			hasConflicts = true
+		}
+
+		if remoteWins(local, rb) {
 			merged[id] = rb
 			localDBWrites = append(localDBWrites, dbgen.UpsertBlobParams{
 				ID:        rb.ID,
@@ -158,8 +189,12 @@ func (s *SyncService) syncWebDAV(ctx context.Context, cfg WebDAVConfig) error {
 		hasLocalUpdates = true // 数量不同，一定有变更
 	}
 
-	// 如果本地和远端数据完全一致（无变更），跳过上传
+	// 如果本地和远端数据完全一致（无变更），跳过上传；
+	// 但本轮若记录了冲突，仍需通知界面刷新冲突列表
 	if !hasRemoteUpdates && !hasLocalUpdates {
+		if hasConflicts {
+			s.emitter.EmitUpdatesAvailable()
+		}
 		s.emitter.EmitStatus(SyncStatusSuccess)
 		return nil
 	}
@@ -194,10 +229,6 @@ func (s *SyncService) syncWebDAV(ctx context.Context, cfg WebDAVConfig) error {
 
 	// 更新本地最后同步时间
 	nowStr := timeutil.Now()
-	user, err := s.q.GetUser(ctx)
-	if err != nil {
-		return fmt.Errorf("读取用户信息失败: %w", err)
-	}
 	if err = s.q.UpdateUserLastSyncTime(ctx, dbgen.UpdateUserLastSyncTimeParams{
 		LastSyncTime: sql.NullString{String: nowStr, Valid: true},
 		ID:           user.ID,
@@ -205,7 +236,7 @@ func (s *SyncService) syncWebDAV(ctx context.Context, cfg WebDAVConfig) error {
 		return fmt.Errorf("更新最后同步时间失败: %w", err)
 	}
 
-	if hasRemoteUpdates {
+	if hasRemoteUpdates || hasConflicts {
 		s.emitter.EmitUpdatesAvailable()
 	}
 

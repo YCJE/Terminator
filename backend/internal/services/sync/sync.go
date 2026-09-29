@@ -200,6 +200,12 @@ func (s *SyncService) Sync(ctx context.Context) (err error) {
 		return err
 	}
 
+	// 本轮推送的本地副本，用于识别「两端各自修改同一项」的并发编辑
+	pushedLocally := make(map[string]dbgen.EncryptedBlob, len(localChanges))
+	for _, b := range localChanges {
+		pushedLocally[b.ID] = b
+	}
+
 	apiBlobs := make([]api.EncryptedBlob, 0)
 	for _, b := range localChanges {
 		// 单条时间戳异常不应中断整轮同步：退化为 epoch 仍会正常上传该条
@@ -238,6 +244,25 @@ func (s *SyncService) Sync(ctx context.Context) (err error) {
 	if len(res.Blobs) > 0 {
 		for _, incoming := range res.Blobs {
 			updatedAtStr := timeutil.Format(incoming.UpdatedAt)
+
+			// 冲突检测：该 blob 本轮既被本地修改、又被服务端改动，且密文不同，
+			// 说明两端各自编辑过同一项。服务端回显我们刚推送的副本时密文相同，
+			// 不会误判。检测到冲突仍按「较新者生效」写入本地，避免本地停留在
+			// 落败的旧值上反复产生冲突；双方副本已留存，用户可随时改选。
+			if local, pushed := pushedLocally[incoming.ID]; pushed &&
+				isConcurrentEdit(local.Blob, incoming.Blob, local.UpdatedAt, updatedAtStr, pushBound) {
+				if err := s.recordConflict(ctx, dbgen.UpsertConflictParams{
+					BlobID:          incoming.ID,
+					LocalBlob:       local.Blob,
+					RemoteBlob:      incoming.Blob,
+					LocalUpdatedAt:  local.UpdatedAt,
+					RemoteUpdatedAt: updatedAtStr,
+					LocalDeleted:    local.IsDeleted,
+					RemoteDeleted:   incoming.IsDeleted,
+				}); err != nil {
+					return err
+				}
+			}
 
 			// 仅当服务端副本严格更新时才覆盖本地：本轮的本地修改会随请求一并上传，
 			// 但服务端返回的可能是更旧的副本（例如来自另一台设备），无条件覆盖会把

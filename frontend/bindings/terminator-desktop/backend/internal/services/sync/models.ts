@@ -5,6 +5,55 @@
 // @ts-ignore: Unused imports
 import { Create as $Create } from "@wailsio/runtime";
 
+export class ConflictInfo {
+    "blobId": string;
+    "itemType": string;
+    "name": string;
+    "localUpdatedAt": string;
+    "remoteUpdatedAt": string;
+    "localDeleted": boolean;
+    "remoteDeleted": boolean;
+    "detectedAt": string;
+
+    /** Creates a new ConflictInfo instance. */
+    constructor($$source: Partial<ConflictInfo> = {}) {
+        if (!("blobId" in $$source)) {
+            this["blobId"] = "";
+        }
+        if (!("itemType" in $$source)) {
+            this["itemType"] = "";
+        }
+        if (!("name" in $$source)) {
+            this["name"] = "";
+        }
+        if (!("localUpdatedAt" in $$source)) {
+            this["localUpdatedAt"] = "";
+        }
+        if (!("remoteUpdatedAt" in $$source)) {
+            this["remoteUpdatedAt"] = "";
+        }
+        if (!("localDeleted" in $$source)) {
+            this["localDeleted"] = false;
+        }
+        if (!("remoteDeleted" in $$source)) {
+            this["remoteDeleted"] = false;
+        }
+        if (!("detectedAt" in $$source)) {
+            this["detectedAt"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ConflictInfo instance from a string or object.
+     */
+    static createFrom($$source: any = {}): ConflictInfo {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new ConflictInfo($$parsedSource as Partial<ConflictInfo>);
+    }
+}
+
 export enum SyncStatus {
     /**
      * The Go zero value for the underlying type of the enum.

@@ -1,6 +1,7 @@
 import { Sidebar } from "@/components/layout/Sidebar";
 import { TitleBar } from "@/components/layout/TitleBar";
 import { ContentView } from "@/components/layout/ContentView";
+import { SyncConflictBanner } from "@/components/layout/SyncConflictBanner";
 import { LockScreen } from "@/components/views/LockScreen";
 import { Toaster } from "@/components/ui/sonner";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
@@ -15,6 +16,7 @@ import { useTranslation } from "react-i18next";
 import { AppEvent } from "@/lib/events.ts";
 import { useUIStore, Theme, AccentColor, Spaciness } from "@/store/uiStore.ts";
 import { useSessionStore } from "@/store/sessionStore.ts";
+import { useSyncStore } from "@/store/syncStore.ts";
 import { UpdaterService } from "../bindings/terminator-desktop/backend/internal/services/updater";
 
 const VALID_ACCENTS: AccentColor[] = ["monochrome", "sky", "emerald", "violet", "amber", "rose", "cyan"];
@@ -23,6 +25,8 @@ const VALID_SPACINESS: Spaciness[] = [0.8, 1, 1.2];
 export default function App() {
     const isUnlocked = useAuthStore((s) => s.isUnlocked);
     const markSessionDisconnected = useSessionStore((s) => s.markSessionDisconnected);
+    const refreshConflicts = useSyncStore((s) => s.refreshConflicts);
+    const setConflictCount = useSyncStore((s) => s.setConflictCount);
     const setUpdateVersionReady = useUIStore((s) => s.setUpdateVersionReady);
     const setUpdateRelease = useUIStore((s) => s.setUpdateRelease);
     const theme = useUIStore((s) => s.theme);
@@ -93,6 +97,15 @@ export default function App() {
         return () => unsubscribe();
     }, [markSessionDisconnected]);
 
+    // 解锁后拉取一次冲突数量用于全局提示；锁定时清零，避免残留徽标
+    useEffect(() => {
+        if (!isUnlocked) {
+            setConflictCount(0);
+            return;
+        }
+        void refreshConflicts();
+    }, [isUnlocked, refreshConflicts, setConflictCount]);
+
     useEffect(() => {
         if (!isUnlocked) return;
 
@@ -160,6 +173,7 @@ export default function App() {
         <ErrorBoundary>
             <div className="app-shell flex h-screen w-screen flex-col overflow-hidden bg-background text-foreground">
                 <TitleBar/>
+                {isUnlocked && <SyncConflictBanner/>}
                 <div className="flex flex-1 overflow-hidden relative">
 
                     {!isUnlocked ? (

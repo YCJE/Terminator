@@ -15,6 +15,17 @@ type EncryptedBlob struct {
 	IsDeleted bool
 }
 
+type SyncConflict struct {
+	BlobID          string
+	LocalBlob       string
+	RemoteBlob      string
+	LocalUpdatedAt  string
+	RemoteUpdatedAt string
+	LocalDeleted    bool
+	RemoteDeleted   bool
+	DetectedAt      string
+}
+
 type User struct {
 	ID                 string
 	Username           string

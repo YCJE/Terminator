@@ -8,12 +8,17 @@ export enum ViewType {
     Terminal = "terminal",
 }
 
+/** 设置页的分类标识，提到全局以便从其他页面跳转定位 */
+export type SettingsCategory = "appearance" | "terminal" | "shortcuts" | "sync" | "security" | "about";
+
 export type Theme = "dark" | "light";
 export type AccentColor = "monochrome" | "sky" | "emerald" | "violet" | "amber" | "rose" | "cyan";
 export type Spaciness = 0.8 | 1 | 1.2;
 
 interface UIState {
     activeView: ViewType;
+    /** 设置页当前分类（全局保存，便于从冲突提示等处直接跳转到对应分类） */
+    settingsCategory: SettingsCategory;
     isSidebarVisible: boolean;
     isFilePanelVisible: boolean;
     isSnippetPanelVisible: boolean;
@@ -32,6 +37,9 @@ interface UIState {
     /** 终端关键词高亮开关（前端纯本地设置，持久化到 localStorage） */
     keywordHighlight: boolean;
     setActiveView: (view: ViewType) => void;
+    setSettingsCategory: (category: SettingsCategory) => void;
+    /** 切换到设置页并定位到指定分类 */
+    openSettingsSection: (category: SettingsCategory) => void;
     toggleSidebar: () => void;
     toggleFilePanel: () => void;
     setFilePanelVisible: (visible: boolean) => void;
@@ -84,6 +92,7 @@ const STORAGE_KEYS = {
 
 export const useUIStore = create<UIState>((set) => ({
     activeView: ViewType.Hosts,
+    settingsCategory: "appearance",
     isSidebarVisible: true,
     isFilePanelVisible: false,
     isSnippetPanelVisible: false,
@@ -99,6 +108,8 @@ export const useUIStore = create<UIState>((set) => ({
     broadcastEnabled: loadBool(STORAGE_KEYS.broadcastEnabled, false),
     tabColorEnabled: loadBool(STORAGE_KEYS.tabColorEnabled, false),
     setActiveView: (view) => set({activeView: view}),
+    setSettingsCategory: (category) => set({settingsCategory: category}),
+    openSettingsSection: (category) => set({activeView: ViewType.Settings, settingsCategory: category}),
     toggleSidebar: () => set((state) => ({isSidebarVisible: !state.isSidebarVisible})),
     toggleFilePanel: () => set((state) => ({isFilePanelVisible: !state.isFilePanelVisible})),
     setFilePanelVisible: (visible) => set({isFilePanelVisible: visible}),
