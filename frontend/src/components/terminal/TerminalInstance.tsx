@@ -170,7 +170,13 @@ export function TerminalInstance({sessionId, isActive, config, disconnected}: Te
             setSessionStatus(sessionId, "connecting");
             SshService.Connect(config)
                 .then(() => {
-                    if (cancelled) return;
+                    if (cancelled) {
+                        // 组件在连接完成前已卸载：卸载时的 Disconnect 因后端尚未注册会话而空跑，
+                        // 此时后端刚建立好的 SSH 会话会变成孤儿连接（占用连接池、日志句柄）。
+                        // 必须补一次断开。
+                        SshService.Disconnect(sessionId).catch(() => {});
+                        return;
+                    }
                     isReadyRef.current = true;
                     hasConnectedRef.current = true;
                     setSessionStatus(sessionId, "connected");

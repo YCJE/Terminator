@@ -11,18 +11,17 @@ import {
     Loader2,
     Trash2,
 } from "lucide-react";
-import { useTransferStore } from "@/store/transferStore";
+import { useTransferStore, type TransferItem } from "@/store/transferStore";
 import { formatFileSize } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 
-// 单个传输项：独立订阅自身状态，避免其他项更新时跟着重渲染
-const TransferRow = memo(function TransferRow({ id }: { id: string }) {
-    const item = useTransferStore((s) => s.transfers.find((t) => t.id === id));
+// 单个传输项：由父组件传入 item，配合 memo 做浅比较。
+// 未变化的项在 store 更新时保持同一对象引用，因此不会重渲染；
+// 早前版本在每行内部用 transfers.find() 取自身状态，N 行即 O(N²) 扫描。
+const TransferRow = memo(function TransferRow({ item }: { item: TransferItem }) {
     const removeTransfer = useTransferStore((s) => s.removeTransfer);
-
-    if (!item) return null;
 
     const percent = item.total > 0
         ? Math.min(100, Math.round((item.transferred / item.total) * 100))
@@ -127,7 +126,7 @@ export function TransferQueue() {
                         </div>
                     ) : (
                         transfers.map((transfer) => (
-                            <TransferRow key={transfer.id} id={transfer.id} />
+                            <TransferRow key={transfer.id} item={transfer} />
                         ))
                     )}
                 </div>

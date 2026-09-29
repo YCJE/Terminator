@@ -250,6 +250,54 @@ export function FilePanel({ sessionId }: FilePanelProps) {
         }
     }, [sessionId, loadTreeChildren]);
 
+    // 切换会话时清空所有与会话绑定的状态。
+    // 面板在切换会话时不会卸载（TerminalStack 复用同一实例），若不重置，
+    // 上一个主机的搜索结果、右键菜单路径和各操作对话框会残留到新会话：
+    // 此时确认删除/重命名会用新会话的 sessionId 去操作旧主机的路径，属于跨会话误操作。
+    useEffect(() => {
+        // 使在途的全局搜索失效，并取消尚未触发的防抖定时器
+        ++searchIdRef.current;
+        if (searchTimer.current) {
+            clearTimeout(searchTimer.current);
+            searchTimer.current = null;
+        }
+        setSearchText("");
+        setSearchMode("local");
+        setSearchResults(null);
+        setSearching(false);
+
+        // 关闭右键菜单与全部文件操作对话框
+        setContextMenu(null);
+        contextMenuPathRef.current = null;
+        setMkdirOpen(false);
+        setMkdirValue("");
+        setRenameOpen(false);
+        setRenameValue("");
+        setRenameTarget("");
+        setChmodOpen(false);
+        setChmodValue("");
+        setChmodTarget("");
+        setDeleteOpen(false);
+        setDeleteTarget("");
+        setPreviewOpen(false);
+        setPreviewEntry(null);
+        setPreviewContent("");
+        setPreviewPath("");
+        setPreviewEditing(false);
+
+        // 滚动位置属于单个主机的目录结构，跨会话复用会跳到错误位置
+        scrollPositions.current.clear();
+        currentScrollTop.current = 0;
+        setRestoreScrollTop(0);
+
+        // 立即清空列表：新会话可能尚未连接，此时不能显示上一个主机的文件
+        setEntries([]);
+        setCurrentPath("/");
+        setLoading(true);
+        setTreeChildren({});
+        setTreeExpanded({ "/": true });
+    }, [sessionId]);
+
     // 初始化：sessionId 变化或会话状态变为 connected 时加载文件
     useEffect(() => {
         // 会话未连接时不加载，避免 SSH 连接建立前调用 SFTP 导致 "session not found"
@@ -257,13 +305,6 @@ export function FilePanel({ sessionId }: FilePanelProps) {
         let cancelled = false;
         // 递增 loadIdRef 使旧会话的在途 loadDir 请求失效
         const initId = ++loadIdRef.current;
-        // 重置状态，避免显示上一个主机的文件
-        setEntries([]);
-        setCurrentPath("/");
-        setLoading(true);
-        // 重置目录树状态，避免残留旧主机的目录结构
-        setTreeChildren({});
-        setTreeExpanded({ "/": true });
         HomeDir(sessionId)
             .then((home) => {
                 if (cancelled) return;

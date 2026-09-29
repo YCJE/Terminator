@@ -79,10 +79,11 @@ function FileTableImpl({ entries, loading, onOpen, onContextMenu, filterText, on
         return () => observer.disconnect();
     }, [loading, entries.length]);
 
-    // 目录切换时恢复滚动位置（而非总是重置为 0）
+    // 目录切换时恢复滚动位置（而非总是重置为 0），并清除上一目录的行选中态
     useEffect(() => {
         const target = restoreScrollTop ?? 0;
         setScrollTop(target);
+        setSelectedName(null);
         if (scrollRef.current) {
             scrollRef.current.scrollTop = target;
         }
@@ -138,8 +139,11 @@ function FileTableImpl({ entries, loading, onOpen, onContextMenu, filterText, on
 
     // 虚拟滚动：计算可见区间
     const totalHeight = sorted.length * ROW_HEIGHT;
-    const startIndex = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - BUFFER_ROWS);
     const visibleCount = Math.ceil(viewportHeight / ROW_HEIGHT) + BUFFER_ROWS * 2;
+    // 搜索过滤后列表变短时，scrollTop 仍是旧值（DOM 尚未派发 clamp 后的滚动事件），
+    // 会把起点算到列表末尾之后导致整个列表空白，因此这里必须夹取到有效范围
+    const maxStart = Math.max(0, sorted.length - visibleCount);
+    const startIndex = Math.min(Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - BUFFER_ROWS), maxStart);
     const endIndex = Math.min(sorted.length, startIndex + visibleCount);
     const visibleItems = sorted.slice(startIndex, endIndex);
     const offsetY = startIndex * ROW_HEIGHT;
