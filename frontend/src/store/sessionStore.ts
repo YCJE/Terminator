@@ -3,6 +3,7 @@ import { SSHConnectionConfig, SshService } from "../../bindings/terminator-deskt
 import { JumpHostConfig } from "../../bindings/terminator-desktop/backend/internal/services/ssh/models";
 import { useUIStore, ViewType } from "@/store/uiStore";
 import { useTransferStore } from "@/store/transferStore";
+import { usePortForwardStore } from "@/store/portForwardStore";
 
 export type SessionStatus = "connecting" | "connected" | "disconnected";
 
@@ -150,6 +151,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
                 s.id === id ? { ...s, disconnected: true, status: "disconnected" as const } : s
             ),
         }));
+        // 会话断开时后端已关闭其全部端口转发监听器，同步标记前端列表
+        usePortForwardStore.getState().markStoppedBySession(id);
     },
 
     setSessionStatus: (id, status) => {
@@ -191,6 +194,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
         // 清空所有传输任务
         useTransferStore.getState().clearAll();
+        // 所有会话均已断开，端口转发条目一并清空
+        usePortForwardStore.getState().clearAll();
         useUIStore.getState().setActiveView(ViewType.Hosts);
         useUIStore.getState().setFilePanelVisible(false);
         set({sessions: [], activeSessionId: null});

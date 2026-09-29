@@ -29,15 +29,16 @@ export function SwitchServerModal({isOpen, onClose, currentUrl, onSuccess}: Swit
         e.preventDefault();
         setIsLoading(true);
 
-        const cleanUrl = formatServerUrl(url);
-
-        if (currentUrl && cleanUrl === currentUrl) {
-            setIsLoading(false);
-            onClose();
-            return;
-        }
-
         try {
+            // formatServerUrl 对非法输入会抛错，必须放在 try 内，
+            // 否则 finally 不执行、isLoading 永远为 true，按钮会卡在"连接中"
+            const cleanUrl = formatServerUrl(url);
+
+            if (currentUrl && cleanUrl === currentUrl) {
+                onClose();
+                return;
+            }
+
             await AuthService.RegisterOnServer(cleanUrl);
             await SyncService.StartAutoSync();
             onSuccess();

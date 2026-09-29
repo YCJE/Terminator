@@ -22,21 +22,13 @@ import {
 import {SlidePanel} from "@/components/ui/slide-panel";
 import {ConfirmModal} from "@/components/ui/confirm-modal";
 import {useSessionStore} from "@/store/sessionStore";
+import {usePortForwardStore, type TrackedForward} from "@/store/portForwardStore";
 import {SshService} from "../../../bindings/terminator-desktop/backend/internal/services/ssh";
 import {PortForwardSpec} from "../../../bindings/terminator-desktop/backend/internal/services/ssh/models";
 import {cn} from "@/lib/utils";
 import {toast} from "sonner";
-import {Events} from "@wailsio/runtime";
-import {AppEvent} from "@/lib/events";
-import {useEffect} from "react";
 
 type ForwardType = "local" | "remote";
-
-/** 本页跟踪的端口转发条目，附带展示用的会话标题与运行状态 */
-interface TrackedForward extends PortForwardSpec {
-    sessionTitle: string;
-    status: "active" | "stopped";
-}
 
 interface FormState {
     sessionId: string;
@@ -59,8 +51,12 @@ const DEFAULT_FORM: FormState = {
 export function PortForwardingPage() {
     const {t} = useTranslation(["portForwarding", "common"]);
     const {sessions} = useSessionStore();
+    // 转发列表存于全局 store：本页会随视图切换卸载，列表不能只存在于组件本地 state
+    const forwards = usePortForwardStore((s) => s.forwards);
+    const addForward = usePortForwardStore((s) => s.addForward);
+    const removeForward = usePortForwardStore((s) => s.removeForward);
+    const restoreForward = usePortForwardStore((s) => s.restoreForward);
 
-    const [forwards, setForwards] = useState<TrackedForward[]>([]);
     const [showForm, setShowForm] = useState(false);
     const [formData, setFormData] = useState<FormState>(DEFAULT_FORM);
     const [isSaving, setIsSaving] = useState(false);
@@ -72,25 +68,6 @@ export function PortForwardingPage() {
         [sessions]
     );
 
-    // 监听会话断开事件，同步更新转发状态
-    useEffect(() => {
-        const unsubscribe = Events.On(AppEvent.SshClosed, (event) => {
-            const data = event?.data as { id?: string } | null;
-            if (data?.id) {
-                setForwards((prev) =>
-                    prev.map((f) =>
-                        f.sessionId === data.id
-                            ? { ...f, status: "stopped" as const }
-                            : f
-                    )
-                );
-            }
-        });
-        return () => {
-            unsubscribe();
-        };
-    }, []);
-
     const handleOpenForm = () => {
         // 默认选中第一个可用会话
         const defaultSession = connectedSessions[0]?.id || "";
@@ -98,10 +75,14 @@ export function PortForwardingPage() {
         setShowForm(true);
     };
 
-    const clampPort = (val: string): number => {
-        const n = parseInt(val, 10);
-        if (isNaN(n)) return 0;
-        return Math.max(1, Math.min(65535, n));
+    // 严格解析端口：只接受 1-65535 的纯数字。
+    // 不能用 Math.max/min 夹取，否则负数会被静默夹成 1 而绕过非法校验。
+    const parsePort = (val: string): number | null => {
+        const trimmed = val.trim();
+        if (!/^\d+$/.test(trimmed)) return null;
+        const n = Number(trimmed);
+        if (!Number.isInteger(n) || n < 1 || n > 65535) return null;
+        return n;
     };
 
     const handleSave = async () => {
@@ -109,9 +90,9 @@ export function PortForwardingPage() {
             toast.error(t("placeholder_select_session"));
             return;
         }
-        const localPort = clampPort(formData.localPort);
-        const remotePort = clampPort(formData.remotePort);
-        if (localPort <= 0 || remotePort <= 0) {
+        const localPort = parsePort(formData.localPort);
+        const remotePort = parsePort(formData.remotePort);
+        if (localPort === null || remotePort === null) {
             toast.error(t("invalid_port"));
             return;
         }
@@ -134,10 +115,7 @@ export function PortForwardingPage() {
         setIsSaving(true);
         try {
             await SshService.AddPortForward(spec);
-            setForwards((prev) => [
-                ...prev,
-                {...spec, sessionTitle, status: "active" as const},
-            ]);
+            addForward({...spec, sessionTitle, status: "active" as const});
             setShowForm(false);
         } catch (err) {
             console.error("AddPortForward failed:", err);
@@ -156,14 +134,14 @@ export function PortForwardingPage() {
         const target = forwardToDelete;
         setForwardToDelete(null);
         // 先乐观移除，再调用后端
-        setForwards((prev) => prev.filter((f) => f.id !== target.id));
+        removeForward(target.id);
         try {
             await SshService.RemovePortForward(target.id);
         } catch (err) {
             console.error("RemovePortForward failed:", err);
             toast.error(String(err));
             // 失败时恢复条目
-            setForwards((prev) => [...prev, target]);
+            restoreForward(target);
         }
     };
 
