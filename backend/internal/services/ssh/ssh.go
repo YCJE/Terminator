@@ -42,7 +42,7 @@ type SSHConnectionConfig struct {
 	JumpHost *JumpHostConfig `json:"jumpHost,omitempty"`
 
 	// Proxy 代理配置（可选）
-	ProxyType     string `json:"proxyType,omitempty"`     // "http" | "socks5" | "" (无代理)
+	ProxyType     string `json:"proxyType,omitempty"` // "http" | "socks5" | "" (无代理)
 	ProxyHost     string `json:"proxyHost,omitempty"`
 	ProxyPort     int    `json:"proxyPort,omitempty"`
 	ProxyUsername string `json:"proxyUsername,omitempty"`
@@ -73,16 +73,16 @@ type PortForwardSpec struct {
 }
 
 type activeSession struct {
-	client     *ssh.Client
-	session    *ssh.Session
-	stdin      io.WriteCloser
-	stdout     io.Reader
-	pipeCloser io.Closer
-	sftpClient *sftp.Client            // 懒加载，首次使用时创建
-	connConfig *SSHConnectionConfig    // 保存配置用于连接池释放
-	logFile    *os.File                // 会话日志文件（可选）
-	logMu      sync.Mutex              // 保护 logFile 的并发写入
-	agentCloser io.Closer              // SSH Agent 转发连接（可选，清理时关闭）
+	client      *ssh.Client
+	session     *ssh.Session
+	stdin       io.WriteCloser
+	stdout      io.Reader
+	pipeCloser  io.Closer
+	sftpClient  *sftp.Client         // 懒加载，首次使用时创建
+	connConfig  *SSHConnectionConfig // 保存配置用于连接池释放
+	logFile     *os.File             // 会话日志文件（可选）
+	logMu       sync.Mutex           // 保护 logFile 的并发写入
+	agentCloser io.Closer            // SSH Agent 转发连接（可选，清理时关闭）
 }
 
 type SshService struct {

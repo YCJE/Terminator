@@ -197,8 +197,8 @@ func (e *PreconditionFailedError) Error() string {
 
 // multistatus 对应 WebDAV PROPFIND 的多状态响应根节点
 type multistatus struct {
-	XMLName   xml.Name        `xml:"multistatus"`
-	Responses []propResponse  `xml:"response"`
+	XMLName   xml.Name       `xml:"multistatus"`
+	Responses []propResponse `xml:"response"`
 }
 
 // propResponse 对应单个资源的响应

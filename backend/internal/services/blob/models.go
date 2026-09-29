@@ -3,8 +3,8 @@ package blob
 type ItemType string
 
 const (
-	TypeHost   ItemType = "host"
-	TypeKey    ItemType = "key"
+	TypeHost    ItemType = "host"
+	TypeKey     ItemType = "key"
 	TypeSnippet ItemType = "snippet" // 代码片段类型
 )
 
@@ -25,7 +25,7 @@ type Host struct {
 	JumpHostID string   `json:"jumpHostId,omitempty"` // 跳板机 Host ID，支持 SSH 多跳
 
 	// 代理配置（可选）
-	ProxyType     string `json:"proxyType,omitempty"`     // "http" | "socks5" | "" (无代理)
+	ProxyType     string `json:"proxyType,omitempty"` // "http" | "socks5" | "" (无代理)
 	ProxyHost     string `json:"proxyHost,omitempty"`
 	ProxyPort     int    `json:"proxyPort,omitempty"`
 	ProxyUsername string `json:"proxyUsername,omitempty"`

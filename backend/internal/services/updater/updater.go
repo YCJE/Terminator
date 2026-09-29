@@ -26,31 +26,31 @@ type UpdateInfo struct {
 
 // GitHubReleaseInfo GitHub Release 信息
 type GitHubReleaseInfo struct {
-	HasUpdate    bool   `json:"hasUpdate"`
-	LatestVersion string `json:"latestVersion"`
+	HasUpdate      bool   `json:"hasUpdate"`
+	LatestVersion  string `json:"latestVersion"`
 	CurrentVersion string `json:"currentVersion"`
-	PublishedAt  string `json:"publishedAt"`
-	ReleaseNotes string `json:"releaseNotes"`
-	HtmlURL      string `json:"htmlUrl"`
+	PublishedAt    string `json:"publishedAt"`
+	ReleaseNotes   string `json:"releaseNotes"`
+	HtmlURL        string `json:"htmlUrl"`
 }
 
 // updaterState 更新器内部状态机
 type updaterState int
 
 const (
-	stateIdle      updaterState = iota // 空闲，未检查
-	stateChecked                      // 已检查，有待下载更新
-	stateDownloaded                    // 已下载，待应用
+	stateIdle       updaterState = iota // 空闲，未检查
+	stateChecked                        // 已检查，有待下载更新
+	stateDownloaded                     // 已下载，待应用
 )
 
 type UpdaterService struct {
-	updateURL string
+	updateURL  string
 	githubRepo string
-	emitter   Emitter
-	manager   *velopack.UpdateManager
-	latest    *velopack.UpdateInfo
-	state     updaterState
-	mu        sync.Mutex
+	emitter    Emitter
+	manager    *velopack.UpdateManager
+	latest     *velopack.UpdateInfo
+	state      updaterState
+	mu         sync.Mutex
 	// cgoUnavailable 标记 cgo 是否可用，避免反复尝试创建 manager
 	cgoUnavailable bool
 }
@@ -132,12 +132,12 @@ func (s *UpdaterService) CheckGitHubReleases() (*GitHubReleaseInfo, error) {
 	hasUpdate := currentVersion == "dev" || compareVersions(latestVersion, normalizeVersion(currentVersion)) > 0
 
 	return &GitHubReleaseInfo{
-		HasUpdate:     hasUpdate,
-		LatestVersion: latestVersion,
+		HasUpdate:      hasUpdate,
+		LatestVersion:  latestVersion,
 		CurrentVersion: currentVersion,
-		PublishedAt:   release.PublishedAt,
-		ReleaseNotes:  release.Body,
-		HtmlURL:       release.HtmlURL,
+		PublishedAt:    release.PublishedAt,
+		ReleaseNotes:   release.Body,
+		HtmlURL:        release.HtmlURL,
 	}, nil
 }
 

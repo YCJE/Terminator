@@ -169,9 +169,9 @@ func (s *SettingsService) SaveSettings(settings AppSettings) error {
 
 	// ConfigProxy 默认值擦除：等于默认值的字段不写入配置文件
 	sanitized := AppSettings{
-		WebDAVURL:         merged.WebDAVURL,
-		WebDAVUsername:    merged.WebDAVUsername,
-		WebDAVPassword:    merged.WebDAVPassword,
+		WebDAVURL:      merged.WebDAVURL,
+		WebDAVUsername: merged.WebDAVUsername,
+		WebDAVPassword: merged.WebDAVPassword,
 	}
 	if merged.Language != def.Language {
 		sanitized.Language = merged.Language
