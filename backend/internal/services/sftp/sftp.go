@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pkg/sftp"
+
 	"terminator-desktop/backend/internal/services/ssh"
 )
 
@@ -43,7 +45,68 @@ const (
 	maxReadFileSize = 1 << 20
 	// progressEmitInterval 进度事件最小发射间隔，避免高频事件淹没前端
 	progressEmitInterval = 200 * time.Millisecond
+	// partSuffix 续传临时文件后缀。传输过程始终写入该文件，全部完成后再
+	// 原子重命名到目标路径：中断不会留下半截的目标文件，重试时按已有大小续传。
+	partSuffix = ".terminator-part"
 )
+
+// partPath 返回目标路径对应的续传临时文件路径。
+func partPath(path string) string { return path + partSuffix }
+
+// remoteResumeOffset 探测远程续传起点：临时文件存在且大小严格小于源文件总
+// 大小时从该大小继续，否则返回 0 从头开始。大小不小于 total 说明源文件已
+// 变化（变短或内容不同），续传会得到错误内容，故从头重来。
+func remoteResumeOffset(client *sftp.Client, part string, total int64) int64 {
+	info, err := client.Stat(part)
+	if err != nil || info.IsDir() {
+		return 0
+	}
+	if size := info.Size(); size > 0 && size < total {
+		return size
+	}
+	return 0
+}
+
+// localResumeOffset 是 remoteResumeOffset 的本地版本，语义完全一致。
+func localResumeOffset(part string, total int64) int64 {
+	info, err := os.Stat(part)
+	if err != nil || info.IsDir() {
+		return 0
+	}
+	if size := info.Size(); size > 0 && size < total {
+		return size
+	}
+	return 0
+}
+
+// renameOver 将 from 原子重命名为 to，目标存在时覆盖。
+// PosixRename 是 POSIX 语义的原子重命名，部分服务器不支持该扩展，
+// 回退到标准 Rename。
+func renameOver(client *sftp.Client, from string, to string) error {
+	if err := client.PosixRename(from, to); err != nil {
+		if err2 := client.Rename(from, to); err2 != nil {
+			return fmt.Errorf("重命名 %q -> %q 失败: %w (posix: %v)", from, to, err2, err)
+		}
+	}
+	return nil
+}
+
+// openRemoteForResume 打开远程临时文件用于写入，返回实际生效的起始偏移。
+// offset > 0 时以追加方式打开以从断点继续；少数服务器不支持追加标志，
+// 此时回退为截断重建并返回 0，从头重传。
+func openRemoteForResume(client *sftp.Client, part string, offset int64) (*sftp.File, int64, error) {
+	if offset > 0 {
+		if f, err := client.OpenFile(part, os.O_WRONLY|os.O_CREATE|os.O_APPEND); err == nil {
+			return f, offset, nil
+		}
+	}
+
+	f, err := client.OpenFile(part, os.O_WRONLY|os.O_CREATE|os.O_TRUNC)
+	if err != nil {
+		return nil, 0, err
+	}
+	return f, 0, nil
+}
 
 // SftpService 提供 SFTP 文件管理能力，作为 Wails 服务注册。
 // 它不持有连接本身，而是通过 SshService 按需获取（懒加载的）SFTP 客户端。
@@ -196,11 +259,9 @@ func (s *SftpService) WriteFile(sessionID string, path string, content string) e
 	}
 
 	// 原子重命名（PosixRename 优先，回退到普通 Rename）
-	if err := client.PosixRename(tmpPath, path); err != nil {
-		if err2 := client.Rename(tmpPath, path); err2 != nil {
-			_ = client.Remove(tmpPath)
-			return fmt.Errorf("重命名临时文件失败: %w (posix: %v)", err2, err)
-		}
+	if err := renameOver(client, tmpPath, path); err != nil {
+		_ = client.Remove(tmpPath)
+		return fmt.Errorf("写入文件 %q 失败: %w", path, err)
 	}
 	return nil
 }
@@ -253,12 +314,7 @@ func (s *SftpService) Rename(sessionID string, oldPath string, newPath string) e
 
 	// PosixRename 是 POSIX 语义的原子重命名，目标存在时会被覆盖；
 	// 部分服务器不支持该扩展，回退到标准 Rename。
-	if err := client.PosixRename(oldPath, newPath); err != nil {
-		if err2 := client.Rename(oldPath, newPath); err2 != nil {
-			return fmt.Errorf("重命名 %q -> %q 失败: %w (posix: %v)", oldPath, newPath, err2, err)
-		}
-	}
-	return nil
+	return renameOver(client, oldPath, newPath)
 }
 
 // Chmod 修改远程文件/目录的权限位。
@@ -377,6 +433,10 @@ func (s *SftpService) SearchFiles(sessionID string, searchPath string, query str
 // UploadFile 将本地文件上传到远程路径。
 // 该方法是同步的（Wails 绑定调用），但会通过 emitter 持续推送传输进度，
 // 前端可据 transferID 关联进度事件。传输结束（无论成功失败）推送完成事件。
+//
+// 支持断点续传：数据先写入 "<remotePath>.terminator-part"，中断时该文件保留，
+// 重试时按已有大小从断点继续；全部写完后才原子重命名到 remotePath，
+// 因此目标路径不会出现半截文件。续传假定源文件在两次尝试之间未改动。
 func (s *SftpService) UploadFile(sessionID string, transferID string, localPath string, remotePath string) error {
 	filename := filepath.Base(localPath)
 
@@ -394,6 +454,10 @@ func (s *SftpService) UploadFile(sessionID string, transferID string, localPath 
 		s.emitter.EmitTransferComplete(sessionID, transferID, false, fmt.Sprintf("获取本地文件信息失败: %v", err))
 		return fmt.Errorf("获取本地文件 %q 信息失败: %w", localPath, err)
 	}
+	if info.IsDir() {
+		s.emitter.EmitTransferComplete(sessionID, transferID, false, "不能上传目录")
+		return fmt.Errorf("%q 是目录，无法上传", localPath)
+	}
 	total := info.Size()
 
 	client, err := s.sshSvc.GetSFTPClient(sessionID)
@@ -402,17 +466,25 @@ func (s *SftpService) UploadFile(sessionID string, transferID string, localPath 
 		return err
 	}
 
-	// 创建（或截断）远程文件
-	remoteFile, err := client.Create(remotePath)
+	part := partPath(remotePath)
+	remoteFile, offset, err := openRemoteForResume(client, part, remoteResumeOffset(client, part, total))
 	if err != nil {
 		s.emitter.EmitTransferComplete(sessionID, transferID, false, fmt.Sprintf("创建远程文件失败: %v", err))
-		return fmt.Errorf("创建远程文件 %q 失败: %w", remotePath, err)
+		return fmt.Errorf("创建远程文件 %q 失败: %w", part, err)
 	}
 
-	if err := s.copyWithProgress(localFile, remoteFile, sessionID, transferID, filename, total); err != nil {
+	// 续传时把本地读取位置对齐到断点
+	if offset > 0 {
+		if _, err := localFile.Seek(offset, io.SeekStart); err != nil {
+			remoteFile.Close()
+			s.emitter.EmitTransferComplete(sessionID, transferID, false, fmt.Sprintf("定位本地文件失败: %v", err))
+			return fmt.Errorf("定位本地文件 %q 到 %d 失败: %w", localPath, offset, err)
+		}
+	}
+
+	if err := s.copyWithProgress(localFile, remoteFile, sessionID, transferID, filename, total, offset); err != nil {
 		remoteFile.Close()
-		// 传输失败时删除远程残留的部分文件
-		_ = client.Remove(remotePath)
+		// 保留 part 文件：下次重试可据此续传，不再删除已传数据
 		s.emitter.EmitTransferComplete(sessionID, transferID, false, err.Error())
 		return fmt.Errorf("上传 %q -> %q 失败: %w", localPath, remotePath, err)
 	}
@@ -421,12 +493,20 @@ func (s *SftpService) UploadFile(sessionID string, transferID string, localPath 
 		return fmt.Errorf("上传 %q -> %q 关闭远程文件失败: %w", localPath, remotePath, err)
 	}
 
+	// 全部写完才落到目标路径，保证目标文件要么是旧内容要么是完整新内容
+	if err := renameOver(client, part, remotePath); err != nil {
+		_ = client.Remove(part)
+		s.emitter.EmitTransferComplete(sessionID, transferID, false, err.Error())
+		return fmt.Errorf("上传 %q -> %q 失败: %w", localPath, remotePath, err)
+	}
+
 	s.emitter.EmitTransferComplete(sessionID, transferID, true, "")
 	return nil
 }
 
 // DownloadFile 将远程文件下载到本地路径。
-// 与 UploadFile 对称：打开远程文件、创建本地文件、分块复制并推送进度。
+// 与 UploadFile 对称：分块复制并推送进度，同样写入 "<localPath>.terminator-part"
+// 以支持断点续传，完成后原子重命名到 localPath。
 func (s *SftpService) DownloadFile(sessionID string, transferID string, remotePath string, localPath string) error {
 	filename := filepath.Base(remotePath)
 
@@ -457,23 +537,42 @@ func (s *SftpService) DownloadFile(sessionID string, transferID string, remotePa
 	}
 	total := info.Size()
 
-	// 创建本地文件
-	localFile, err := os.Create(localPath)
+	part := partPath(localPath)
+	offset := localResumeOffset(part, total)
+	flags := os.O_WRONLY | os.O_CREATE | os.O_TRUNC
+	if offset > 0 {
+		flags = os.O_WRONLY | os.O_CREATE | os.O_APPEND
+	}
+	localFile, err := os.OpenFile(part, flags, 0o644)
 	if err != nil {
 		s.emitter.EmitTransferComplete(sessionID, transferID, false, fmt.Sprintf("创建本地文件失败: %v", err))
-		return fmt.Errorf("创建本地文件 %q 失败: %w", localPath, err)
+		return fmt.Errorf("创建本地文件 %q 失败: %w", part, err)
 	}
 
-	if err := s.copyWithProgress(remoteFile, localFile, sessionID, transferID, filename, total); err != nil {
+	// 续传时把远程读取位置对齐到断点
+	if offset > 0 {
+		if _, err := remoteFile.Seek(offset, io.SeekStart); err != nil {
+			localFile.Close()
+			s.emitter.EmitTransferComplete(sessionID, transferID, false, fmt.Sprintf("定位远程文件失败: %v", err))
+			return fmt.Errorf("定位远程文件 %q 到 %d 失败: %w", remotePath, offset, err)
+		}
+	}
+
+	if err := s.copyWithProgress(remoteFile, localFile, sessionID, transferID, filename, total, offset); err != nil {
 		localFile.Close()
-		os.Remove(localPath)
+		// 保留 part 文件：下次重试可据此续传
 		s.emitter.EmitTransferComplete(sessionID, transferID, false, err.Error())
 		return fmt.Errorf("下载 %q -> %q 失败: %w", remotePath, localPath, err)
 	}
 	if err := localFile.Close(); err != nil {
-		os.Remove(localPath)
 		s.emitter.EmitTransferComplete(sessionID, transferID, false, fmt.Sprintf("关闭文件失败: %v", err))
 		return fmt.Errorf("下载 %q -> %q 关闭文件失败: %w", remotePath, localPath, err)
+	}
+
+	if err := os.Rename(part, localPath); err != nil {
+		_ = os.Remove(part)
+		s.emitter.EmitTransferComplete(sessionID, transferID, false, fmt.Sprintf("重命名文件失败: %v", err))
+		return fmt.Errorf("下载 %q -> %q 失败: %w", remotePath, localPath, err)
 	}
 
 	s.emitter.EmitTransferComplete(sessionID, transferID, true, "")
@@ -482,11 +581,17 @@ func (s *SftpService) DownloadFile(sessionID string, transferID string, remotePa
 
 // copyWithProgress 以 transferChunkSize 为单位从 src 复制到 dst，
 // 每 progressEmitInterval 推送一次进度（时间节流，非每块都发）。
-// src/dst 必须已打开，total 为本次传输的总字节数。
-func (s *SftpService) copyWithProgress(src io.Reader, dst io.Writer, sessionID string, transferID string, filename string, total int64) error {
+// src/dst 必须已打开，total 为本次传输的总字节数，
+// initial 为续传时已存在的字节数（从 0 开始传输时传 0）。
+func (s *SftpService) copyWithProgress(src io.Reader, dst io.Writer, sessionID string, transferID string, filename string, total int64, initial int64) error {
 	buf := make([]byte, transferChunkSize)
-	var transferred int64
+	transferred := initial
 	lastEmit := time.Now()
+
+	// 续传时立即上报断点位置，避免进度条先显示 0% 再跳到断点
+	if initial > 0 {
+		s.emitter.EmitTransferProgress(sessionID, transferID, filename, transferred, total)
+	}
 
 	for {
 		n, readErr := src.Read(buf)
