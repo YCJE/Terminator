@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend (vet / gofmt / test)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.25.0'
+          cache: true
+
+      # CGO 关闭：与发布构建保持一致，且无需安装 gcc/系统库，
+      # velopack 的更新能力在无 cgo 时会优雅降级。
+      - name: gofmt
+        env:
+          CGO_ENABLED: '0'
+        run: |
+          unformatted="$(gofmt -l $(git ls-files '*.go'))"
+          if [ -n "$unformatted" ]; then
+            echo "::error::以下文件未通过 gofmt，请本地运行 gofmt -w："
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: go vet
+        env:
+          CGO_ENABLED: '0'
+        run: go vet ./...
+
+      - name: go test
+        env:
+          CGO_ENABLED: '0'
+        run: go test ./...
+
+  frontend:
+    name: Frontend (tsc)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          # 不显式指定 version：package.json 中已声明 packageManager，
+          # 同时传入 version 会触发 ERR_PNPM_BAD_PM_VERSION 导致失败。
+          package_json_file: 'frontend/package.json'
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: 'pnpm'
+          cache-dependency-path: 'frontend/pnpm-lock.yaml'
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      - name: Type check
+        working-directory: frontend
+        run: pnpm exec tsc --noEmit
