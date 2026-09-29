@@ -8,9 +8,23 @@ import { handleAppError } from "@/lib/error";
 
 export function UpdatePopover() {
     const {t} = useTranslation("update");
-    const {updateVersionReady, setUpdateVersionReady, setDismissedUpdateVersion} = useUIStore();
+    const {
+        updateVersionReady,
+        setUpdateVersionReady,
+        setDismissedUpdateVersion,
+        updateReleaseUrl,
+        updateReleaseVersion,
+        setUpdateRelease,
+    } = useUIStore();
 
-    if (!updateVersionReady) return null;
+    // 两种更新提示：
+    // - updateVersionReady：velopack 已下载完成，可直接重启应用（仅在 cgo 可用时出现）
+    // - updateReleaseUrl：仅检测到新版本，需用户去 Release 页手动下载
+    const isManualDownload = !updateVersionReady && !!updateReleaseUrl;
+
+    if (!updateVersionReady && !updateReleaseUrl) return null;
+
+    const version = updateVersionReady ?? updateReleaseVersion ?? "";
 
     const handleRestartUpdate = async () => {
         try {
@@ -20,9 +34,22 @@ export function UpdatePopover() {
         }
     };
 
+    const handleOpenDownload = async () => {
+        if (!updateReleaseUrl) return;
+        try {
+            await UpdaterService.OpenReleasePage(updateReleaseUrl);
+        } catch (error) {
+            handleAppError(error);
+        }
+    };
+
     const handleDismiss = () => {
-        setDismissedUpdateVersion(updateVersionReady);
-        setUpdateVersionReady(null);
+        if (version) setDismissedUpdateVersion(version);
+        if (updateVersionReady) {
+            setUpdateVersionReady(null);
+        } else {
+            setUpdateRelease(null, null);
+        }
     };
 
     return (
@@ -33,7 +60,7 @@ export function UpdatePopover() {
                         variant="ghost"
                         size="icon"
                         className="wails-no-drag text-success hover:text-success/80 group"
-                        title={t("update_ready")}
+                        title={isManualDownload ? t("update_available") : t("update_ready")}
                     >
                         <ArrowDownToLine className="size-5 animate-bounce"/>
                     </Button>
@@ -43,14 +70,22 @@ export function UpdatePopover() {
             <PopoverContent side="right" align="end" className="z-50 w-56 p-4">
                 <div className="flex flex-col gap-3">
                     <div className="flex flex-col">
-                        <span className="font-semibold">{t("update_ready")}</span>
+                        <span className="font-semibold">
+                            {isManualDownload ? t("update_available") : t("update_ready")}
+                        </span>
                         <span className="text-xs text-muted-foreground">
-                            {t("update_to", {version: updateVersionReady})}
+                            {t("update_to", {version})}
                         </span>
                     </div>
-                    <Button size="sm" onClick={handleRestartUpdate} className="w-full">
-                        {t("restart_update")}
-                    </Button>
+                    {isManualDownload ? (
+                        <Button size="sm" onClick={handleOpenDownload} className="w-full">
+                            {t("open_download_page")}
+                        </Button>
+                    ) : (
+                        <Button size="sm" onClick={handleRestartUpdate} className="w-full">
+                            {t("restart_update")}
+                        </Button>
+                    )}
                     <Button size="sm" variant="ghost" onClick={handleDismiss} className="w-full">
                         {t("later", {ns: "common", defaultValue: "Later"})}
                     </Button>

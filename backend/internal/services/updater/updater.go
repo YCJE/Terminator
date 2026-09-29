@@ -236,6 +236,19 @@ func (s *UpdaterService) CheckForUpdates() (*UpdateInfo, error) {
 		}, nil
 	}
 
+	// 下载进行中不得重新检查：velopack 的 manager 不支持并发调用；
+	// 且重新检查会覆盖 s.latest，使下载完成后无法标记为已下载
+	// （DownloadUpdate 会因 s.latest != latest 跳过状态更新），用户将无法应用更新
+	if s.downloading {
+		if s.latest != nil && s.latest.TargetFullRelease != nil {
+			return &UpdateInfo{
+				IsAvailable: true,
+				Version:     s.latest.TargetFullRelease.Version,
+			}, nil
+		}
+		return &UpdateInfo{IsAvailable: false}, nil
+	}
+
 	manager, err := s.getManager()
 	if err != nil || manager == nil {
 		// cgo 不可用或 manager 初始化失败，返回无更新（不报错）

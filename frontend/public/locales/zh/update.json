@@ -1,5 +1,7 @@
 {
   "update_ready": "更新就绪",
   "update_to": "更新到 {{version}}",
-  "restart_update": "重启并更新"
+  "restart_update": "重启并更新",
+  "update_available": "有新版本可用",
+  "open_download_page": "前往下载"
 }

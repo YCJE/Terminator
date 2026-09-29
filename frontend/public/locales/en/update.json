@@ -1,5 +1,7 @@
 {
   "update_ready": "Update Ready",
   "update_to": "Update to {{version}}",
-  "restart_update": "Restart & Update"
+  "restart_update": "Restart & Update",
+  "update_available": "A new version is available",
+  "open_download_page": "Go to download"
 }

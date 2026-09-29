@@ -19,6 +19,12 @@ interface UIState {
     isSnippetPanelVisible: boolean;
     updateVersionReady: string | null;
     dismissedUpdateVersion: string | null;
+    /**
+     * 仅通知、需用户手动下载的更新（来自 GitHub Release 检查）。
+     * 发布构建禁用 cgo，velopack 不可用，此时靠该字段提示新版本。
+     */
+    updateReleaseUrl: string | null;
+    updateReleaseVersion: string | null;
     theme: Theme;
     accentColor: AccentColor;
     spaciness: Spaciness;
@@ -33,6 +39,7 @@ interface UIState {
     setSnippetPanelVisible: (visible: boolean) => void;
     setUpdateVersionReady: (version: string | null) => void;
     setDismissedUpdateVersion: (version: string | null) => void;
+    setUpdateRelease: (version: string | null, url: string | null) => void;
     setTheme: (theme: Theme) => void;
     setAccentColor: (color: AccentColor) => void;
     setSpaciness: (s: Spaciness) => void;
@@ -82,6 +89,8 @@ export const useUIStore = create<UIState>((set) => ({
     isSnippetPanelVisible: false,
     updateVersionReady: null,
     dismissedUpdateVersion: null,
+    updateReleaseUrl: null,
+    updateReleaseVersion: null,
     theme: "dark",
     accentColor: "monochrome",
     spaciness: 1,
@@ -97,6 +106,7 @@ export const useUIStore = create<UIState>((set) => ({
     setSnippetPanelVisible: (visible) => set({isSnippetPanelVisible: visible}),
     setUpdateVersionReady: (version) => set({ updateVersionReady: version }),
     setDismissedUpdateVersion: (version) => set({ dismissedUpdateVersion: version }),
+    setUpdateRelease: (version, url) => set({ updateReleaseVersion: version, updateReleaseUrl: url }),
     setTheme: (theme) => set({ theme }),
     setAccentColor: (color) => set({ accentColor: color }),
     setSpaciness: (s) => set({ spaciness: s }),

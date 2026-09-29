@@ -24,6 +24,7 @@ export default function App() {
     const isUnlocked = useAuthStore((s) => s.isUnlocked);
     const markSessionDisconnected = useSessionStore((s) => s.markSessionDisconnected);
     const setUpdateVersionReady = useUIStore((s) => s.setUpdateVersionReady);
+    const setUpdateRelease = useUIStore((s) => s.setUpdateRelease);
     const theme = useUIStore((s) => s.theme);
     const setTheme = useUIStore((s) => s.setTheme);
     const accentColor = useUIStore((s) => s.accentColor);
@@ -105,46 +106,55 @@ export default function App() {
         return () => unsubscribe();
     }, [isUnlocked, queryClient]);
 
-    // 自动检查更新（cgo 禁用时会静默失败，不影响使用）
+    // 自动检查更新（cgo 禁用时 velopack 不可用，退回 GitHub Release 检查）
     const isCheckingRef = useRef(false);
 
     useEffect(() => {
         if (!isUnlocked) return;
 
-        const checkUpdates = () => {
+        const checkUpdates = async () => {
             // 防止并发检查：上一次检查尚未完成时跳过
             if (isCheckingRef.current) return;
             // 实时读取 store 状态（非快照），避免在途状态变更不被感知
             const state = useUIStore.getState();
-            if (state.updateVersionReady) return;
+            if (state.updateVersionReady || state.updateReleaseUrl) return;
 
             isCheckingRef.current = true;
-            UpdaterService.CheckForUpdates()
-                .then((info) => {
-                    if (!info?.isAvailable || !info.version) return;
+            try {
+                const info = await UpdaterService.CheckForUpdates().catch(() => null);
+                if (info?.isAvailable && info.version) {
                     // 重新读取 store，防止在途期间用户忽略了版本
                     const latest = useUIStore.getState();
                     if (latest.updateVersionReady) return;
                     if (latest.dismissedUpdateVersion === info.version) return;
-                    UpdaterService.DownloadUpdate()
-                        .then(() => setUpdateVersionReady(info.version))
-                        .catch(console.debug);
-                })
-                .catch(() => {
-                    // cgo 禁用或更新服务不可用时静默忽略
-                })
-                .finally(() => {
-                    isCheckingRef.current = false;
-                });
+                    await UpdaterService.DownloadUpdate().catch(console.debug);
+                    setUpdateVersionReady(info.version);
+                    return;
+                }
+
+                // 发布构建为 CGO_ENABLED=0，velopack 恒不可用，CheckForUpdates
+                // 永远返回"无更新"。退回纯 Go 实现的 GitHub Release 检查，
+                // 至少让用户知道有新版本并引导到下载页。
+                const release = await UpdaterService.CheckGitHubReleases().catch(() => null);
+                if (!release?.hasUpdate || !release.latestVersion || !release.htmlUrl) return;
+                const latest = useUIStore.getState();
+                if (latest.updateVersionReady || latest.updateReleaseUrl) return;
+                if (latest.dismissedUpdateVersion === release.latestVersion) return;
+                setUpdateRelease(release.latestVersion, release.htmlUrl);
+            } finally {
+                isCheckingRef.current = false;
+            }
         };
 
-        checkUpdates();
+        void checkUpdates();
 
         const interval = 5 * 60 * 1000; // 5 mins
-        const intervalId = setInterval(checkUpdates, interval);
+        const intervalId = setInterval(() => {
+            void checkUpdates();
+        }, interval);
 
         return () => clearInterval(intervalId);
-    }, [isUnlocked, setUpdateVersionReady]);
+    }, [isUnlocked, setUpdateVersionReady, setUpdateRelease]);
 
     return (
         <ErrorBoundary>
