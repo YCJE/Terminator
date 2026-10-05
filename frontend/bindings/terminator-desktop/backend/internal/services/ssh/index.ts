@@ -7,6 +7,12 @@ export {
 };
 
 export {
-    SSHConnectionConfig,
-    KnownHostEntry
+    JumpHostConfig,
+    KnownHostEntry,
+    PortForwardSpec,
+    SSHConnectionConfig
+} from "./models.js";
+
+export type {
+    SessionLogConfig
 } from "./models.js";

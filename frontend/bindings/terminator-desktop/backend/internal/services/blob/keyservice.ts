@@ -13,6 +13,16 @@ export function Delete(id: string): $CancellablePromise<void> {
     return $Call.ByID(2018517502, id);
 }
 
+/**
+ * GenerateKey 生成 SSH 私钥
+ * keyType: "ed25519" 或 "rsa"
+ * rsaBits: RSA 密钥位数（2048 或 4096），Ed25519 忽略此参数
+ * 返回 OpenSSH 格式的私钥（PEM 编码）
+ */
+export function GenerateKey(keyType: string, rsaBits: number): $CancellablePromise<string> {
+    return $Call.ByID(402982813, keyType, rsaBits);
+}
+
 export function GetAll(): $CancellablePromise<$models.SavedKey[]> {
     return $Call.ByID(2217667998).then(($result: any) => {
         return $$createType1($result);

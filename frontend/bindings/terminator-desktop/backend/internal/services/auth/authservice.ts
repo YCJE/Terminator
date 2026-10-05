@@ -9,6 +9,16 @@ import { Call as $Call, CancellablePromise as $CancellablePromise, Create as $Cr
 // @ts-ignore: Unused imports
 import * as $models from "./models.js";
 
+/**
+ * DisconnectCloud removes the cloud server association from the local vault.
+ * The vault stays unlocked and all data remains; only the server URL is
+ * cleared and the auth token discarded. Auto-sync should be stopped by the
+ * caller (SyncService.StopAutoSync) before invoking this.
+ */
+export function DisconnectCloud(): $CancellablePromise<void> {
+    return $Call.ByID(3716161388);
+}
+
 export function GetCurrentUser(): $CancellablePromise<$models.UserInfo | null> {
     return $Call.ByID(3254285799).then(($result: any) => {
         return $$createType1($result);
@@ -25,6 +35,8 @@ export function LockVault(): $CancellablePromise<void> {
 
 /**
  * Login - "unlock vault"
+ * 
+ * 外层负责失败退避，真正的校验逻辑在 login 中。
  */
 export function Login(password: string): $CancellablePromise<void> {
     return $Call.ByID(1321617150, password);
@@ -46,10 +58,18 @@ export function RegisterOnServer(serverURL: string): $CancellablePromise<void> {
 }
 
 /**
- * DisconnectCloud - remove cloud server association
+ * SetSessionDisconnector 注入 SSH 服务引用，用于 WipeData 时断开所有连接
  */
-export function DisconnectCloud(): $CancellablePromise<void> {
-    return $Call.ByID(3716161388);
+export function SetSessionDisconnector(d: $models.SessionDisconnector): $CancellablePromise<void> {
+    return $Call.ByID(3784343510, d);
+}
+
+/**
+ * SetSyncPauser 注入同步服务引用，用于 WipeData 时暂停后台同步。
+ * 否则在途同步会把擦除前的旧条目推送到服务器，导致已清除的数据残留在云端。
+ */
+export function SetSyncPauser(p: $models.SyncPauser): $CancellablePromise<void> {
+    return $Call.ByID(692209416, p);
 }
 
 export function WipeData(): $CancellablePromise<void> {

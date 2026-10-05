@@ -5,6 +5,116 @@
 // @ts-ignore: Unused imports
 import { Create as $Create } from "@wailsio/runtime";
 
+/**
+ * SFTPTransferCompletePayload 传输完成事件的载荷。
+ */
+export class SFTPTransferCompletePayload {
+    /**
+     * 所属 SSH 会话 ID
+     */
+    "sessionId": string;
+
+    /**
+     * 本次传输的唯一 ID
+     */
+    "transferId": string;
+
+    /**
+     * 是否成功
+     */
+    "success": boolean;
+
+    /**
+     * 失败原因（成功时为空）
+     */
+    "error": string;
+
+    /** Creates a new SFTPTransferCompletePayload instance. */
+    constructor($$source: Partial<SFTPTransferCompletePayload> = {}) {
+        if (!("sessionId" in $$source)) {
+            this["sessionId"] = "";
+        }
+        if (!("transferId" in $$source)) {
+            this["transferId"] = "";
+        }
+        if (!("success" in $$source)) {
+            this["success"] = false;
+        }
+        if (!("error" in $$source)) {
+            this["error"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new SFTPTransferCompletePayload instance from a string or object.
+     */
+    static createFrom($$source: any = {}): SFTPTransferCompletePayload {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new SFTPTransferCompletePayload($$parsedSource as Partial<SFTPTransferCompletePayload>);
+    }
+}
+
+/**
+ * SFTPTransferProgressPayload 传输进度事件的载荷。
+ */
+export class SFTPTransferProgressPayload {
+    /**
+     * 所属 SSH 会话 ID
+     */
+    "sessionId": string;
+
+    /**
+     * 本次传输的唯一 ID（前端生成）
+     */
+    "transferId": string;
+
+    /**
+     * 文件名（不含路径）
+     */
+    "filename": string;
+
+    /**
+     * 已传输字节数
+     */
+    "transferred": number;
+
+    /**
+     * 文件总字节数
+     */
+    "total": number;
+
+    /** Creates a new SFTPTransferProgressPayload instance. */
+    constructor($$source: Partial<SFTPTransferProgressPayload> = {}) {
+        if (!("sessionId" in $$source)) {
+            this["sessionId"] = "";
+        }
+        if (!("transferId" in $$source)) {
+            this["transferId"] = "";
+        }
+        if (!("filename" in $$source)) {
+            this["filename"] = "";
+        }
+        if (!("transferred" in $$source)) {
+            this["transferred"] = 0;
+        }
+        if (!("total" in $$source)) {
+            this["total"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new SFTPTransferProgressPayload instance from a string or object.
+     */
+    static createFrom($$source: any = {}): SFTPTransferProgressPayload {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new SFTPTransferProgressPayload($$parsedSource as Partial<SFTPTransferProgressPayload>);
+    }
+}
+
 export class SSHClosedPayload {
     "id": string;
 
@@ -52,12 +162,12 @@ export class SSHDataPayload {
 }
 
 export class SyncErrorPayload {
-    "error": any;
+    "error": string;
 
     /** Creates a new SyncErrorPayload instance. */
     constructor($$source: Partial<SyncErrorPayload> = {}) {
         if (!("error" in $$source)) {
-            this["error"] = null;
+            this["error"] = "";
         }
 
         Object.assign(this, $$source);

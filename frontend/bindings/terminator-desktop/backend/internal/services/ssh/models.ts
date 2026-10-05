@@ -5,24 +5,132 @@
 // @ts-ignore: Unused imports
 import { Create as $Create } from "@wailsio/runtime";
 
+/**
+ * JumpHostConfig 跳板机配置。
+ * JumpHost 支持嵌套，用于多级链式跳转：config.JumpHost 为最外层跳板
+ * （由本机直接连接），其 JumpHost 字段指向再往内一层的跳板，依此类推。
+ */
 export class JumpHostConfig {
     "host": string;
     "port": number;
     "username": string;
     "password"?: string;
     "privateKey"?: string;
-    "jumpHost"?: JumpHostConfig;
+    "jumpHost"?: JumpHostConfig | null;
 
+    /** Creates a new JumpHostConfig instance. */
     constructor($$source: Partial<JumpHostConfig> = {}) {
-        if (!("host" in $$source)) { this["host"] = ""; }
-        if (!("port" in $$source)) { this["port"] = 0; }
-        if (!("username" in $$source)) { this["username"] = ""; }
+        if (!("host" in $$source)) {
+            this["host"] = "";
+        }
+        if (!("port" in $$source)) {
+            this["port"] = 0;
+        }
+        if (!("username" in $$source)) {
+            this["username"] = "";
+        }
+
         Object.assign(this, $$source);
     }
 
+    /**
+     * Creates a new JumpHostConfig instance from a string or object.
+     */
     static createFrom($$source: any = {}): JumpHostConfig {
+        const $$createField5_0 = $$createType1;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("jumpHost" in $$parsedSource) {
+            $$parsedSource["jumpHost"] = $$createField5_0($$parsedSource["jumpHost"]);
+        }
         return new JumpHostConfig($$parsedSource as Partial<JumpHostConfig>);
+    }
+}
+
+/**
+ * KnownHostEntry 描述一条已固定的主机密钥，供设置界面展示与管理。
+ */
+export class KnownHostEntry {
+    "address": string;
+    "keyType": string;
+
+    /**
+     * OpenSSH 风格 SHA256 指纹
+     */
+    "fingerprint": string;
+
+    /** Creates a new KnownHostEntry instance. */
+    constructor($$source: Partial<KnownHostEntry> = {}) {
+        if (!("address" in $$source)) {
+            this["address"] = "";
+        }
+        if (!("keyType" in $$source)) {
+            this["keyType"] = "";
+        }
+        if (!("fingerprint" in $$source)) {
+            this["fingerprint"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new KnownHostEntry instance from a string or object.
+     */
+    static createFrom($$source: any = {}): KnownHostEntry {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new KnownHostEntry($$parsedSource as Partial<KnownHostEntry>);
+    }
+}
+
+/**
+ * PortForwardSpec 端口转发规格
+ */
+export class PortForwardSpec {
+    "id": string;
+    "sessionId": string;
+
+    /**
+     * "local" 或 "remote"
+     */
+    "type": string;
+    "localHost": string;
+    "localPort": number;
+    "remoteHost": string;
+    "remotePort": number;
+
+    /** Creates a new PortForwardSpec instance. */
+    constructor($$source: Partial<PortForwardSpec> = {}) {
+        if (!("id" in $$source)) {
+            this["id"] = "";
+        }
+        if (!("sessionId" in $$source)) {
+            this["sessionId"] = "";
+        }
+        if (!("type" in $$source)) {
+            this["type"] = "";
+        }
+        if (!("localHost" in $$source)) {
+            this["localHost"] = "";
+        }
+        if (!("localPort" in $$source)) {
+            this["localPort"] = 0;
+        }
+        if (!("remoteHost" in $$source)) {
+            this["remoteHost"] = "";
+        }
+        if (!("remotePort" in $$source)) {
+            this["remotePort"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new PortForwardSpec instance from a string or object.
+     */
+    static createFrom($$source: any = {}): PortForwardSpec {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new PortForwardSpec($$parsedSource as Partial<PortForwardSpec>);
     }
 }
 
@@ -33,68 +141,64 @@ export class SSHConnectionConfig {
     "username": string;
     "password"?: string;
     "privateKey"?: string;
-    "jumpHost"?: JumpHostConfig;
+
+    /**
+     * JumpHost 跳板机配置（可选），通过跳板机建立到目标的 SSH 隧道
+     */
+    "jumpHost"?: JumpHostConfig | null;
+
+    /**
+     * Proxy 代理配置（可选）
+     * "http" | "socks5" | "" (无代理)
+     */
     "proxyType"?: string;
     "proxyHost"?: string;
     "proxyPort"?: number;
     "proxyUsername"?: string;
     "proxyPassword"?: string;
+
+    /**
+     * AgentForwarding 启用 SSH Agent 认证与转发（可选）
+     */
     "agentForwarding"?: boolean;
 
+    /** Creates a new SSHConnectionConfig instance. */
     constructor($$source: Partial<SSHConnectionConfig> = {}) {
-        if (!("id" in $$source)) { this["id"] = ""; }
-        if (!("host" in $$source)) { this["host"] = ""; }
-        if (!("port" in $$source)) { this["port"] = 0; }
-        if (!("username" in $$source)) { this["username"] = ""; }
+        if (!("id" in $$source)) {
+            this["id"] = "";
+        }
+        if (!("host" in $$source)) {
+            this["host"] = "";
+        }
+        if (!("port" in $$source)) {
+            this["port"] = 0;
+        }
+        if (!("username" in $$source)) {
+            this["username"] = "";
+        }
+
         Object.assign(this, $$source);
     }
 
+    /**
+     * Creates a new SSHConnectionConfig instance from a string or object.
+     */
     static createFrom($$source: any = {}): SSHConnectionConfig {
+        const $$createField6_0 = $$createType1;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("jumpHost" in $$parsedSource) {
+            $$parsedSource["jumpHost"] = $$createField6_0($$parsedSource["jumpHost"]);
+        }
         return new SSHConnectionConfig($$parsedSource as Partial<SSHConnectionConfig>);
     }
 }
 
-export class PortForwardSpec {
-    "id": string;
-    "sessionId": string;
-    "type": string;
-    "localHost": string;
-    "localPort": number;
-    "remoteHost": string;
-    "remotePort": number;
+/**
+ * SessionLogConfig 提供会话日志的运行时开关。
+ * 用接口而非固定布尔值，使设置变更无需重启应用即可生效。
+ */
+export type SessionLogConfig = any;
 
-    constructor($$source: Partial<PortForwardSpec> = {}) {
-        if (!("id" in $$source)) { this["id"] = ""; }
-        if (!("sessionId" in $$source)) { this["sessionId"] = ""; }
-        if (!("type" in $$source)) { this["type"] = ""; }
-        if (!("localHost" in $$source)) { this["localHost"] = ""; }
-        if (!("localPort" in $$source)) { this["localPort"] = 0; }
-        if (!("remoteHost" in $$source)) { this["remoteHost"] = ""; }
-        if (!("remotePort" in $$source)) { this["remotePort"] = 0; }
-        Object.assign(this, $$source);
-    }
-
-    static createFrom($$source: any = {}): PortForwardSpec {
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        return new PortForwardSpec($$parsedSource as Partial<PortForwardSpec>);
-    }
-}
-
-export class KnownHostEntry {
-    "address": string;
-    "keyType": string;
-    "fingerprint": string;
-
-    constructor($$source: Partial<KnownHostEntry> = {}) {
-        if (!("address" in $$source)) { this["address"] = ""; }
-        if (!("keyType" in $$source)) { this["keyType"] = ""; }
-        if (!("fingerprint" in $$source)) { this["fingerprint"] = ""; }
-        Object.assign(this, $$source);
-    }
-
-    static createFrom($$source: any = {}): KnownHostEntry {
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        return new KnownHostEntry($$parsedSource as Partial<KnownHostEntry>);
-    }
-}
+// Private type creation functions
+const $$createType0 = JumpHostConfig.createFrom;
+const $$createType1 = $Create.Nullable($$createType0);

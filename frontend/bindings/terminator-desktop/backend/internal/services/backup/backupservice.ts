@@ -19,6 +19,9 @@ export function ExportBackup(): $CancellablePromise<string> {
 
 /**
  * ImportBackup 用备份密码解密并恢复备份，整体替换本地账户与全部条目。
+ * 
+ * 密码必须与导出时一致：先用它解密备份中的主密钥，解密失败即判定密码不符并中止，
+ * 不会写入任何数据。这样可避免恢复出一份当前口令打不开的保险库。
  */
 export function ImportBackup(password: string): $CancellablePromise<void> {
     return $Call.ByID(2218508110, password);
@@ -26,12 +29,28 @@ export function ImportBackup(password: string): $CancellablePromise<void> {
 
 /**
  * SelectBackupFile 弹出文件选择框并解析备份摘要，暂存文件内容供 ImportBackup 使用。
- * 用户在对话框中取消时返回 null 且不报错。
+ * 用户在对话框中取消时返回 nil 且不报错。
  */
 export function SelectBackupFile(): $CancellablePromise<$models.BackupFileInfo | null> {
     return $Call.ByID(3342839229).then(($result: any) => {
         return $$createType1($result);
     });
+}
+
+/**
+ * SetSessionDisconnector 注入 SSH 服务引用，导入前断开所有连接。
+ * 导入会整体替换主机列表，留着旧会话没有意义，且会持有已不存在的主机记录。
+ */
+export function SetSessionDisconnector(d: $models.SessionDisconnector): $CancellablePromise<void> {
+    return $Call.ByID(4020864726, d);
+}
+
+/**
+ * SetSyncPauser 注入同步服务引用，导入前暂停后台同步。
+ * 否则在途同步会把导入前的旧条目推送到服务器，覆盖掉刚恢复的数据。
+ */
+export function SetSyncPauser(p: $models.SyncPauser): $CancellablePromise<void> {
+    return $Call.ByID(1265558536, p);
 }
 
 // Private type creation functions

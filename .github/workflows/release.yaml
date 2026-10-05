@@ -38,12 +38,15 @@ jobs:
         run: |
           TAG="v${{ env.VERSION }}"
           NOTES="RELEASE_NOTES_v${{ env.VERSION }}.md"
-          if ! gh release view "$TAG" >/dev/null 2>&1; then
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            # 发布可能已由失败重跑或手动创建，这里确保正文使用仓库中的发布说明
             if [ -f "$NOTES" ]; then
-              gh release create "$TAG" --title "$TAG" --notes-file "$NOTES"
-            else
-              gh release create "$TAG" --title "$TAG" --generate-notes
+              gh release edit "$TAG" --notes-file "$NOTES"
             fi
+          elif [ -f "$NOTES" ]; then
+            gh release create "$TAG" --title "$TAG" --notes-file "$NOTES"
+          else
+            gh release create "$TAG" --title "$TAG" --generate-notes
           fi
           gh release upload "$TAG" \
             bin/terminator.exe \

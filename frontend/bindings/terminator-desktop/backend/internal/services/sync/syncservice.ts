@@ -13,16 +13,39 @@ export function Authenticate(): $CancellablePromise<void> {
     return $Call.ByID(380219982);
 }
 
+/**
+ * ConflictCount 返回未解决的冲突数量，供界面显示提示徽标。
+ */
 export function ConflictCount(): $CancellablePromise<number> {
     return $Call.ByID(3391185764);
 }
 
+/**
+ * ListConflicts 返回全部未解决的同步冲突，按检测时间倒序。
+ */
 export function ListConflicts(): $CancellablePromise<$models.ConflictInfo[]> {
     return $Call.ByID(2516926154).then(($result: any) => {
         return $$createType1($result);
     });
 }
 
+/**
+ * PauseSync 暂停同步并等待在途同步结束，返回恢复函数（应 defer 调用）。
+ * 
+ * 备份导入、数据擦除等会整体替换本地数据的操作必须先调用它，否则在途同步
+ * 可能读到替换前的旧副本并推送到服务器，把刚恢复/擦除的数据覆盖回去。
+ */
+export function PauseSync(): $CancellablePromise<any> {
+    return $Call.ByID(2139113856);
+}
+
+/**
+ * ResolveConflict 按用户选择保留冲突中的一端：keepLocal 为 true 保留本地副本，
+ * 否则保留远端副本。
+ * 
+ * 选中的副本以「当前时间」写回本地，因此它晚于本轮同步游标，会在下一轮同步中
+ * 上传并覆盖另一端；不这样做的话本地会一直停留在落败的旧值上反复产生冲突。
+ */
 export function ResolveConflict(blobID: string, keepLocal: boolean): $CancellablePromise<void> {
     return $Call.ByID(1673768531, blobID, keepLocal);
 }

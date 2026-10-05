@@ -1,7 +1,7 @@
 import {useState, useEffect, useRef, SyntheticEvent} from "react";
 import {useTranslation} from "react-i18next";
 import {KeyRound, Tag, FileText, Sparkles, Loader2} from "lucide-react";
-import {SavedKey, ItemType} from "../../../bindings/terminator-desktop/backend/internal/services/blob";
+import {SavedKey, ItemType, KeyService} from "../../../bindings/terminator-desktop/backend/internal/services/blob";
 import {Button} from "@/components/ui/button";
 import {Input} from "@/components/ui/input";
 import {Label} from "@/components/ui/label";
@@ -13,7 +13,6 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
-import {GenerateKey} from "../../../bindings/terminator-desktop/backend/cmd/terminator-desktop/keygen";
 import {handleAppError} from "@/lib/error";
 
 interface KeyFormProps {
@@ -56,7 +55,7 @@ export function KeyForm({initialData, isSaving, onSave, onCancel}: KeyFormProps)
         setGenerating(true);
         try {
             const bits = keyType === "rsa" ? parseInt(rsaBits, 10) : 0;
-            const key = await GenerateKey(keyType, bits);
+            const key = await KeyService.GenerateKey(keyType, bits);
             setPrivateKey(key);
             // 如果名称为空，自动填充默认名称
             if (!name.trim()) {

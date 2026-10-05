@@ -9,6 +9,20 @@ import { Call as $Call, CancellablePromise as $CancellablePromise, Create as $Cr
 // @ts-ignore: Unused imports
 import * as $models from "./models.js";
 
+/**
+ * ClearLogs 清空日志文件
+ */
+export function ClearLogs(): $CancellablePromise<void> {
+    return $Call.ByID(648462599);
+}
+
+/**
+ * GetLogs 读取日志文件内容，返回最后 maxLines 行
+ */
+export function GetLogs(maxLines: number): $CancellablePromise<string> {
+    return $Call.ByID(3313034702, maxLines);
+}
+
 export function GetSettings(): $CancellablePromise<$models.AppSettings> {
     return $Call.ByID(1855091376).then(($result: any) => {
         return $$createType0($result);
@@ -17,6 +31,23 @@ export function GetSettings(): $CancellablePromise<$models.AppSettings> {
 
 export function SaveSettings(settings: $models.AppSettings): $CancellablePromise<void> {
     return $Call.ByID(532647211, settings);
+}
+
+/**
+ * SessionLogEnabled 供 SSH 服务在建立会话时查询日志开关。
+ * 
+ * 读取失败时返回 false：会话日志会把完整终端内容明文落盘，
+ * 配置不可信时宁可不记录，也不要凭默认值意外开启。
+ */
+export function SessionLogEnabled(): $CancellablePromise<boolean> {
+    return $Call.ByID(510253858);
+}
+
+/**
+ * SessionLogRetentionDays 返回会话日志保留天数（已按合法区间收敛）。
+ */
+export function SessionLogRetentionDays(): $CancellablePromise<number> {
+    return $Call.ByID(1147169322);
 }
 
 // Private type creation functions

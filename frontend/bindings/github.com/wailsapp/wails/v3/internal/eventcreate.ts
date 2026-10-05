@@ -15,15 +15,19 @@ import * as sync$0 from "../../../../../terminator-desktop/backend/internal/serv
 
 function configure() {
     Object.freeze(Object.assign($Create.Events, {
-        "ssh:closed": $$createType0,
-        "ssh:data": $$createType1,
-        "sync:error": $$createType2,
+        "sftp:complete": $$createType0,
+        "sftp:progress": $$createType1,
+        "ssh:closed": $$createType2,
+        "ssh:data": $$createType3,
+        "sync:error": $$createType4,
     }));
 }
 
 // Private type creation functions
-const $$createType0 = emitters$0.SSHClosedPayload.createFrom;
-const $$createType1 = emitters$0.SSHDataPayload.createFrom;
-const $$createType2 = emitters$0.SyncErrorPayload.createFrom;
+const $$createType0 = emitters$0.SFTPTransferCompletePayload.createFrom;
+const $$createType1 = emitters$0.SFTPTransferProgressPayload.createFrom;
+const $$createType2 = emitters$0.SSHClosedPayload.createFrom;
+const $$createType3 = emitters$0.SSHDataPayload.createFrom;
+const $$createType4 = emitters$0.SyncErrorPayload.createFrom;
 
 configure();

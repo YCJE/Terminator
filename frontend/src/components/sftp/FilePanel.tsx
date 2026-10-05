@@ -24,21 +24,8 @@ import {
 } from "lucide-react";
 import { Dialogs } from "@wailsio/runtime";
 import { toast } from "sonner";
-import {
-    ListDir,
-    ReadFile,
-    WriteFile,
-    Mkdir,
-    Remove,
-    Rename,
-    Chmod,
-    UploadFile,
-    DownloadFile,
-    HomeDir,
-    SearchFiles,
-    type FileEntry,
-    type SearchResultEntry,
-} from "../../../bindings/terminator-desktop/backend/internal/services/sftp";
+import { SftpService } from "../../../bindings/terminator-desktop/backend/internal/services/sftp";
+import type { FileEntry, SearchResultEntry } from "../../../bindings/terminator-desktop/backend/internal/services/sftp";
 import { useTransferStore } from "@/store/transferStore";
 import { useSessionStore } from "@/store/sessionStore";
 import { FileTable } from "@/components/sftp/FileTable";
@@ -225,7 +212,7 @@ export function FilePanel({ sessionId }: FilePanelProps) {
     const loadTreeChildren = useCallback(async (path: string) => {
         const myId = loadIdRef.current;
         try {
-            const list = await ListDir(sessionId, path);
+            const list = await SftpService.ListDir(sessionId, path);
             if (myId !== loadIdRef.current) return; // 会话已切换，丢弃旧数据
             const dirs = (list || []).filter((e) => e.isDir);
             setTreeChildren((prev) => ({ ...prev, [path]: dirs }));
@@ -248,7 +235,7 @@ export function FilePanel({ sessionId }: FilePanelProps) {
         const myId = ++loadIdRef.current;
         setLoading(true);
         try {
-            const list = await ListDir(sessionId, path);
+            const list = await SftpService.ListDir(sessionId, path);
             if (myId !== loadIdRef.current) return;
             setCurrentPath(path);
             setEntries(list || []);
@@ -315,7 +302,7 @@ export function FilePanel({ sessionId }: FilePanelProps) {
         let cancelled = false;
         // 递增 loadIdRef 使旧会话的在途 loadDir 请求失效
         const initId = ++loadIdRef.current;
-        HomeDir(sessionId)
+        SftpService.HomeDir(sessionId)
             .then((home) => {
                 if (cancelled) return;
                 // 用户在 HomeDir 期间已手动导航，不覆盖
@@ -437,7 +424,7 @@ export function FilePanel({ sessionId }: FilePanelProps) {
         }
         try {
             const path = resolveEntryPath(entry);
-            const content = await ReadFile(sessionId, path);
+            const content = await SftpService.ReadFile(sessionId, path);
             setPreviewEntry(entry);
             setPreviewContent(content ?? "");
             setPreviewPath(path);
@@ -453,7 +440,7 @@ export function FilePanel({ sessionId }: FilePanelProps) {
         if (!previewPath) return;
         setPreviewSaving(true);
         try {
-            await WriteFile(sessionId, previewPath, previewContent);
+            await SftpService.WriteFile(sessionId, previewPath, previewContent);
             toast.success(t("save_success"));
             setPreviewEditing(false);
         } catch (err) {
@@ -479,7 +466,7 @@ export function FilePanel({ sessionId }: FilePanelProps) {
             total: 0,
             status: "active",
         });
-        UploadFile(sessionId, transferId, localPath, remotePath)
+        SftpService.UploadFile(sessionId, transferId, localPath, remotePath)
             .then(() => {
                 updateTransfer(transferId, { status: "success" });
                 toast.success(t("upload_success"));
@@ -528,7 +515,7 @@ export function FilePanel({ sessionId }: FilePanelProps) {
                 total: entry.size,
                 status: "active",
             });
-            DownloadFile(sessionId, transferId, remotePath, localPath)
+            SftpService.DownloadFile(sessionId, transferId, remotePath, localPath)
                 .then(() => {
                     updateTransfer(transferId, { status: "success" });
                     toast.success(t("download_success"));
@@ -547,7 +534,7 @@ export function FilePanel({ sessionId }: FilePanelProps) {
         const name = mkdirValue.trim();
         if (!name) return;
         try {
-            await Mkdir(sessionId, joinPath(currentPath, name));
+            await SftpService.Mkdir(sessionId, joinPath(currentPath, name));
             setMkdirOpen(false);
             setMkdirValue("");
             loadDir(currentPath);
@@ -566,7 +553,7 @@ export function FilePanel({ sessionId }: FilePanelProps) {
             const newPath = contextMenuPathRef.current
                 ? joinPath(parentPath(contextMenuPathRef.current), newName)
                 : joinPath(currentPath, newName);
-            await Rename(sessionId, oldPath, newPath);
+            await SftpService.Rename(sessionId, oldPath, newPath);
             setRenameOpen(false);
             contextMenuPathRef.current = null;
             loadDir(currentPath);
@@ -585,7 +572,7 @@ export function FilePanel({ sessionId }: FilePanelProps) {
         }
         const mode = parseInt(chmodValue, 8);
         try {
-            await Chmod(sessionId, contextMenuPathRef.current ?? joinPath(currentPath, chmodTarget), mode);
+            await SftpService.Chmod(sessionId, contextMenuPathRef.current ?? joinPath(currentPath, chmodTarget), mode);
             setChmodOpen(false);
             contextMenuPathRef.current = null;
             loadDir(currentPath);
@@ -600,7 +587,7 @@ export function FilePanel({ sessionId }: FilePanelProps) {
         if (!deleteTarget || isDeleting) return;
         setIsDeleting(true);
         try {
-            await Remove(sessionId, contextMenuPathRef.current ?? joinPath(currentPath, deleteTarget));
+            await SftpService.Remove(sessionId, contextMenuPathRef.current ?? joinPath(currentPath, deleteTarget));
             setDeleteOpen(false);
             setDeleteTarget("");
             contextMenuPathRef.current = null;
@@ -637,7 +624,7 @@ export function FilePanel({ sessionId }: FilePanelProps) {
             const myId = ++searchIdRef.current;
             try {
                 // 全局搜索从根目录 / 开始
-                const results = await SearchFiles(sessionId, "/", trimmed, 200);
+                const results = await SftpService.SearchFiles(sessionId, "/", trimmed, 200);
                 // 检查是否是最新的搜索请求
                 if (myId !== searchIdRef.current) return;
                 setSearchResults(results || []);

@@ -19,29 +19,41 @@ export function CheckForUpdates(): $CancellablePromise<$models.UpdateInfo | null
     });
 }
 
+/**
+ * CheckGitHubReleases 通过 GitHub API 检查最新 Release
+ */
 export function CheckGitHubReleases(): $CancellablePromise<$models.GitHubReleaseInfo | null> {
     return $Call.ByID(158079014).then(($result: any) => {
-        return $$createType2($result);
+        return $$createType3($result);
     });
+}
+
+/**
+ * DownloadAndVerifyUpdate 下载当前平台安装包并校验 SHA256。
+ * 
+ * 校验和取自发布资产中的平台校验和清单；校验失败会删除已下载文件并返回错误，
+ * 避免用户执行被篡改或损坏的安装包。校验通过后返回本地文件路径。
+ */
+export function DownloadAndVerifyUpdate(): $CancellablePromise<string> {
+    return $Call.ByID(653596082);
 }
 
 export function DownloadUpdate(): $CancellablePromise<void> {
     return $Call.ByID(3010458000);
 }
 
+/**
+ * OpenReleasePage 在浏览器中打开 Release 页面
+ */
 export function OpenReleasePage(url: string): $CancellablePromise<void> {
     return $Call.ByID(2057714281, url);
 }
 
 /**
- * DownloadAndVerifyUpdate 下载当前平台安装包并校验 SHA256。
- */
-export function DownloadAndVerifyUpdate(): $CancellablePromise<string> {
-    return $Call.ByID(653596082);
-}
-
-/**
  * OpenVerifiedDownload 用系统默认程序打开最近一次校验通过的安装包。
+ * 
+ * 仅打开本服务记录的文件，不接受前端传入的任意路径，
+ * 避免该接口被用作启动任意程序的通道。
  */
 export function OpenVerifiedDownload(): $CancellablePromise<void> {
     return $Call.ByID(203029157);
@@ -50,5 +62,5 @@ export function OpenVerifiedDownload(): $CancellablePromise<void> {
 // Private type creation functions
 const $$createType0 = $models.UpdateInfo.createFrom;
 const $$createType1 = $Create.Nullable($$createType0);
-const $$createType3 = $models.GitHubReleaseInfo.createFrom;
-const $$createType2 = $Create.Nullable($$createType3);
+const $$createType2 = $models.GitHubReleaseInfo.createFrom;
+const $$createType3 = $Create.Nullable($$createType2);

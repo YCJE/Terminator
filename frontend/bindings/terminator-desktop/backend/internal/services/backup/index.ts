@@ -9,3 +9,8 @@ export {
 export {
     BackupFileInfo
 } from "./models.js";
+
+export type {
+    SessionDisconnector,
+    SyncPauser
+} from "./models.js";

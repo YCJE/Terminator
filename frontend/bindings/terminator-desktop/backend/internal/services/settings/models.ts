@@ -7,16 +7,55 @@ import { Create as $Create } from "@wailsio/runtime";
 
 export class AppSettings {
     "language": string;
+
+    /**
+     * "dark", "light", or "" (default: dark)
+     */
     "theme": string;
+
+    /**
+     * SyncMethod 同步方式: "server" | "webdav" | "" (默认 server)
+     */
     "sync_method": string;
+
+    /**
+     * WebDAV 相关配置，明文存储在 settings.json（和网盘密码一样，用户自己负责）
+     */
     "webdav_url": string;
     "webdav_username": string;
     "webdav_password": string;
+
+    /**
+     * 外观偏好
+     * "monochrome"|"sky"|"emerald"|"violet"|"amber"|"rose"|"cyan" (默认 monochrome)
+     */
     "accent_color": string;
+
+    /**
+     * 0.8|1|1.2 (默认 1)
+     */
     "spaciness": number;
+
+    /**
+     * 外观皮肤 "default"|"hud"|"editorial" (默认 default)
+     */
     "skin": string;
+
+    /**
+     * 终端配色联动 (默认 false)
+     */
     "terminal_color_link": boolean;
+
+    /**
+     * 会话日志：把完整终端输出写入磁盘。输出中可能包含用户输入的
+     * 口令、令牌、连接串等敏感内容，因此默认关闭，开启后按保留期回收。
+     * 默认 false
+     */
     "session_log_enabled": boolean;
+
+    /**
+     * 默认 7 天
+     */
     "session_log_retention_days": number;
 
     /** Creates a new AppSettings instance. */
@@ -24,47 +63,36 @@ export class AppSettings {
         if (!("language" in $$source)) {
             this["language"] = "";
         }
-
         if (!("theme" in $$source)) {
             this["theme"] = "";
         }
-
         if (!("sync_method" in $$source)) {
             this["sync_method"] = "";
         }
-
         if (!("webdav_url" in $$source)) {
             this["webdav_url"] = "";
         }
-
         if (!("webdav_username" in $$source)) {
             this["webdav_username"] = "";
         }
-
         if (!("webdav_password" in $$source)) {
             this["webdav_password"] = "";
         }
-
         if (!("accent_color" in $$source)) {
             this["accent_color"] = "";
         }
-
         if (!("spaciness" in $$source)) {
             this["spaciness"] = 0;
         }
-
         if (!("skin" in $$source)) {
             this["skin"] = "";
         }
-
         if (!("terminal_color_link" in $$source)) {
             this["terminal_color_link"] = false;
         }
-
         if (!("session_log_enabled" in $$source)) {
             this["session_log_enabled"] = false;
         }
-
         if (!("session_log_retention_days" in $$source)) {
             this["session_log_retention_days"] = 0;
         }

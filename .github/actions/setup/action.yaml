@@ -33,7 +33,10 @@ runs:
         dotnet-version: '10.x'
 
     - name: Install Wails v3 CLI
-      run: go install github.com/wailsapp/wails/v3/cmd/wails3@latest
+      # 必须与 go.mod 中的 github.com/wailsapp/wails/v3 版本一致：CLI 负责
+      # `wails3 generate bindings`，版本不一致会生成与前端 import 不兼容的绑定
+      # （曾用 @latest 导致 alpha 版升级后 bindings 结构变化，前端 tsc 直接失败）。
+      run: go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-alpha.78
       shell: bash
 
     - name: Get version

@@ -7,26 +7,14 @@ import { Call as $Call, CancellablePromise as $CancellablePromise, Create as $Cr
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
+import * as sftp$0 from "../../../../../github.com/pkg/sftp/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
+import * as time$0 from "../../../../../time/models.js";
+
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
 import * as $models from "./models.js";
-
-export function Connect(config: $models.SSHConnectionConfig | null): $CancellablePromise<void> {
-    return $Call.ByID(662660765, config);
-}
-
-export function Disconnect(sessionID: string): $CancellablePromise<void> {
-    return $Call.ByID(2124563103, sessionID);
-}
-
-/**
- * Input writes data to SSH stdin
- */
-export function Input(sessionID: string, data: string): $CancellablePromise<void> {
-    return $Call.ByID(187872847, sessionID, data);
-}
-
-export function Resize(sessionID: string, rows: number, cols: number): $CancellablePromise<void> {
-    return $Call.ByID(639676773, sessionID, rows, cols);
-}
 
 /**
  * AddPortForward 添加端口转发
@@ -36,22 +24,92 @@ export function AddPortForward(spec: $models.PortForwardSpec | null): $Cancellab
 }
 
 /**
- * RemovePortForward 移除并停止端口转发
+ * Connect establishes an SSH session with connection pooling and optional Jump Host support.
+ * 
+ * 连接复用：同一 host:port:user 的多个 session 共享 *ssh.Client（引用计数）
+ * Jump Host：通过跳板机建立 TCP 隧道，再在隧道上建立到目标的 SSH 连接
  */
-export function RemovePortForward(forwardID: string): $CancellablePromise<void> {
-    return $Call.ByID(2328052775, forwardID);
+export function Connect(config: $models.SSHConnectionConfig | null): $CancellablePromise<void> {
+    return $Call.ByID(662660765, config);
+}
+
+export function Disconnect(sessionID: string): $CancellablePromise<void> {
+    return $Call.ByID(2124563103, sessionID);
+}
+
+/**
+ * DisconnectAll 断开所有活跃 SSH 会话（用于 WipeData/LockVault）
+ */
+export function DisconnectAll(): $CancellablePromise<void> {
+    return $Call.ByID(3100067146);
+}
+
+/**
+ * ExecCommand 在指定会话的 SSH 连接上执行非交互式命令，返回合并的 stdout+stderr 输出。
+ * 使用独立的 session（不影响交互式 shell），执行完毕后立即关闭。
+ * timeout 为 0 表示不超时。
+ */
+export function ExecCommand(sessionID: string, command: string, timeout: time$0.Duration): $CancellablePromise<string> {
+    return $Call.ByID(4115702409, sessionID, command, timeout);
+}
+
+/**
+ * GetSFTPClient 懒加载 SFTP 客户端，复用现有 SSH 连接
+ */
+export function GetSFTPClient(sessionID: string): $CancellablePromise<sftp$0.Client | null> {
+    return $Call.ByID(738158909, sessionID).then(($result: any) => {
+        return $$createType1($result);
+    });
+}
+
+export function Input(sessionID: string, data: string): $CancellablePromise<void> {
+    return $Call.ByID(187872847, sessionID, data);
 }
 
 /**
  * ListKnownHosts 返回当前固定的主机密钥列表，按地址排序。
  */
 export function ListKnownHosts(): $CancellablePromise<$models.KnownHostEntry[]> {
-    return $Call.ByID(1488588359);
+    return $Call.ByID(1488588359).then(($result: any) => {
+        return $$createType3($result);
+    });
 }
 
 /**
  * RemoveKnownHost 删除指定地址的主机密钥记录。
+ * 
+ * 仅在用户确认服务器密钥变更确实可信（如重装系统）后调用；
+ * 删除后下次连接会重新按 TOFU 固定新密钥。地址不存在时视为已删除，不报错。
  */
 export function RemoveKnownHost(address: string): $CancellablePromise<void> {
     return $Call.ByID(1278251162, address);
 }
+
+/**
+ * RemovePortForward 移除并停止端口转发
+ */
+export function RemovePortForward(forwardID: string): $CancellablePromise<void> {
+    return $Call.ByID(2328052775, forwardID);
+}
+
+export function ResetSFTPClient(sessionID: string): $CancellablePromise<void> {
+    return $Call.ByID(1565909230, sessionID);
+}
+
+export function Resize(sessionID: string, rows: number, cols: number): $CancellablePromise<void> {
+    return $Call.ByID(639676773, sessionID, rows, cols);
+}
+
+/**
+ * SetSessionLogConfig 注入会话日志开关。未注入时视为关闭：
+ * 会话日志会把完整终端输出明文落盘，不应在未明确开启的情况下记录。
+ */
+export function SetSessionLogConfig(cfg: $models.SessionLogConfig): $CancellablePromise<void> {
+    return $Call.ByID(2179631703, cfg);
+}
+
+// Private type creation functions
+const $$createType0 = sftp$0.Client.createFrom;
+const $$createType1 = $Create.Nullable($$createType0);
+const $$createType2 = $models.KnownHostEntry.createFrom;
+const $$createType3 = $Create.Array($$createType2);

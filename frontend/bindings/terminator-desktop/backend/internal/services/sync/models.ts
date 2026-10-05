@@ -5,9 +5,21 @@
 // @ts-ignore: Unused imports
 import { Create as $Create } from "@wailsio/runtime";
 
+/**
+ * ConflictInfo 描述一条同步冲突，供前端展示与选择保留哪一端。
+ * 不含任何明文内容：名称与类型由后端在解锁状态下解密后给出。
+ */
 export class ConflictInfo {
     "blobId": string;
+
+    /**
+     * host / key / snippet，解密失败时为空
+     */
     "itemType": string;
+
+    /**
+     * 展示名，解密失败时为空
+     */
     "name": string;
     "localUpdatedAt": string;
     "remoteUpdatedAt": string;

@@ -15,12 +15,25 @@ export class Host {
     "username": string;
     "password"?: string;
     "keyId"?: string;
+
+    /**
+     * 跳板机 Host ID，支持 SSH 多跳
+     */
     "jumpHostId"?: string;
+
+    /**
+     * 代理配置（可选）
+     * "http" | "socks5" | "" (无代理)
+     */
     "proxyType"?: string;
     "proxyHost"?: string;
     "proxyPort"?: number;
     "proxyUsername"?: string;
     "proxyPassword"?: string;
+
+    /**
+     * SSH Agent 转发（可选）
+     */
     "agentForwarding"?: boolean;
 
     /** Creates a new Host instance. */
@@ -64,6 +77,10 @@ export enum ItemType {
 
     TypeHost = "host",
     TypeKey = "key",
+
+    /**
+     * 代码片段类型
+     */
     TypeSnippet = "snippet",
 };
 
@@ -100,6 +117,9 @@ export class SavedKey {
     }
 }
 
+/**
+ * Snippet 表示一条可复用的代码片段/快捷命令
+ */
 export class Snippet {
     "id": string;
     "type": ItemType;

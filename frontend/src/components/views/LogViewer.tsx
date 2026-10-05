@@ -5,7 +5,7 @@ import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { ScrollText, RefreshCw, Copy, Trash2, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { GetLogs, ClearLogs } from "../../../bindings/terminator-desktop/backend/cmd/terminator-desktop/log";
+import { SettingsService } from "../../../bindings/terminator-desktop/backend/internal/services/settings";
 import { handleAppError } from "@/lib/error";
 import { cn } from "@/lib/utils";
 
@@ -107,7 +107,7 @@ export function LogViewer() {
     const loadLogs = useCallback(async () => {
         setLoading(true);
         try {
-            const content = await GetLogs(500);
+            const content = await SettingsService.GetLogs(500);
             setRawLogs(content || "");
         } catch (err) {
             handleAppError(err);
@@ -140,7 +140,7 @@ export function LogViewer() {
 
     const handleClear = useCallback(async () => {
         try {
-            await ClearLogs();
+            await SettingsService.ClearLogs();
             setRawLogs("");
         } catch (err) {
             handleAppError(err);

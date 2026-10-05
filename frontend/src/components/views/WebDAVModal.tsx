@@ -5,7 +5,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { TestWebDAVConnection, SaveWebDAVConfig, GetWebDAVConfig } from "../../../bindings/terminator-desktop/backend/cmd/terminator-desktop/webdav";
+import { WebDAVService } from "../../../bindings/terminator-desktop/backend/cmd/terminator-desktop";
 import { SyncService } from "../../../bindings/terminator-desktop/backend/internal/services/sync";
 import { handleAppError } from "@/lib/error";
 
@@ -29,7 +29,7 @@ export function WebDAVModal({isOpen, onClose, onSuccess}: WebDAVModalProps) {
         if (isOpen) {
             setTestResult("none");
             setPassword("");
-            GetWebDAVConfig()
+            WebDAVService.GetWebDAVConfig()
                 .then(([savedUrl, savedUser]) => {
                     if (savedUrl) setUrl(savedUrl);
                     if (savedUser) setUsername(savedUser);
@@ -44,7 +44,7 @@ export function WebDAVModal({isOpen, onClose, onSuccess}: WebDAVModalProps) {
         setIsTesting(true);
         setTestResult("none");
         try {
-            await TestWebDAVConnection(url, username, password);
+            await WebDAVService.TestWebDAVConnection(url, username, password);
             setTestResult("success");
         } catch (error) {
             setTestResult("error");
@@ -59,7 +59,7 @@ export function WebDAVModal({isOpen, onClose, onSuccess}: WebDAVModalProps) {
         if (!url) return;
         setIsSaving(true);
         try {
-            await SaveWebDAVConfig(url, username, password);
+            await WebDAVService.SaveWebDAVConfig(url, username, password);
         } catch (error) {
             // 保存失败：保持弹窗打开，让用户修正后重试
             handleAppError(error);
