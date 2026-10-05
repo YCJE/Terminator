@@ -612,6 +612,11 @@ func (s *SftpService) copyWithProgress(src io.Reader, dst io.Writer, sessionID s
 				if werr2 != nil {
 					return werr2
 				}
+				// Writer 返回 0 字节且无错误时循环不会推进，会永久挂起；
+				// 按短写处理，交由调用方清理临时文件后重试
+				if m <= 0 {
+					return io.ErrShortWrite
+				}
 				written += m
 			}
 			transferred += int64(written)

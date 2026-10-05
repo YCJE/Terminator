@@ -34,6 +34,27 @@ export interface CreateSessionParams {
     agentForwarding?: boolean;
 }
 
+// 判断已有会话与新建参数是否使用完全相同的连接路由（跳板机链 + 代理）。
+// 仅比较 host/port/username 会把"经不同跳板机/代理到达同一目标"的连接误判为
+// 重复会话，导致第二次连接静默复用错误的链路。比较维度与后端连接池键一致。
+function sameRoute(config: SSHConnectionConfig, params: CreateSessionParams): boolean {
+    let a = config.jumpHost ?? null;
+    let b = params.jumpHost ?? null;
+    while (a && b) {
+        if (a.host !== b.host || a.port !== b.port || a.username !== b.username) return false;
+        a = a.jumpHost ?? null;
+        b = b.jumpHost ?? null;
+    }
+    if (a || b) return false;
+    const str = (v?: string) => v ?? "";
+    const port = (v?: number) => v ?? 0;
+    return (
+        str(config.proxyType) === str(params.proxyType) &&
+        str(config.proxyHost) === str(params.proxyHost) &&
+        port(config.proxyPort) === port(params.proxyPort)
+    );
+}
+
 interface SessionState {
     sessions: TerminalSession[];
     activeSessionId: string | null;
@@ -62,13 +83,14 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     addSession: (params) => {
         const state = get();
 
-        // 检查是否已有相同主机+端口+用户名的活跃会话
+        // 检查是否已有相同主机+端口+用户名且连接路由一致的活跃会话
         const existing = state.sessions.find(
             (s) =>
                 s.config.host === params.host &&
                 s.config.port === params.port &&
                 s.config.username === params.username &&
-                !s.disconnected
+                !s.disconnected &&
+                sameRoute(s.config, params)
         );
 
         if (existing) {

@@ -208,6 +208,19 @@ export function FilePanel({ sessionId }: FilePanelProps) {
     // 请求序列号，防止快速切换目录时的竞态条件
     const loadIdRef = useRef(0);
 
+    // 清空搜索状态：使在途搜索失效、取消未触发的防抖定时器、复位结果与加载态。
+    // 清空文本/结果时必须统一走这里：只调用 setSearchResults(null) 而不递增
+    // searchIdRef，已发出的全局搜索请求在返回后仍会通过 myId 校验并回填结果。
+    const resetSearchState = useCallback(() => {
+        ++searchIdRef.current;
+        if (searchTimer.current) {
+            clearTimeout(searchTimer.current);
+            searchTimer.current = null;
+        }
+        setSearchResults(null);
+        setSearching(false);
+    }, []);
+
     // 加载目录树的子节点（仅目录），用于双面板左侧导航
     const loadTreeChildren = useCallback(async (path: string) => {
         const myId = loadIdRef.current;
@@ -256,15 +269,12 @@ export function FilePanel({ sessionId }: FilePanelProps) {
     // 此时确认删除/重命名会用新会话的 sessionId 去操作旧主机的路径，属于跨会话误操作。
     useEffect(() => {
         // 使在途的全局搜索失效，并取消尚未触发的防抖定时器
-        ++searchIdRef.current;
-        if (searchTimer.current) {
-            clearTimeout(searchTimer.current);
-            searchTimer.current = null;
-        }
+        resetSearchState();
         setSearchText("");
         setSearchMode("local");
-        setSearchResults(null);
-        setSearching(false);
+        // 使在途的目录/目录树加载失效：新会话可能尚未连接，若不递增序列号，
+        // 上一个会话的在途请求返回后仍会通过校验，把旧主机的文件写入新会话面板
+        ++loadIdRef.current;
 
         // 关闭右键菜单与全部文件操作对话框
         setContextMenu(null);
@@ -296,7 +306,7 @@ export function FilePanel({ sessionId }: FilePanelProps) {
         setLoading(true);
         setTreeChildren({});
         setTreeExpanded({ "/": true });
-    }, [sessionId]);
+    }, [sessionId, resetSearchState]);
 
     // 初始化：sessionId 变化或会话状态变为 connected 时加载文件
     useEffect(() => {
@@ -806,8 +816,7 @@ export function FilePanel({ sessionId }: FilePanelProps) {
                         const newMode = searchMode === "local" ? "global" : "local";
                         setSearchMode(newMode);
                         // 切换模式时清空搜索结果，使在途搜索失效
-                        ++searchIdRef.current;
-                        setSearchResults(null);
+                        resetSearchState();
                         // 如果有搜索文本且切换到 global，触发全局搜索
                         if (newMode === "global" && searchText.trim()) {
                             triggerGlobalSearch(searchText);
@@ -844,7 +853,7 @@ export function FilePanel({ sessionId }: FilePanelProps) {
                     onKeyDown={(e) => {
                         if (e.key === "Escape") {
                             setSearchText("");
-                            setSearchResults(null);
+                            resetSearchState();
                         }
                     }}
                 />
@@ -853,7 +862,7 @@ export function FilePanel({ sessionId }: FilePanelProps) {
                     <button
                         onClick={() => {
                             setSearchText("");
-                            setSearchResults(null);
+                            resetSearchState();
                         }}
                         className="shrink-0 text-[var(--fg-muted)] hover:text-[var(--fg-strong)]"
                         title={t("clear", { ns: "common", defaultValue: "Clear" })}
@@ -943,8 +952,8 @@ export function FilePanel({ sessionId }: FilePanelProps) {
                                                     const dir = item.path.substring(0, item.path.lastIndexOf("/")) || "/";
                                                     loadDir(dir);
                                                 }
-                                                setSearchResults(null);
                                                 setSearchText("");
+                                                resetSearchState();
                                             }}
                                             onContextMenu={(e) => {
                                                 e.preventDefault();

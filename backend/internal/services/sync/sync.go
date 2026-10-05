@@ -66,6 +66,11 @@ func NewSyncService(
 	} else {
 		interval = *syncInterval
 	}
+	// 非正间隔会让自动同步循环里的 time.NewTicker panic，而该 panic 发生在
+	// recover 之外，会直接终止进程。此处兜底为默认值，保证间隔恒为正。
+	if interval <= 0 {
+		interval = time.Second * 3
+	}
 
 	return &SyncService{
 		q:            q,

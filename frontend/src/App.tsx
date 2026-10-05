@@ -150,7 +150,15 @@ export default function App() {
                     const latest = useUIStore.getState();
                     if (latest.updateVersionReady) return;
                     if (latest.dismissedUpdateVersion === info.version) return;
-                    await UpdaterService.DownloadUpdate().catch(console.debug);
+                    // 仅在下载真正成功后标记为"就绪"。若吞掉下载错误仍标记就绪，
+                    // UI 会提示"重启以更新"，但 ApplyAndRestart 会因状态不是已下载
+                    // 而报错（update not downloaded yet），属于误报。
+                    try {
+                        await UpdaterService.DownloadUpdate();
+                    } catch (err) {
+                        console.debug("update download failed", err);
+                        return;
+                    }
                     setUpdateVersionReady(info.version);
                     return;
                 }

@@ -280,7 +280,12 @@ func (s *SettingsService) SaveSettings(settings AppSettings) error {
 	if err := os.WriteFile(tmpPath, data, 0600); err != nil {
 		return err
 	}
-	return os.Rename(tmpPath, s.configPath)
+	if err := os.Rename(tmpPath, s.configPath); err != nil {
+		// rename 失败时清理残留临时文件，避免下次写入被误当作配置
+		_ = os.Remove(tmpPath)
+		return err
+	}
+	return nil
 }
 
 // GetLogs 读取日志文件内容，返回最后 maxLines 行

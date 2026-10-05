@@ -46,6 +46,8 @@ export function TerminalInstance({sessionId, isActive, config, disconnected}: Te
     const keywordHighlighterRef = useRef<ReturnType<typeof createKeywordHighlighter> | null>(null);
     const hasConnectedRef = useRef(false);
     const isReadyRef = useRef(false);
+    // 断线提示是否已输出，避免同一会话重复打印
+    const disconnectNotifiedRef = useRef(false);
     const isActiveRef = useRef(isActive);
     isActiveRef.current = isActive;
 
@@ -335,10 +337,18 @@ export function TerminalInstance({sessionId, isActive, config, disconnected}: Te
     }, [isFilePanelVisible, isActive, sessionId]);
 
     // 会话断开时在终端显示提示，并阻止继续输入
+    // 注意：SshClosed 事件处理器会先把 isReadyRef 置为 false，若此处仍以
+    // isReadyRef 作为判据，提示将永远不会输出。改用 hasConnectedRef 判断本会话
+    // 是否成功连接过（连接失败时不会误报），并用 disconnectNotifiedRef 保证只打印一次。
     useEffect(() => {
-        if (disconnected && terminalRef.current && isReadyRef.current) {
-            isReadyRef.current = false;
-            setSessionStatus(sessionId, "disconnected");
+        if (!disconnected) {
+            disconnectNotifiedRef.current = false;
+            return;
+        }
+        isReadyRef.current = false;
+        setSessionStatus(sessionId, "disconnected");
+        if (hasConnectedRef.current && !disconnectNotifiedRef.current && terminalRef.current) {
+            disconnectNotifiedRef.current = true;
             terminalRef.current.write(`\r\n\x1b[33m${t("session_disconnected")}\x1b[0m\r\n`);
         }
     }, [disconnected, t, sessionId, setSessionStatus]);
