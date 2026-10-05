@@ -23,6 +23,15 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v5
 
+      # 根包 embed.go 用 //go:embed all:frontend/dist 内嵌前端产物，
+      # 而 frontend/dist 被 gitignore、CI 上不存在；缺失时 go vet ./... 会因
+      # 编译根包失败。这里仅放置占位文件让编译通过，真实产物由前端构建产出。
+      - name: Stub frontend/dist for go:embed
+        shell: bash
+        run: |
+          mkdir -p frontend/dist
+          printf '<!doctype html><meta charset="utf-8"><title>ci</title>\n' > frontend/dist/index.html
+
       - name: Setup Go
         uses: actions/setup-go@v6
         with:
