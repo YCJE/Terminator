@@ -38,6 +38,21 @@ jobs:
           go-version: '1.25.0'
           cache: true
 
+      # GitHub 托管 Windows runner 默认开启 Defender 实时防护。go test 会把每个
+      # 测试包编译成临时 *.test.exe，其中涉及密码哈希/压缩的二进制会被误判并隔离，
+      # 表现为 fork/exec ...\.test.exe: Access is denied / cannot find the file。
+      # 将 Go 构建临时目录与工作区加入白名单，避免测试二进制被防护拦截。
+      - name: Configure Defender exclusions
+        shell: pwsh
+        run: |
+          $paths = @($env:TEMP, $env:GITHUB_WORKSPACE, (go env GOCACHE), (go env GOTMPDIR)) |
+            Where-Object { $_ -and (Test-Path $_) }
+          foreach ($p in $paths) {
+            Add-MpPreference -ExclusionPath $p -ErrorAction SilentlyContinue
+          }
+          Add-MpPreference -ExclusionProcess 'go.exe' -ErrorAction SilentlyContinue
+          Write-Host "Defender 排除目录：$($paths -join ', ')"
+
       # CGO 关闭：与发布构建保持一致，且无需安装 gcc/系统库，
       # velopack 的更新能力在无 cgo 时会优雅降级。
       - name: gofmt
@@ -59,9 +74,22 @@ jobs:
         run: go vet ./...
 
       - name: go test
+        shell: bash
         env:
           CGO_ENABLED: '0'
-        run: go test ./...
+        run: |
+          go test ./... 2>&1 | tee go-test.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            # CI 运行日志需登录才能查看，而 check-run 的 annotation 公开可读；
+            # 把失败摘要折叠进单条 annotation，便于在外部定位失败包与原因。
+            body="$(grep -E '^(FAIL|fork/exec|--- FAIL)' go-test.log | head -n 30)"
+            body="${body//'%'/'%25'}"
+            body="${body//$'\r'/'%0D'}"
+            body="${body//$'\n'/'%0A'}"
+            echo "::error::go test 未通过（exit $status）%0A$body"
+            exit 1
+          fi
 
   frontend:
     name: Frontend (tsc)
