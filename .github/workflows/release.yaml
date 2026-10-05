@@ -17,8 +17,14 @@ jobs:
 
       - uses: ./.github/actions/setup
 
+      # 必须用 package 而不是 build：build 只产出免安装版 terminator.exe，
+      # NSIS 安装包由 package 链路的 create:nsis:installer 生成，
+      # 而下面的发布步骤要同时上传这两个文件。
       - name: Build Wails App
-        run: wails3 task build
+        shell: pwsh
+        run: |
+          $env:PATH += ";C:\Program Files (x86)\NSIS"
+          wails3 task package
         env:
           CGO_ENABLED: 1
 
