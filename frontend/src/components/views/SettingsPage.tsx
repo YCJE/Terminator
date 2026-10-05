@@ -9,6 +9,7 @@ import { SwitchServerModal } from "@/components/views/SwitchServerModal";
 import { WebDAVModal } from "@/components/views/WebDAVModal";
 import { SyncConflictPanel } from "@/components/views/SyncConflictPanel";
 import { KnownHostsPanel } from "@/components/views/KnownHostsPanel";
+import { BackupPanel } from "@/components/views/BackupPanel";
 import { LogViewer } from "@/components/views/LogViewer";
 import { ConfirmModal } from "@/components/ui/confirm-modal";
 import { SettingsCard } from "@/components/ui/settings-card";
@@ -418,8 +419,8 @@ export function SettingsPage() {
                                                         : "ring-1 ring-border"
                                                 )}
                                                 style={{backgroundColor: bgColor}}
-                                                title={preset.label}
-                                                aria-label={preset.label}
+                                                title={t(preset.labelKey)}
+                                                aria-label={t(preset.labelKey)}
                                             />
                                         );
                                     })}
@@ -446,7 +447,7 @@ export function SettingsPage() {
                                                     : "text-muted-foreground hover:text-foreground"
                                             )}
                                         >
-                                            {preset.label}
+                                            {t(preset.labelKey)}
                                         </button>
                                     ))}
                                 </div>
@@ -777,6 +778,8 @@ export function SettingsPage() {
                         </SettingsCard>
 
                         <KnownHostsPanel/>
+
+                        <BackupPanel/>
                         </>
                     )}
 

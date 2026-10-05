@@ -144,20 +144,20 @@ export const useUIStore = create<UIState>((set) => ({
     }),
 }));
 
-/** 强调色预设列表，供设置页面渲染选择器 */
-export const ACCENT_PRESETS: { value: AccentColor; label: string; color: string; colorDark?: string }[] = [
-    { value: "monochrome", label: "默认", color: "#171717", colorDark: "#fafafa" },
-    { value: "sky", label: "天蓝", color: "#60a5fa" },
-    { value: "emerald", label: "翡翠绿", color: "#34d399" },
-    { value: "violet", label: "紫罗兰", color: "#a78bfa" },
-    { value: "amber", label: "琥珀橙", color: "#fbbf24" },
-    { value: "rose", label: "玫瑰红", color: "#fb7185" },
-    { value: "cyan", label: "青色", color: "#22d3ee" },
+/** 强调色预设列表，供设置页面渲染选择器。labelKey 指向 settings 命名空间的文案键 */
+export const ACCENT_PRESETS: { value: AccentColor; labelKey: string; color: string; colorDark?: string }[] = [
+    { value: "monochrome", labelKey: "accent_monochrome", color: "#171717", colorDark: "#fafafa" },
+    { value: "sky", labelKey: "accent_sky", color: "#60a5fa" },
+    { value: "emerald", labelKey: "accent_emerald", color: "#34d399" },
+    { value: "violet", labelKey: "accent_violet", color: "#a78bfa" },
+    { value: "amber", labelKey: "accent_amber", color: "#fbbf24" },
+    { value: "rose", labelKey: "accent_rose", color: "#fb7185" },
+    { value: "cyan", labelKey: "accent_cyan", color: "#22d3ee" },
 ];
 
-/** Spaciness 预设列表 */
-export const SPACINESS_PRESETS: { value: Spaciness; label: string }[] = [
-    { value: 0.8, label: "紧凑" },
-    { value: 1, label: "标准" },
-    { value: 1.2, label: "宽松" },
+/** Spaciness 预设列表。labelKey 指向 settings 命名空间的文案键 */
+export const SPACINESS_PRESETS: { value: Spaciness; labelKey: string }[] = [
+    { value: 0.8, labelKey: "density_compact" },
+    { value: 1, labelKey: "density_standard" },
+    { value: 1.2, labelKey: "density_loose" },
 ];
