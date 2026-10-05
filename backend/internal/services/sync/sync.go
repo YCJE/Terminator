@@ -45,6 +45,11 @@ type SyncService struct {
 	mutex      sync.Mutex
 	isSyncing  bool
 	cancelSync context.CancelFunc
+
+	// syncGate 保护「同步执行」与「整体替换本地数据」的互斥。
+	// 同步持读锁，备份导入/数据擦除持写锁：前者保证替换期间没有同步在跑，
+	// 后者保证替换时不会被在途同步读到半替换状态。
+	syncGate sync.RWMutex
 }
 
 func NewSyncService(
@@ -107,10 +112,26 @@ func (s *SyncService) Authenticate(ctx context.Context) error {
 	return nil
 }
 
+// PauseSync 暂停同步并等待在途同步结束，返回恢复函数（应 defer 调用）。
+//
+// 备份导入、数据擦除等会整体替换本地数据的操作必须先调用它，否则在途同步
+// 可能读到替换前的旧副本并推送到服务器，把刚恢复/擦除的数据覆盖回去。
+func (s *SyncService) PauseSync() func() {
+	s.syncGate.Lock()
+	return func() {
+		s.syncGate.Unlock()
+	}
+}
+
 func (s *SyncService) Sync(ctx context.Context) (err error) {
 	if !s.vault.IsUnlocked() {
 		return nil
 	}
+
+	// 等待整体替换数据的操作（备份导入 / 数据擦除）结束：在途同步读到的是
+	// 替换前的旧副本，若继续执行会把旧数据推回服务器或写回本地。
+	s.syncGate.RLock()
+	defer s.syncGate.RUnlock()
 
 	s.mutex.Lock()
 	if s.isSyncing {

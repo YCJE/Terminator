@@ -26,12 +26,19 @@ type SessionDisconnector interface {
 	DisconnectAll()
 }
 
+// SyncPauser 暂停后台同步的接口（避免循环依赖）。
+// 擦除会整体清空本地数据，必须确保期间没有同步在跑。
+type SyncPauser interface {
+	PauseSync() func()
+}
+
 type AuthService struct {
 	q          *dbgen.Queries
 	db         *sql.DB
 	vault      *vault.Vault
 	client     *api.Client
 	sshDisconn SessionDisconnector
+	syncPauser SyncPauser
 
 	// 登录失败退避状态：Argon2id 已让单次尝试变慢，此处再叠加应用层退避，
 	// 抬高通过 UI 反复试错的成本
@@ -72,6 +79,12 @@ func NewAuthService(
 // SetSessionDisconnector 注入 SSH 服务引用，用于 WipeData 时断开所有连接
 func (s *AuthService) SetSessionDisconnector(d SessionDisconnector) {
 	s.sshDisconn = d
+}
+
+// SetSyncPauser 注入同步服务引用，用于 WipeData 时暂停后台同步。
+// 否则在途同步会把擦除前的旧条目推送到服务器，导致已清除的数据残留在云端。
+func (s *AuthService) SetSyncPauser(p SyncPauser) {
+	s.syncPauser = p
 }
 
 // generateSalt returns a new random 16-byte salt, base64 encoded
@@ -458,6 +471,13 @@ func (s *AuthService) RegisterOnServer(ctx context.Context, serverURL string) er
 }
 
 func (s *AuthService) WipeData(ctx context.Context) error {
+	// 擦除期间暂停后台同步：在途同步读到的是擦除前的条目，会把它们推回服务器，
+	// 使已被用户清除的数据残留在云端
+	if s.syncPauser != nil {
+		resume := s.syncPauser.PauseSync()
+		defer resume()
+	}
+
 	// 先断开所有 SSH 会话和端口转发，确保擦除数据后无活跃远程连接
 	// 用 recover 保护，确保即使断开失败也能继续执行数据擦除
 	if s.sshDisconn != nil {

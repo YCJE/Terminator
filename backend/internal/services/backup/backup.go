@@ -52,6 +52,12 @@ type SessionDisconnector interface {
 	DisconnectAll()
 }
 
+// SyncPauser 暂停后台同步的接口（避免循环依赖）。
+// 导入会整体替换本地数据，必须确保期间没有同步在跑。
+type SyncPauser interface {
+	PauseSync() func()
+}
+
 // BackupUser 备份中的账户记录。
 // 仅包含派生密钥所需的盐值与被口令加密的主密钥，不含任何明文密钥。
 type BackupUser struct {
@@ -98,12 +104,15 @@ type BackupService struct {
 	version func() string
 
 	sshDisconn SessionDisconnector
+	syncPauser SyncPauser
 
 	mu sync.Mutex
 	// pending 记录 SelectBackupFile 选中的备份。
 	// 导入只接受这里缓存的路径，不接受前端传入的任意路径，
 	// 否则该接口会变成任意文件读取通道。
 	pending *backupPayload
+	// importing 标记导入进行中，阻止并发重入导致的两次整体替换交错
+	importing bool
 }
 
 func NewBackupService(
@@ -127,6 +136,12 @@ func NewBackupService(
 // 导入会整体替换主机列表，留着旧会话没有意义，且会持有已不存在的主机记录。
 func (s *BackupService) SetSessionDisconnector(d SessionDisconnector) {
 	s.sshDisconn = d
+}
+
+// SetSyncPauser 注入同步服务引用，导入前暂停后台同步。
+// 否则在途同步会把导入前的旧条目推送到服务器，覆盖掉刚恢复的数据。
+func (s *BackupService) SetSyncPauser(p SyncPauser) {
+	s.syncPauser = p
 }
 
 func (s *BackupService) appVersion() string {
@@ -248,13 +263,25 @@ func (s *BackupService) ImportBackup(ctx context.Context, password string) error
 		return apperror.Validation("backup password is required")
 	}
 
+	// 整体替换数据不可重入：前端禁用按钮仍挡不住回车提交等竞态窗口，
+	// 两次导入交错会得到用户无法预期的混合结果
 	s.mu.Lock()
+	if s.importing {
+		s.mu.Unlock()
+		return apperror.Validation("another restore is already in progress")
+	}
 	payload := s.pending
-	s.mu.Unlock()
-
 	if payload == nil {
+		s.mu.Unlock()
 		return apperror.Validation("no backup file selected")
 	}
+	s.importing = true
+	s.mu.Unlock()
+	defer func() {
+		s.mu.Lock()
+		s.importing = false
+		s.mu.Unlock()
+	}()
 
 	kek, err := crypto.DeriveKEK(password, payload.User.KeySalt)
 	if err != nil {
@@ -273,6 +300,13 @@ func (s *BackupService) ImportBackup(ctx context.Context, password string) error
 		return err
 	}
 	defer clearBytes(loginKey)
+
+	// 密码校验通过、确认要替换数据后再暂停同步：暂停会等待在途同步结束，
+	// 密码错误时不应无谓地阻塞同步循环
+	if s.syncPauser != nil {
+		resume := s.syncPauser.PauseSync()
+		defer resume()
+	}
 
 	// 主机列表将被整体替换，先断开所有 SSH 会话与端口转发
 	if s.sshDisconn != nil {

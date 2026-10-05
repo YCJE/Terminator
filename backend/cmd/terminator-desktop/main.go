@@ -212,6 +212,10 @@ func main() {
 	authService.SetSessionDisconnector(sshService)
 	// 导入会整体替换主机列表，同样需要先断开所有连接
 	backupService.SetSessionDisconnector(sshService)
+	// 擦除/导入会整体替换本地数据，期间必须暂停后台同步，
+	// 否则在途同步会把替换前的旧条目推回服务器
+	authService.SetSyncPauser(syncService)
+	backupService.SetSyncPauser(syncService)
 
 	app.RegisterService(application.NewService(authService))
 	app.RegisterService(application.NewService(syncService))
