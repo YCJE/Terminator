@@ -22,6 +22,28 @@ jobs:
         env:
           CGO_ENABLED: 1
 
+      # 独立可执行文件（免安装版 + NSIS 安装包）是用户手动下载的主要入口，
+      # 与历史版本的发布资产口径保持一致（应用内更新器另走 Velopack 产物）。
+      # 放在 Velopack 之前：即使 Velopack 步骤失败，这两份文件也已完成发布。
+      - name: Publish standalone executables
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="v${{ env.VERSION }}"
+          NOTES="RELEASE_NOTES_v${{ env.VERSION }}.md"
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            if [ -f "$NOTES" ]; then
+              gh release create "$TAG" --title "$TAG" --notes-file "$NOTES"
+            else
+              gh release create "$TAG" --title "$TAG" --generate-notes
+            fi
+          fi
+          gh release upload "$TAG" \
+            bin/terminator.exe \
+            bin/terminator-amd64-installer.exe \
+            --clobber
+
       - name: Velopack
         shell: bash
         run: |

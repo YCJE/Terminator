@@ -43,9 +43,9 @@ tasks:
     cmds:
       - task: generate:syso
       - go build {{.BUILD_FLAGS}} -o "{{.BIN_DIR}}/{{.APP_NAME}}.exe" ./backend/cmd/terminator-desktop
-      - cmd: powershell Remove-item *.syso
+      - cmd: powershell Remove-item backend/cmd/terminator-desktop/*.syso -ErrorAction SilentlyContinue
         platforms: [windows]
-      - cmd: rm -f *.syso
+      - cmd: rm -f backend/cmd/terminator-desktop/*.syso
         platforms: [linux, darwin]
     vars:
       BUILD_FLAGS: '{{if eq .DEV "true"}}{{if .EXTRA_TAGS}}-tags {{.EXTRA_TAGS}} {{end}}-buildvcs=false -gcflags=all="-l" -ldflags="-linkmode external"{{else}}-tags production{{if .EXTRA_TAGS}},{{.EXTRA_TAGS}}{{end}} -trimpath -buildvcs=false -ldflags="-w -s -H windowsgui -linkmode external -X terminator-desktop/backend/internal/services/updater.Version={{.VERSION}}"{{end}}'
@@ -72,7 +72,7 @@ tasks:
       - task: generate:syso
       - docker run --rm -v "{{.ROOT_DIR}}:/app" {{.GO_CACHE_MOUNT}} {{.REPLACE_MOUNTS}} -e APP_NAME="{{.APP_NAME}}" {{if .EXTRA_TAGS}}-e EXTRA_TAGS="{{.EXTRA_TAGS}}"{{end}} {{.CROSS_IMAGE}} windows {{.DOCKER_ARCH}}
       - docker run --rm -v "{{.ROOT_DIR}}:/app" alpine chown -R $(id -u):$(id -g) /app/bin
-      - rm -f *.syso
+      - rm -f backend/cmd/terminator-desktop/*.syso
     vars:
       DOCKER_ARCH: '{{.ARCH | default "amd64"}}'
       # Mount Go module cache for faster builds
@@ -104,7 +104,11 @@ tasks:
     summary: Generates Windows `.syso` file
     dir: build
     cmds:
-      - wails3 generate syso -arch {{.ARCH}} -icon windows/icon.ico -manifest windows/wails.exe.manifest -info windows/info.json -out ../wails_windows_{{.ARCH}}.syso
+      # 主程序包是 backend/cmd/terminator-desktop，而 Go 只会链接与目标包同目录的
+      # .syso 资源文件。若生成到仓库根目录，图标、清单与 PE 版本信息都不会进入
+      # terminator.exe（表现为文件属性里版本号为空）。因此输出到主程序包目录，
+      # 构建结束后由 build:native / build:docker 清理，避免误提交。
+      - wails3 generate syso -arch {{.ARCH}} -icon windows/icon.ico -manifest windows/wails.exe.manifest -info windows/info.json -out ../backend/cmd/terminator-desktop/wails_windows_{{.ARCH}}.syso
     vars:
       ARCH: '{{.ARCH | default ARCH}}'
 

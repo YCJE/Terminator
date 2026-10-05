@@ -34,11 +34,12 @@ Terminator is a cross-platform SSH client built with [Wails v3](https://v3.wails
 ### SSH Connection
 
 - SSH connection multiplexing — multiple sessions share one TCP connection
-- Jump Host support — connect through an intermediate host
+- Multi-level Jump Host — chained hops (A → B → C); the connection pool key includes the full chain, so different chains never share a connection
 - Port Forwarding — Local and Remote forward with visual UI management
 - Connection pool health check, refCount prevents closing in-use connections
 - **SSH Agent Forwarding** — per-host Agent Forwarding config, allows remote server auth via local SSH Agent
 - **HTTP/SOCKS5 Proxy** — per-host proxy config for SSH connections via HTTP CONNECT or SOCKS5, with proxy auth
+- **known_hosts management** — view and remove pinned host keys in settings; atomic writes, and a failed write rejects the connection (fail-closed)
 
 ### Host & Key Management
 
@@ -58,6 +59,7 @@ Terminator is a cross-platform SSH client built with [Wails v3](https://v3.wails
 - Virtual list rendering for 10k+ files
 - SFTP over existing SSH connection
 - Upload/download with 32KB chunking + real-time progress
+- **Resumable transfers** — large transfers resume from the last offset; temp files are scoped by total size to avoid corrupt concatenation
 - File operations: mkdir, delete, rename, chmod, text preview
 - **File search** — current directory filter and full recursive search modes
 - **Scroll position memory** — restores browse position after navigating back
@@ -79,6 +81,31 @@ Two sync methods, both E2E encrypted, freely switchable:
 | **Self-hosted Server** | HTTP API incremental sync, 3s polling | Real-time multi-device sync |
 | **WebDAV** | Full encrypted blob upload, 60s interval | Nutstore/Nextcloud/NAS |
 
+Sync consistency and conflict handling:
+
+- **Conflict detection** — concurrent edits to the same entry are recorded as conflicts, surfaced via a sidebar badge and a global banner
+- **Resolution panel** — pick local or remote per conflict, no manual diffing
+- **Fixed-width timestamps** — prevents missed syncs within the same second and redundant uploads when nothing changed
+- **Replacement guard** — background sync pauses while data is wholesale replaced (e.g. backup import), preventing stale data from flowing back
+
+### Backup & Restore
+
+- **Encrypted backup export** — packs hosts, keys, snippets and settings into an encrypted backup; disconnects sessions and pauses sync first
+- **Backup import** — password-verified restore that never damages existing data on failure
+
+### Security
+
+- **End-to-end encryption** — the master password never leaves your machine; Argon2id derives a KEK (encrypts the MasterKey) and a LoginKey (server auth); all sensitive data is AES-256-GCM encrypted
+- **TOFU host key verification** — fingerprints are pinned on first connect and alerted on change; known_hosts is written atomically and a failed write rejects the connection
+- **Brute-force protection** — exponential backoff on failed logins, confirmation required when creating the master password
+- **Vault state check** — empty keys normalize to nil, fixing unlock-state misjudgement
+- **Update verification** — SHA256 integrity check on downloaded update packages
+- **Encrypted backups** — backups are encrypted end to end; import always requires the password
+- **Sync data protection** — background sync pauses during wholesale data replacement
+- **Local port forwarding** — an empty LocalHost binds to 127.0.0.1 to avoid LAN exposure
+- **SFTP safety** — ReadFile rejects non-regular files; resumable transfers scope temp files by total size
+- **Continuous review** — multiple audit rounds fixing races, nil dereferences, out-of-bounds access and missing error handling
+
 ### Other
 
 - **Local-first** — no server required
@@ -93,6 +120,9 @@ Two sync methods, both E2E encrypted, freely switchable:
 - **RAF batch merge** — high-frequency events merged via requestAnimationFrame
 - **Error debouncing** — classified errors + debounce window
 - **ConfigProxy** — config file only stores user-modified values
+- **Skins** — Default / HUD / Editorial; a skin overrides the light/dark theme (HUD is always dark, Editorial always light)
+- **Update integrity** — SHA256 verified before installing an update
+- **Idempotent retries** — idempotent API calls auto-retry on network blips, capped at 3s exponential backoff
 - **Auto-update** — built-in version checker and updater
 
 ## Roadmap
@@ -127,6 +157,15 @@ Two sync methods, both E2E encrypted, freely switchable:
 - [x] Session logging + settings viewer
 - [x] Unified feature toggles (settings → terminal)
 - [x] Shortcut reference (settings → Shortcuts section)
+- [x] Multi-level chained jump hosts
+- [x] Resumable large-file transfers
+- [x] Encrypted backup export/import
+- [x] Sync conflict detection and resolution panel
+- [x] known_hosts management + key change guidance
+- [x] SHA256 integrity check for updates
+- [x] Idempotent request retries (exponential backoff)
+- [x] Skin system (Default / HUD / Editorial)
+- [x] Quality gates (vet / gofmt / test / tsc) + locale key parity check
 - [ ] Multiple profiles (teams)
 - [ ] Android client
 - [ ] CLI client
