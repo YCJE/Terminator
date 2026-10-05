@@ -7,10 +7,20 @@ import (
 )
 
 func TestPartPathAppendsSuffix(t *testing.T) {
-	got := partPath("/home/u/big.iso")
-	want := "/home/u/big.iso" + partSuffix
+	got := partPath("/home/u/big.iso", 4096)
+	want := "/home/u/big.iso" + partSuffix + "-4096"
 	if got != want {
 		t.Errorf("partPath = %q, 期望 %q", got, want)
+	}
+}
+
+// 断点文件名必须随传输总量变化：同一目标路径先后传输不同大小的文件时，
+// 旧断点不得被当作新传输的续传起点，否则会拼出内容损坏的文件。
+func TestPartPathDistinguishesTotals(t *testing.T) {
+	small := partPath("/r/x", 1024)
+	large := partPath("/r/x", 2048)
+	if small == large {
+		t.Errorf("不同大小的传输共用断点文件名: %q", small)
 	}
 }
 

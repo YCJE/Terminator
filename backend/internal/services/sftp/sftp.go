@@ -51,7 +51,13 @@ const (
 )
 
 // partPath 返回目标路径对应的续传临时文件路径。
-func partPath(path string) string { return path + partSuffix }
+//
+// 名称中带上本次传输的总字节数：同一目标路径先后传输内容不同的文件时
+// （例如上传到固定的发布路径、或远端文件被替换），旧断点不会与新传输
+// 匹配，避免把两次不同来源的数据拼接成内容损坏的文件。
+func partPath(path string, total int64) string {
+	return fmt.Sprintf("%s%s-%d", path, partSuffix, total)
+}
 
 // remoteResumeOffset 探测远程续传起点：临时文件存在且大小严格小于源文件总
 // 大小时从该大小继续，否则返回 0 从头开始。大小不小于 total 说明源文件已
@@ -434,7 +440,7 @@ func (s *SftpService) SearchFiles(sessionID string, searchPath string, query str
 // 该方法是同步的（Wails 绑定调用），但会通过 emitter 持续推送传输进度，
 // 前端可据 transferID 关联进度事件。传输结束（无论成功失败）推送完成事件。
 //
-// 支持断点续传：数据先写入 "<remotePath>.terminator-part"，中断时该文件保留，
+// 支持断点续传：数据先写入 "<remotePath>.terminator-part-<总字节数>"，中断时该文件保留，
 // 重试时按已有大小从断点继续；全部写完后才原子重命名到 remotePath，
 // 因此目标路径不会出现半截文件。续传假定源文件在两次尝试之间未改动。
 func (s *SftpService) UploadFile(sessionID string, transferID string, localPath string, remotePath string) error {
@@ -466,7 +472,7 @@ func (s *SftpService) UploadFile(sessionID string, transferID string, localPath 
 		return err
 	}
 
-	part := partPath(remotePath)
+	part := partPath(remotePath, total)
 	remoteFile, offset, err := openRemoteForResume(client, part, remoteResumeOffset(client, part, total))
 	if err != nil {
 		s.emitter.EmitTransferComplete(sessionID, transferID, false, fmt.Sprintf("创建远程文件失败: %v", err))
@@ -505,7 +511,7 @@ func (s *SftpService) UploadFile(sessionID string, transferID string, localPath 
 }
 
 // DownloadFile 将远程文件下载到本地路径。
-// 与 UploadFile 对称：分块复制并推送进度，同样写入 "<localPath>.terminator-part"
+// 与 UploadFile 对称：分块复制并推送进度，同样写入 "<localPath>.terminator-part-<总字节数>"
 // 以支持断点续传，完成后原子重命名到 localPath。
 func (s *SftpService) DownloadFile(sessionID string, transferID string, remotePath string, localPath string) error {
 	filename := filepath.Base(remotePath)
@@ -537,7 +543,7 @@ func (s *SftpService) DownloadFile(sessionID string, transferID string, remotePa
 	}
 	total := info.Size()
 
-	part := partPath(localPath)
+	part := partPath(localPath, total)
 	offset := localResumeOffset(part, total)
 	flags := os.O_WRONLY | os.O_CREATE | os.O_TRUNC
 	if offset > 0 {
