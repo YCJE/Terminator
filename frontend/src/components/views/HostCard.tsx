@@ -33,7 +33,7 @@ interface HostCardProps {
 
 interface OSIconInfo {
     Icon: LucideIcon;
-    /** Brand color in hex; empty string means "use default primary styling". */
+    /** Brand color in hex; empty string means "use default muted styling". */
     color: string;
 }
 
@@ -43,7 +43,7 @@ interface OSIconInfo {
  *
  * Detection is purely heuristic — it looks at the lower-cased hostname and
  * username for known distro identifiers. When nothing matches we fall back
- * to the generic Server icon so existing cards keep their original look.
+ * to the generic Server icon so existing rows keep their original look.
  */
 function getOSIcon(hostname: string, username?: string): OSIconInfo {
     const h = (hostname || "").toLowerCase();
@@ -59,77 +59,50 @@ function getOSIcon(hostname: string, username?: string): OSIconInfo {
     if (combined.includes("windows")) return { Icon: AppWindow, color: "#0078D6" };
     if (combined.includes("macos") || combined.includes("darwin")) return { Icon: Command, color: "#555555" };
 
-    // Default — keep the original primary-tinted Server icon.
+    // Default — keep the original muted Server icon.
     return { Icon: Server, color: "" };
 }
 
 export function HostCard({host, onConnect, onEdit, onDelete}: HostCardProps) {
-    const {t} = useTranslation("common");
+    const {t} = useTranslation(["common", "hosts"]);
 
     const {Icon: OSIcon, color: osColor} = getOSIcon(host.name || host.host, host.username);
     const isDefault = !osColor;
 
-    const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
-        const rect = e.currentTarget.getBoundingClientRect();
-        e.currentTarget.style.setProperty("--mx", `${e.clientX - rect.left}px`);
-        e.currentTarget.style.setProperty("--my", `${e.clientY - rect.top}px`);
-    };
-
     return (
         <div
+            role="button"
             tabIndex={0}
-            onMouseMove={handleMouseMove}
+            onClick={() => onConnect(host)}
             onKeyDown={(e) => {
                 if (e.key === "Enter" && e.target === e.currentTarget) {
                     e.preventDefault();
                     onConnect(host);
                 }
             }}
-            className="soft-card card-highlight elevate group flex flex-row justify-between
-                       rounded-xl
-                       hover:border-primary/40
-                       focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="list-row is-interactive group"
         >
-            <div
-                onClick={() => onConnect(host)}
-                className="flex min-w-0 flex-1 cursor-pointer items-center gap-4 p-5"
+            <span
+                className={`list-chip${isDefault ? "" : " is-tinted"}`}
+                style={isDefault ? undefined : ({"--chip-tint": osColor} as React.CSSProperties)}
             >
-                <div
-                    className={`flex size-10 shrink-0 items-center justify-center
-                                rounded-lg transition-colors
-                                group-hover:bg-primary/15 ${isDefault ? "bg-primary/10 text-primary" : ""}`}
-                    style={
-                        isDefault
-                            ? undefined
-                            : {
-                                  backgroundColor: `${osColor}1a`,
-                                  color: osColor,
-                              }
-                    }
-                >
-                    <OSIcon className="size-5" />
-                </div>
-                <div className="flex min-w-0 flex-col gap-0.5 pr-4">
-                    <h3 className="truncate font-semibold text-card-foreground">
-                        {host.name || host.host}
-                    </h3>
-                    <p className="truncate text-xs text-muted-foreground">
-                        {host.username}<span className="text-muted-foreground/50"> @ </span>{host.host}{host.port && host.port !== 22 ? `:${host.port}` : ""}
-                    </p>
-                </div>
-            </div>
+                <OSIcon className="size-3.5"/>
+            </span>
 
-            <div className="flex shrink-0 items-center pr-4">
+            <span className="list-name">{host.name || host.host}</span>
+
+            <span className="list-mono">
+                <b>{host.username}</b><span>@</span>{host.host}{host.port && host.port !== 22 ? `:${host.port}` : ""}
+            </span>
+
+            {host.jumpHostId && <span className="list-tag is-info">{t("hosts:tag_jump")}</span>}
+            {host.proxyType && <span className="list-tag is-warning">{t("hosts:tag_proxy")}</span>}
+
+            <div className="list-actions" onClick={(e) => e.stopPropagation()}>
                 <DropdownMenu modal={false}>
                     <DropdownMenuTrigger asChild>
-                        <Button
-                            variant="ghost"
-                            size="icon-sm"
-                            className="opacity-0 transition-opacity
-                                       group-hover:opacity-100 data-[state=open]:opacity-100
-                                       focus-visible:opacity-100"
-                        >
-                            <MoreHorizontal className="size-4 text-muted-foreground"/>
+                        <Button variant="ghost" size="icon-sm">
+                            <MoreHorizontal className="size-4 text-[var(--fg-muted)]"/>
                         </Button>
                     </DropdownMenuTrigger>
 
@@ -149,7 +122,6 @@ export function HostCard({host, onConnect, onEdit, onDelete}: HostCardProps) {
                     </DropdownMenuContent>
                 </DropdownMenu>
             </div>
-
         </div>
     );
 }

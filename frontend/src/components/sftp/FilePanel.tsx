@@ -719,7 +719,7 @@ export function FilePanel({ sessionId }: FilePanelProps) {
     return (
         <div
             className={cn(
-                "relative flex h-full flex-col cursor-default border-l border-border bg-card",
+                "sftp-panel relative cursor-default",
                 isDragOver && "ring-2 ring-inset ring-primary"
             )}
             style={{ width }}
@@ -734,21 +734,21 @@ export function FilePanel({ sessionId }: FilePanelProps) {
             />
 
             {/* 头部标题 */}
-            <div className="flex items-center justify-between border-b border-border px-3 py-2">
-                <span className="text-sm font-medium">{t("file_panel_title")}</span>
+            <div className="flex items-center justify-between border-b border-[var(--hairline)] px-3 py-2">
+                <span className="text-[12.5px] font-semibold text-[var(--fg-strong)]">{t("file_panel_title")}</span>
                 <Button
                     variant="ghost"
                     size="icon-sm"
                     onClick={() => setDualPanel((d) => !d)}
                     title={t("toggle_dual_panel")}
-                    className={cn(dualPanel && "bg-accent text-accent-foreground")}
+                    className={cn(dualPanel && "bg-[var(--surface-3)] text-[var(--fg-strong)]")}
                 >
                     <Columns className="size-4" />
                 </Button>
             </div>
 
             {/* 工具栏：返回上级 + 面包屑 + 操作按钮 */}
-            <div className="flex items-center gap-1 border-b border-border px-2 py-1.5">
+            <div className="sftp-bar">
                 <Button
                     variant="ghost"
                     size="icon-sm"
@@ -762,11 +762,11 @@ export function FilePanel({ sessionId }: FilePanelProps) {
                 <div className="flex flex-1 items-center gap-0.5 overflow-x-auto px-1 [&::-webkit-scrollbar]:hidden">
                     {crumbs.map((seg, idx) => (
                         <div key={seg.path} className="flex shrink-0 items-center">
-                            {idx > 0 && <ChevronRight className="size-3 text-muted-foreground/50" />}
+                            {idx > 0 && <ChevronRight className="size-3 text-[var(--fg-subtle)]" />}
                             <button
                                 type="button"
                                 onClick={() => loadDir(seg.path)}
-                                className="max-w-32 truncate rounded px-1 py-0.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+                                className="sftp-crumb"
                             >
                                 {seg.name}
                             </button>
@@ -792,14 +792,14 @@ export function FilePanel({ sessionId }: FilePanelProps) {
 
             {/* 当前完整路径 */}
             <div
-                className="truncate border-b border-border bg-muted/20 px-3 py-1 text-[0.625rem] text-muted-foreground"
+                className="sftp-pathbar"
                 title={currentPath}
             >
                 {currentPath}
             </div>
 
             {/* 搜索栏：支持当前目录过滤 / 全系统递归搜索两种模式 */}
-            <div className="flex items-center gap-1.5 border-b border-border px-2 py-1">
+            <div className="sftp-bar">
                 {/* 搜索模式切换按钮 */}
                 <button
                     onClick={() => {
@@ -817,7 +817,7 @@ export function FilePanel({ sessionId }: FilePanelProps) {
                         "shrink-0 rounded p-0.5 transition-colors",
                         searchMode === "global"
                             ? "text-primary bg-primary/10"
-                            : "text-muted-foreground hover:text-foreground"
+                            : "text-[var(--fg-muted)] hover:text-[var(--fg-strong)]"
                     )}
                     title={searchMode === "local" ? t("search_mode_local") : t("search_mode_global")}
                 >
@@ -840,7 +840,7 @@ export function FilePanel({ sessionId }: FilePanelProps) {
                         ? t("search_placeholder")
                         : t("search_global_placeholder")
                     }
-                    className="h-5 flex-1 bg-transparent text-xs outline-none placeholder:text-muted-foreground/60"
+                    className="h-5 flex-1 bg-transparent text-xs outline-none placeholder:text-[var(--fg-subtle)]"
                     onKeyDown={(e) => {
                         if (e.key === "Escape") {
                             setSearchText("");
@@ -848,14 +848,14 @@ export function FilePanel({ sessionId }: FilePanelProps) {
                         }
                     }}
                 />
-                {searching && <Loader2 className="size-3.5 shrink-0 animate-spin text-muted-foreground" />}
+                {searching && <Loader2 className="size-3.5 shrink-0 animate-spin text-[var(--fg-muted)]" />}
                 {searchText && !searching && (
                     <button
                         onClick={() => {
                             setSearchText("");
                             setSearchResults(null);
                         }}
-                        className="shrink-0 text-muted-foreground hover:text-foreground"
+                        className="shrink-0 text-[var(--fg-muted)] hover:text-[var(--fg-strong)]"
                         title={t("clear", { ns: "common", defaultValue: "Clear" })}
                     >
                         <X className="size-3.5" />
@@ -869,10 +869,10 @@ export function FilePanel({ sessionId }: FilePanelProps) {
                     <>
                         {/* 左侧目录树导航 */}
                         <div
-                            className="flex flex-col overflow-hidden border-r border-border bg-muted/10"
+                            className="sftp-tree"
                             style={{ width: treeWidth, flexShrink: 0 }}
                         >
-                            <div className="border-b border-border px-2 py-1.5 text-[0.625rem] font-medium uppercase tracking-wide text-muted-foreground">
+                            <div className="sftp-tree-head">
                                 {t("directory_tree")}
                             </div>
                             <div className="flex-1 overflow-auto py-1 select-none">
@@ -880,10 +880,8 @@ export function FilePanel({ sessionId }: FilePanelProps) {
                                     <div
                                         key={node.path}
                                         className={cn(
-                                            "flex items-center gap-1 cursor-pointer rounded-sm py-0.5 pr-1 text-xs hover:bg-accent",
-                                            currentPath === node.path
-                                                ? "bg-accent text-accent-foreground font-medium"
-                                                : "text-muted-foreground"
+                                            "sftp-tree-node",
+                                            currentPath === node.path && "is-active"
                                         )}
                                         style={{ paddingLeft: node.depth * 12 + 4 }}
                                         onClick={() => loadDir(node.path)}
@@ -895,7 +893,7 @@ export function FilePanel({ sessionId }: FilePanelProps) {
                                                 e.stopPropagation();
                                                 toggleTreeNode(node.path);
                                             }}
-                                            className="flex shrink-0 items-center hover:text-foreground"
+                                            className="flex shrink-0 items-center hover:text-[var(--fg-strong)]"
                                         >
                                             {node.expanded
                                                 ? <ChevronDown className="size-3" />
@@ -912,7 +910,7 @@ export function FilePanel({ sessionId }: FilePanelProps) {
                         {/* 可拖拽分隔条 */}
                         <div
                             onMouseDown={startTreeResize}
-                            className="w-1 shrink-0 cursor-col-resize bg-border transition-colors hover:bg-primary/40"
+                            className="sftp-resizer"
                         />
                     </>
                 )}
@@ -921,7 +919,7 @@ export function FilePanel({ sessionId }: FilePanelProps) {
                     {searchResults ? (
                         /* 全局搜索结果列表 */
                         <div className="flex h-full flex-col overflow-hidden">
-                            <div className="border-b border-border bg-muted/40 px-3 py-1.5 text-xs font-medium text-muted-foreground">
+                            <div className="border-b border-[var(--hairline)] bg-[var(--surface-2)] px-3 py-1.5 text-xs font-medium text-[var(--fg-subtle)]">
                                 {searching
                                     ? t("searching")
                                     : t("search_results_count", { count: searchResults.length })
@@ -929,7 +927,7 @@ export function FilePanel({ sessionId }: FilePanelProps) {
                             </div>
                             <div className="flex-1 overflow-y-auto overflow-x-hidden">
                                 {searchResults.length === 0 && !searching ? (
-                                    <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+                                    <div className="sftp-empty">
                                         {t("no_search_results")}
                                     </div>
                                 ) : (
@@ -966,7 +964,7 @@ export function FilePanel({ sessionId }: FilePanelProps) {
                                                     fullPath: item.path,
                                                 });
                                             }}
-                                            className="grid cursor-default items-center gap-2 px-3 py-1.5 text-sm overflow-hidden transition-colors hover:bg-accent/60"
+                                            className="sftp-row is-search text-sm"
                                             style={{ gridTemplateColumns: "minmax(0,1fr) 60px" }}
                                             title={item.path}
                                         >
@@ -974,19 +972,19 @@ export function FilePanel({ sessionId }: FilePanelProps) {
                                                 <span className="shrink-0">
                                                     {item.isDir
                                                         ? <Folder className="size-4 text-primary" />
-                                                        : <FileText className="size-4 text-muted-foreground" />
+                                                        : <FileText className="size-4 text-[var(--fg-muted)]" />
                                                     }
                                                 </span>
                                                 <div className="flex min-w-0 flex-col">
                                                     <span className={cn("truncate", item.isDir && "font-medium")}>
                                                         {item.name}
                                                     </span>
-                                                    <span className="truncate text-[0.625rem] text-muted-foreground/60">
+                                                    <span className="truncate text-[0.625rem] text-[var(--fg-subtle)]">
                                                         {item.path}
                                                     </span>
                                                 </div>
                                             </div>
-                                            <span className="truncate text-right text-muted-foreground">
+                                            <span className="truncate text-right text-[var(--fg-muted)]">
                                                 {item.isDir ? "-" : formatFileSize(item.size)}
                                             </span>
                                         </div>
@@ -1011,7 +1009,7 @@ export function FilePanel({ sessionId }: FilePanelProps) {
             {/* 拖拽上传提示遮罩 */}
             {isDragOver && (
                 <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-primary/5">
-                    <div className="rounded-lg border-2 border-dashed border-primary/50 bg-background/80 px-6 py-4 text-sm font-medium text-primary">
+                    <div className="rounded-lg border-2 border-dashed border-primary/50 bg-[var(--surface-1)] px-6 py-4 text-sm font-medium text-primary">
                         {t("upload")}
                     </div>
                 </div>
@@ -1129,13 +1127,13 @@ export function FilePanel({ sessionId }: FilePanelProps) {
                     </DialogHeader>
                     {previewEditing ? (
                         <textarea
-                            className="max-h-[60vh] min-h-[300px] w-full resize-y rounded-lg bg-muted/50 p-3 font-mono text-xs leading-relaxed outline-none focus:ring-1 focus:ring-ring"
+                            className="max-h-[60vh] min-h-[300px] w-full resize-y rounded-lg bg-[var(--surface-2)] p-3 font-mono text-xs leading-relaxed outline-none"
                             value={previewContent}
                             onChange={(e) => setPreviewContent(e.target.value)}
                             spellCheck={false}
                         />
                     ) : (
-                        <pre className="max-h-[60vh] overflow-auto rounded-lg bg-muted/50 p-3 font-mono text-xs leading-relaxed">
+                        <pre className="max-h-[60vh] overflow-auto rounded-lg bg-[var(--surface-2)] p-3 font-mono text-xs leading-relaxed">
                             {previewContent}
                         </pre>
                     )}

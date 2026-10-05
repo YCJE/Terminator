@@ -25,7 +25,7 @@ const ROW_HEIGHT = 32; // 每行高度（px），与 py-1.5 + text-sm 对应
 const BUFFER_ROWS = 3; // 上下各多渲染的缓冲行数
 
 function SortIcon({ sortKey, sortDir, target }: { sortKey: SortKey; sortDir: SortDir; target: SortKey }) {
-    if (sortKey !== target) return <ChevronsUpDown className="size-3 text-muted-foreground/40" />;
+    if (sortKey !== target) return <ChevronsUpDown className="size-3 text-[var(--fg-subtle)]" />;
     return sortDir === "asc"
         ? <ChevronUp className="size-3" />
         : <ChevronDown className="size-3" />;
@@ -156,7 +156,7 @@ function FileTableImpl({ entries, loading, onOpen, onContextMenu, filterText, on
 
     if (loading) {
         return (
-            <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+            <div className="sftp-empty">
                 <Loader2 className="mr-2 size-4 animate-spin" />
                 {t("loading", { ns: "common", defaultValue: "..." })}
             </div>
@@ -165,7 +165,7 @@ function FileTableImpl({ entries, loading, onOpen, onContextMenu, filterText, on
 
     if (entries.length === 0) {
         return (
-            <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+            <div className="sftp-empty">
                 {t("empty_dir")}
             </div>
         );
@@ -174,7 +174,7 @@ function FileTableImpl({ entries, loading, onOpen, onContextMenu, filterText, on
     // 有文件但搜索结果为空
     if (filtered.length === 0) {
         return (
-            <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+            <div className="sftp-empty">
                 {t("no_search_results")}
             </div>
         );
@@ -184,12 +184,12 @@ function FileTableImpl({ entries, loading, onOpen, onContextMenu, filterText, on
         <div ref={containerRef} className="flex h-full flex-col overflow-hidden">
             {/* 表头 */}
             <div
-                className="grid items-center gap-2 border-b border-border bg-muted/40 px-3 py-1.5 text-xs font-medium text-muted-foreground overflow-hidden"
+                className="sftp-thead"
                 style={{ gridTemplateColumns: gridCols }}
             >
                 <button
                     type="button"
-                    className="flex items-center gap-1 text-left hover:text-foreground min-w-0"
+                    className="sftp-thead-btn text-left"
                     onClick={() => toggleSort("name")}
                 >
                     <span className="truncate">{t("name")}</span> <SortIcon sortKey={sortKey} sortDir={sortDir} target="name" />
@@ -197,7 +197,7 @@ function FileTableImpl({ entries, loading, onOpen, onContextMenu, filterText, on
                 {showSize && (
                     <button
                         type="button"
-                        className="flex items-center gap-1 justify-end hover:text-foreground"
+                        className="sftp-thead-btn justify-end"
                         onClick={() => toggleSort("size")}
                     >
                         <span className="truncate">{t("size")}</span> <SortIcon sortKey={sortKey} sortDir={sortDir} target="size" />
@@ -209,7 +209,7 @@ function FileTableImpl({ entries, loading, onOpen, onContextMenu, filterText, on
                 {showTime && (
                     <button
                         type="button"
-                        className="flex items-center gap-1 hover:text-foreground"
+                        className="sftp-thead-btn"
                         onClick={() => toggleSort("modTime")}
                     >
                         <span className="truncate">{t("modified")}</span> <SortIcon sortKey={sortKey} sortDir={sortDir} target="modTime" />
@@ -239,9 +239,8 @@ function FileTableImpl({ entries, loading, onOpen, onContextMenu, filterText, on
                                         onContextMenu(entry, e);
                                     }}
                                     className={cn(
-                                        "grid cursor-default items-center gap-2 px-3 py-1.5 text-sm overflow-hidden",
-                                        "transition-colors hover:bg-accent/60",
-                                        isSelected && "bg-accent"
+                                        "sftp-row text-sm",
+                                        isSelected && "is-selected"
                                     )}
                                     style={{ gridTemplateColumns: gridCols, height: ROW_HEIGHT }}
                                     title={entry.name}
@@ -251,9 +250,9 @@ function FileTableImpl({ entries, loading, onOpen, onContextMenu, filterText, on
                                             {entry.isDir ? (
                                                 <Folder className="size-4 text-primary" />
                                             ) : entry.isSymlink ? (
-                                                <FileSymlink className="size-4 text-muted-foreground" />
+                                                <FileSymlink className="size-4 text-[var(--fg-muted)]" />
                                             ) : (
-                                                <FileText className="size-4 text-muted-foreground" />
+                                                <FileText className="size-4 text-[var(--fg-muted)]" />
                                             )}
                                         </span>
                                         <span className={cn("truncate", entry.isDir && "font-medium")}>
@@ -261,17 +260,17 @@ function FileTableImpl({ entries, loading, onOpen, onContextMenu, filterText, on
                                         </span>
                                     </div>
                                     {showSize && (
-                                        <span className="truncate text-right text-muted-foreground">
+                                        <span className="truncate text-right text-[var(--fg-muted)]">
                                             {entry.isDir ? "-" : formatFileSize(entry.size)}
                                         </span>
                                     )}
                                     {showPerm && (
-                                        <span className="truncate text-center font-mono text-xs text-muted-foreground">
+                                        <span className="truncate text-center font-mono text-xs text-[var(--fg-subtle)]">
                                             {entry.mode || "-"}
                                         </span>
                                     )}
                                     {showTime && (
-                                        <span className="truncate text-muted-foreground">
+                                        <span className="truncate text-[var(--fg-muted)]">
                                             {formatDateTime(entry.modTime)}
                                         </span>
                                     )}

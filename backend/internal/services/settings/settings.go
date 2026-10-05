@@ -23,6 +23,7 @@ type AppSettings struct {
 	// 外观偏好
 	AccentColor       string  `json:"accent_color"`        // "monochrome"|"sky"|"emerald"|"violet"|"amber"|"rose"|"cyan" (默认 monochrome)
 	Spaciness         float64 `json:"spaciness"`           // 0.8|1|1.2 (默认 1)
+	Skin              string  `json:"skin"`                // 外观皮肤 "default"|"hud"|"editorial" (默认 default)
 	TerminalColorLink bool    `json:"terminal_color_link"` // 终端配色联动 (默认 false)
 
 	// 会话日志：把完整终端输出写入磁盘。输出中可能包含用户输入的
@@ -93,6 +94,9 @@ func (s *SettingsService) GetSettings() (AppSettings, error) {
 	if raw.Spaciness != 0 {
 		def.Spaciness = raw.Spaciness
 	}
+	if raw.Skin != "" {
+		def.Skin = raw.Skin
+	}
 	def.TerminalColorLink = raw.TerminalColorLink
 
 	// 会话日志：bool 无法区分"未设置"与 false，直接采用磁盘值，
@@ -114,6 +118,7 @@ func defaultSettings() AppSettings {
 		SyncMethod:              "server",
 		AccentColor:             "monochrome",
 		Spaciness:               1,
+		Skin:                    "default",
 		TerminalColorLink:       false,
 		SessionLogEnabled:       false,
 		SessionLogRetentionDays: 7,
@@ -160,6 +165,7 @@ func (s *SettingsService) SaveSettings(settings AppSettings) error {
 		WebDAVPassword:          settings.WebDAVPassword,
 		AccentColor:             settings.AccentColor,
 		Spaciness:               settings.Spaciness,
+		Skin:                    settings.Skin,
 		TerminalColorLink:       settings.TerminalColorLink,
 		SessionLogEnabled:       settings.SessionLogEnabled,
 		SessionLogRetentionDays: settings.SessionLogRetentionDays,
@@ -189,6 +195,9 @@ func (s *SettingsService) SaveSettings(settings AppSettings) error {
 	if merged.Spaciness == 0 && existing.Spaciness != 0 {
 		merged.Spaciness = existing.Spaciness
 	}
+	if merged.Skin == "" && existing.Skin != "" {
+		merged.Skin = existing.Skin
+	}
 	// SessionLogEnabled 与 TerminalColorLink 同理：前端始终发送完整设置对象，
 	// 直接采用传入值，否则用户无法从 true 关回 false。
 	// 保留期为零值视为"未提供"，沿用磁盘上的值。
@@ -203,6 +212,7 @@ func (s *SettingsService) SaveSettings(settings AppSettings) error {
 	def := defaultSettings()
 	validThemes := map[string]bool{"dark": true, "light": true}
 	validAccents := map[string]bool{"monochrome": true, "sky": true, "emerald": true, "violet": true, "amber": true, "rose": true, "cyan": true}
+	validSkins := map[string]bool{"default": true, "hud": true, "editorial": true}
 	validSync := map[string]bool{"server": true, "webdav": true}
 
 	if !validThemes[merged.Theme] {
@@ -210,6 +220,9 @@ func (s *SettingsService) SaveSettings(settings AppSettings) error {
 	}
 	if !validAccents[merged.AccentColor] {
 		merged.AccentColor = def.AccentColor
+	}
+	if !validSkins[merged.Skin] {
+		merged.Skin = def.Skin
 	}
 	if !validSync[merged.SyncMethod] {
 		merged.SyncMethod = def.SyncMethod
@@ -243,6 +256,9 @@ func (s *SettingsService) SaveSettings(settings AppSettings) error {
 	}
 	if merged.Spaciness != def.Spaciness {
 		sanitized.Spaciness = merged.Spaciness
+	}
+	if merged.Skin != def.Skin {
+		sanitized.Skin = merged.Skin
 	}
 	if merged.TerminalColorLink != def.TerminalColorLink {
 		sanitized.TerminalColorLink = merged.TerminalColorLink

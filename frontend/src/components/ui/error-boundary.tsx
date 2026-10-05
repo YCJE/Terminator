@@ -35,17 +35,17 @@ export class ErrorBoundary extends Component<Props, State> {
             return this.props.fallback ?? (
                 <div className="flex h-full w-full flex-col items-center justify-center gap-3 p-6">
                     <p className="text-sm font-medium text-destructive">组件渲染出错</p>
-                    <div className="max-w-lg w-full rounded-lg border border-border bg-muted/50 p-3">
-                        <p className="text-xs font-mono break-all text-foreground">
+                    <div className="max-w-lg w-full rounded-lg border border-[var(--hairline)] bg-[var(--surface-2)] p-3">
+                        <p className="text-xs font-mono break-all text-[var(--fg-strong)]">
                             {this.state.error?.message ?? "未知错误"}
                         </p>
                         {this.state.error?.stack && (
-                            <pre className="mt-2 max-h-48 overflow-auto text-[0.6875rem] font-mono text-muted-foreground whitespace-pre-wrap break-all">
+                            <pre className="mt-2 max-h-48 overflow-auto text-[0.6875rem] font-mono text-[var(--fg-muted)] whitespace-pre-wrap break-all">
                                 {this.state.error.stack}
                             </pre>
                         )}
                         {this.state.info?.componentStack && (
-                            <pre className="mt-2 max-h-32 overflow-auto text-[0.6875rem] font-mono text-muted-foreground/70 whitespace-pre-wrap break-all">
+                            <pre className="mt-2 max-h-32 overflow-auto text-[0.6875rem] font-mono text-[var(--fg-subtle)] whitespace-pre-wrap break-all">
                                 {this.state.info.componentStack}
                             </pre>
                         )}

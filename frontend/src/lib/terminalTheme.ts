@@ -102,6 +102,35 @@ const LIGHT_THEME: ITheme = {
 
 export type TerminalThemeName = "dark" | "light";
 export type AccentColorName = "monochrome" | "sky" | "emerald" | "violet" | "amber" | "rose" | "cyan";
+export type TerminalSkinName = "default" | "hud" | "editorial";
+
+/**
+ * 皮肤对终端底色的覆盖
+ * 让终端画布与外壳表面同色，避免面板内边距处出现色差接缝。
+ * 仅覆盖底色/前景/光标/选区，ANSI 16 色与 256 色扩展调色板保持不变。
+ */
+const SKIN_TERMINAL_SURFACE: Record<"hud" | "editorial", {
+    background: string;
+    foreground: string;
+    cursor: string;
+    selectionBackground: string;
+    selectionInactiveBackground: string;
+}> = {
+    hud: {
+        background: "#05070a",
+        foreground: "#d3ece7",
+        cursor: "#46e6c0",
+        selectionBackground: "rgba(70, 230, 192, 0.25)",
+        selectionInactiveBackground: "rgba(70, 230, 192, 0.10)",
+    },
+    editorial: {
+        background: "#fbf9f4",
+        foreground: "#1a1917",
+        cursor: "#b0382a",
+        selectionBackground: "rgba(176, 56, 42, 0.18)",
+        selectionInactiveBackground: "rgba(176, 56, 42, 0.08)",
+    },
+};
 
 /** 各强调色对应的终端 ANSI 蓝色/青色替换值 */
 const ACCENT_TERMINAL_COLORS: Partial<Record<AccentColorName, { dark: { blue: string; cyan: string; cursor: string }; light: { blue: string; cyan: string; cursor: string } }>> = {
@@ -114,9 +143,23 @@ const ACCENT_TERMINAL_COLORS: Partial<Record<AccentColorName, { dark: { blue: st
 };
 
 /** 根据主题名称获取终端配置 */
-export function getTerminalTheme(theme: TerminalThemeName, accentColor?: AccentColorName) {
+export function getTerminalTheme(theme: TerminalThemeName, accentColor?: AccentColorName, skin?: TerminalSkinName) {
     const isDark = theme !== "light";
     let baseTheme: ITheme = isDark ? DARK_THEME : LIGHT_THEME;
+
+    // 皮肤底色覆盖：终端画布与外壳表面同色
+    if (skin === "hud" || skin === "editorial") {
+        const surface = SKIN_TERMINAL_SURFACE[skin];
+        baseTheme = {
+            ...baseTheme,
+            background: surface.background,
+            foreground: surface.foreground,
+            cursor: surface.cursor,
+            cursorAccent: surface.background,
+            selectionBackground: surface.selectionBackground,
+            selectionInactiveBackground: surface.selectionInactiveBackground,
+        };
+    }
 
     // 如果指定了强调色，替换终端蓝色系 ANSI 色
     if (accentColor && ACCENT_TERMINAL_COLORS[accentColor]) {

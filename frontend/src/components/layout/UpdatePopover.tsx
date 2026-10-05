@@ -56,14 +56,13 @@ export function UpdatePopover() {
         <Popover>
             <PopoverTrigger asChild>
                 <div className="relative">
-                    <Button
-                        variant="ghost"
-                        size="icon"
-                        className="wails-no-drag text-success hover:text-success/80 group"
+                    <button
+                        type="button"
+                        className="shell-nav-btn is-accent wails-no-drag"
                         title={isManualDownload ? t("update_available") : t("update_ready")}
                     >
-                        <ArrowDownToLine className="size-5 animate-bounce"/>
-                    </Button>
+                        <ArrowDownToLine className="size-[18px]"/>
+                    </button>
                 </div>
             </PopoverTrigger>
 
@@ -73,7 +72,7 @@ export function UpdatePopover() {
                         <span className="font-semibold">
                             {isManualDownload ? t("update_available") : t("update_ready")}
                         </span>
-                        <span className="text-xs text-muted-foreground">
+                        <span className="text-xs text-[var(--fg-muted)]">
                             {t("update_to", {version})}
                         </span>
                     </div>

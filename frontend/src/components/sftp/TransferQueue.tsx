@@ -28,8 +28,8 @@ const TransferRow = memo(function TransferRow({ item }: { item: TransferItem }) 
         : 0;
 
     return (
-        <div className="group flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-accent/40">
-            <span className="shrink-0 text-muted-foreground">
+        <div className="sftp-transfer-row group">
+            <span className="shrink-0 text-[var(--fg-muted)]">
                 {item.type === "upload"
                     ? <Upload className="size-3.5" />
                     : <Download className="size-3.5" />}
@@ -37,13 +37,13 @@ const TransferRow = memo(function TransferRow({ item }: { item: TransferItem }) 
             <div className="min-w-0 flex-1">
                 <div className="flex items-center justify-between gap-2">
                     <span className="truncate text-xs">{item.filename}</span>
-                    <span className="shrink-0 text-[0.625rem] text-muted-foreground">
+                    <span className="shrink-0 text-[0.625rem] text-[var(--fg-subtle)]">
                         {item.total > 0
                             ? `${formatFileSize(item.transferred)} / ${formatFileSize(item.total)}`
                             : formatFileSize(item.transferred)}
                     </span>
                 </div>
-                <div className="mt-1 h-1 w-full overflow-hidden rounded-full bg-muted">
+                <div className="sftp-transfer-track mt-1">
                     <div
                         className={cn(
                             "h-full rounded-full transition-all",
@@ -63,7 +63,7 @@ const TransferRow = memo(function TransferRow({ item }: { item: TransferItem }) 
                 )}
             </div>
             <span className="flex shrink-0 items-center">
-                {item.status === "active" && <Loader2 className="size-3.5 animate-spin text-muted-foreground" />}
+                {item.status === "active" && <Loader2 className="size-3.5 animate-spin text-[var(--fg-muted)]" />}
                 {item.status === "success" && <Check className="size-3.5 text-success" />}
                 {item.status === "error" && <X className="size-3.5 text-destructive" />}
             </span>
@@ -93,11 +93,11 @@ export function TransferQueue() {
     const hasTransfers = transfers.length > 0;
 
     return (
-        <div className="shrink-0 border-t border-border bg-muted/20">
+        <div className="sftp-transfers">
             <div className="flex items-center justify-between px-3 py-1.5">
                 <button
                     type="button"
-                    className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+                    className="flex items-center gap-1.5 text-xs font-medium text-[var(--fg-muted)] transition-colors hover:text-[var(--fg-strong)]"
                     onClick={() => setCollapsed((c) => !c)}
                 >
                     <ChevronDown className={cn("size-3.5 transition-transform", !collapsed && "rotate-180")} />
@@ -121,7 +121,7 @@ export function TransferQueue() {
             {!collapsed && (
                 <div className="max-h-44 overflow-y-auto px-2 pb-2">
                     {transfers.length === 0 ? (
-                        <div className="px-3 py-3 text-xs text-muted-foreground">
+                        <div className="px-3 py-3 text-xs text-[var(--fg-subtle)]">
                             {t("no_transfers")}
                         </div>
                     ) : (

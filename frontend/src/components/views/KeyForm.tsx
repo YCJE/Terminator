@@ -86,7 +86,7 @@ export function KeyForm({initialData, isSaving, onSave, onCancel}: KeyFormProps)
         <form onSubmit={handleSubmit} className="flex flex-col gap-5">
             {/* 密钥详情区 */}
             <section className="flex flex-col gap-4">
-                <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                <div className="flex items-center gap-2 text-sm font-semibold text-[var(--fg-strong)]">
                     <KeyRound className="size-4 text-primary"/>
                     {t("section_key_details")}
                 </div>
@@ -95,7 +95,7 @@ export function KeyForm({initialData, isSaving, onSave, onCancel}: KeyFormProps)
                     <Label htmlFor="name">{t("key_name_label")}</Label>
                     <div className="relative">
                         <Tag
-                            className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"/>
+                            className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--fg-subtle)]"/>
                         <Input
                             id="name"
                             className="pl-9"
@@ -180,7 +180,7 @@ export function KeyForm({initialData, isSaving, onSave, onCancel}: KeyFormProps)
             </section>
 
             {/* 底部操作按钮 */}
-            <div className="flex items-center justify-end gap-2 border-t border-border/60 pt-4">
+            <div className="flex items-center justify-end gap-2 border-t border-[var(--hairline)] pt-4">
                 <Button type="button" variant="outline" onClick={onCancel} disabled={isSaving}>
                     {t("cancel", {ns: "common"})}
                 </Button>

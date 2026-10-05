@@ -169,14 +169,14 @@ export function SnippetPanel({ sessionId }: SnippetPanelProps) {
     }, [snippets, searchQuery, t]);
 
     return (
-        <div className="flex h-full flex-col border-t border-border bg-background/80 backdrop-blur-sm">
+        <div className="terminal-snippet-panel h-full">
             {/* 工具栏：搜索框 + 新增按钮 */}
-            <div className="flex items-center gap-2 px-3 py-2">
+            <div className="terminal-snippet-toolbar">
                 <div className="relative flex-1">
-                    <Search className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"/>
+                    <Search className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-[var(--fg-subtle)]"/>
                     <Input
                         placeholder={t("snippet_search_placeholder")}
-                        className="h-7 border-border bg-input/50 pl-8 text-xs"
+                        className="h-7 border-[var(--hairline)] bg-[var(--surface-2)] pl-8 text-xs"
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
                     />
@@ -195,20 +195,20 @@ export function SnippetPanel({ sessionId }: SnippetPanelProps) {
             {/* 代码片段列表区域 */}
             <div className="flex-1 overflow-y-auto px-3 pb-2">
                 {isLoading && (
-                    <div className="py-4 text-center text-xs text-muted-foreground">
+                    <div className="py-4 text-center text-xs text-[var(--fg-muted)]">
                         {t("snippet_loading")}
                     </div>
                 )}
 
                 {!isLoading && snippets.length === 0 && (
                     <div className="flex flex-col items-center justify-center py-6 text-center">
-                        <TerminalIcon className="mb-2 size-6 text-muted-foreground/50"/>
-                        <p className="text-xs text-muted-foreground">{t("snippet_empty")}</p>
+                        <TerminalIcon className="mb-2 size-6 text-[var(--fg-subtle)]"/>
+                        <p className="text-xs text-[var(--fg-muted)]">{t("snippet_empty")}</p>
                     </div>
                 )}
 
                 {!isLoading && snippets.length > 0 && groupedSnippets.length === 0 && (
-                    <div className="py-4 text-center text-xs text-muted-foreground">
+                    <div className="py-4 text-center text-xs text-[var(--fg-muted)]">
                         {t("snippet_no_results")}
                     </div>
                 )}
@@ -221,7 +221,7 @@ export function SnippetPanel({ sessionId }: SnippetPanelProps) {
                             {/* 分组标题（可折叠） */}
                             <button
                                 onClick={() => toggleGroup(group)}
-                                className="mb-1 flex w-full items-center gap-1 px-1 py-0.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
+                                className="terminal-group-head"
                             >
                                 <ChevronDown
                                     className={cn(
@@ -230,7 +230,7 @@ export function SnippetPanel({ sessionId }: SnippetPanelProps) {
                                     )}
                                 />
                                 {group}
-                                <span className="text-muted-foreground/60">({items.length})</span>
+                                <span className="text-[var(--fg-subtle)]">({items.length})</span>
                             </button>
 
                             {/* 分组下的代码片段列表 */}
@@ -274,7 +274,7 @@ export function SnippetPanel({ sessionId }: SnippetPanelProps) {
                             <Label>{t("snippet_group_label")}</Label>
                             <div className="relative min-w-0">
                                 <FolderOpen
-                                    className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"/>
+                                    className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-[var(--fg-subtle)]"/>
                                 <Input
                                     list="snippet-existing-groups"
                                     className="pl-9"
@@ -357,21 +357,16 @@ function SnippetChip({ snippet, sessionId, onExecute, onEdit, onDelete }: Snippe
 
     return (
         <DropdownMenu>
-            <div className="group relative inline-flex">
+            <div className="terminal-snippet-chip-wrap group relative inline-flex">
                 {/* 代码片段按钮：左键执行，右键弹出菜单 */}
                 <button
                     onClick={() => onExecute(snippet)}
                     onContextMenu={handleContextMenu}
                     disabled={!sessionId}
                     title={snippet.command}
-                    className={cn(
-                        "inline-flex items-center gap-1.5 rounded-md border border-border bg-input/30 px-2.5 py-1 pr-7 text-xs font-medium transition-colors",
-                        "hover:bg-primary/10 hover:border-primary/30 hover:text-primary",
-                        "disabled:cursor-not-allowed disabled:opacity-50",
-                        "cursor-pointer select-none"
-                    )}
+                    className="terminal-snippet-chip"
                 >
-                    <TerminalIcon className="size-3 shrink-0 text-muted-foreground"/>
+                    <TerminalIcon className="size-3 shrink-0 text-[var(--fg-subtle)]"/>
                     <span className="max-w-32 truncate">{snippet.name}</span>
                 </button>
 
@@ -387,11 +382,7 @@ function SnippetChip({ snippet, sessionId, onExecute, onEdit, onDelete }: Snippe
                     onClick={(e) => { stopPropagation(e); onEdit(snippet); }}
                     title={t("snippet_edit")}
                     aria-label={t("snippet_edit")}
-                    className={cn(
-                        "absolute right-5 top-1/2 flex size-4 -translate-y-1/2 items-center justify-center rounded-sm",
-                        "text-muted-foreground transition-all hover:bg-accent hover:text-accent-foreground",
-                        "opacity-0 group-hover:opacity-100"
-                    )}
+                    className="terminal-chip-action right-5"
                 >
                     <Pencil className="size-3"/>
                 </button>
@@ -400,11 +391,7 @@ function SnippetChip({ snippet, sessionId, onExecute, onEdit, onDelete }: Snippe
                     onClick={(e) => { stopPropagation(e); onDelete(snippet); }}
                     title={t("snippet_delete")}
                     aria-label={t("snippet_delete")}
-                    className={cn(
-                        "absolute right-1 top-1/2 flex size-4 -translate-y-1/2 items-center justify-center rounded-sm",
-                        "text-muted-foreground transition-all hover:bg-destructive/20 hover:text-destructive",
-                        "opacity-0 group-hover:opacity-100"
-                    )}
+                    className="terminal-chip-action is-danger right-1"
                 >
                     <Trash2 className="size-3"/>
                 </button>

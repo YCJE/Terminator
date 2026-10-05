@@ -14,13 +14,14 @@ import { KEYS_QUERY_KEY } from "@/hooks/useKeys.ts";
 import { SettingsService } from "../bindings/terminator-desktop/backend/internal/services/settings";
 import { useTranslation } from "react-i18next";
 import { AppEvent } from "@/lib/events.ts";
-import { useUIStore, Theme, AccentColor, Spaciness } from "@/store/uiStore.ts";
+import { useUIStore, Theme, AccentColor, Spaciness, Skin } from "@/store/uiStore.ts";
 import { useSessionStore } from "@/store/sessionStore.ts";
 import { useSyncStore } from "@/store/syncStore.ts";
 import { UpdaterService } from "../bindings/terminator-desktop/backend/internal/services/updater";
 
 const VALID_ACCENTS: AccentColor[] = ["monochrome", "sky", "emerald", "violet", "amber", "rose", "cyan"];
 const VALID_SPACINESS: Spaciness[] = [0.8, 1, 1.2];
+const VALID_SKINS: Skin[] = ["default", "hud", "editorial"];
 
 export default function App() {
     const isUnlocked = useAuthStore((s) => s.isUnlocked);
@@ -33,6 +34,8 @@ export default function App() {
     const setTheme = useUIStore((s) => s.setTheme);
     const accentColor = useUIStore((s) => s.accentColor);
     const spaciness = useUIStore((s) => s.spaciness);
+    const skin = useUIStore((s) => s.skin);
+    const setSkin = useUIStore((s) => s.setSkin);
     const setAccentColor = useUIStore((s) => s.setAccentColor);
     const setSpaciness = useUIStore((s) => s.setSpaciness);
     const setTerminalColorLink = useUIStore((s) => s.setTerminalColorLink);
@@ -61,20 +64,27 @@ export default function App() {
                 if (settings.spaciness && settings.spaciness > 0 && VALID_SPACINESS.includes(settings.spaciness as Spaciness)) {
                     setSpaciness(settings.spaciness as Spaciness);
                 }
+                if (settings.skin && VALID_SKINS.includes(settings.skin as Skin)) {
+                    setSkin(settings.skin as Skin);
+                }
                 setTerminalColorLink(settings.terminal_color_link);
             })
             .catch(console.error);
-    }, [i18n, setTheme, setAccentColor, setSpaciness, setTerminalColorLink]);
+    }, [i18n, setTheme, setAccentColor, setSpaciness, setSkin, setTerminalColorLink]);
 
     // Apply theme class to document root whenever it changes
+    // 皮肤自带明暗属性：HUD 强制暗、编辑纸感强制亮；default 时跟随 theme。
+    // 这样强调色预设能取到正确的明暗变体（见 main.css 皮肤层说明）。
+    const effectiveDark = skin === "hud" ? true : skin === "editorial" ? false : theme === "dark";
+
     useEffect(() => {
-        const root = document.documentElement;
-        if (theme === "light") {
-            root.classList.remove("dark");
-        } else {
-            root.classList.add("dark");
-        }
-    }, [theme]);
+        document.documentElement.classList.toggle("dark", effectiveDark);
+    }, [effectiveDark]);
+
+    // Apply skin to document root whenever it changes
+    useEffect(() => {
+        document.documentElement.setAttribute("data-skin", skin);
+    }, [skin]);
 
     // Apply accent color to document root whenever it changes
     useEffect(() => {
@@ -171,7 +181,7 @@ export default function App() {
 
     return (
         <ErrorBoundary>
-            <div className="app-shell flex h-screen w-screen flex-col overflow-hidden bg-background text-foreground">
+            <div className="app-shell flex h-screen w-screen flex-col overflow-hidden bg-[var(--surface-0)] text-[var(--fg-strong)]">
                 <TitleBar/>
                 {isUnlocked && <SyncConflictBanner/>}
                 <div className="flex flex-1 overflow-hidden relative">
@@ -186,7 +196,7 @@ export default function App() {
                     )}
 
                 </div>
-                <Toaster position="bottom-right" theme={theme} richColors style={{ zIndex: 9999 }} />
+                <Toaster position="bottom-right" theme={effectiveDark ? "dark" : "light"} richColors style={{ zIndex: 9999 }}/>
             </div>
         </ErrorBoundary>
     );

@@ -26,6 +26,8 @@
   "group_label": "Group",
   "group_placeholder": "Enter group name (optional)",
   "ungrouped": "Ungrouped",
+  "tag_jump": "Via jump",
+  "tag_proxy": "Proxy",
   "auth_method_label": "Authentication",
   "auth_save_password": "Save Password",
   "auth_ask_on_connect": "Ask on Connect",

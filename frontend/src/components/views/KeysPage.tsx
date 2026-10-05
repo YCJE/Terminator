@@ -54,68 +54,71 @@ export function KeysPage() {
 
     return (
         <div className="flex h-full w-full overflow-hidden">
-        <div
-            className="lazy-fade-in flex h-full min-w-0 flex-1 flex-col overflow-y-auto p-8"
-        >
-
-            <div className="mb-8 flex w-full items-center gap-4">
-                <h1 className="shrink-0 text-2xl font-bold tracking-tight text-foreground">
+        <div className="lazy-fade-in flex h-full min-w-0 flex-1 flex-col overflow-hidden">
+            {/* 工具条：标题 + 计数 + 搜索 + 操作 */}
+            <div className="flex shrink-0 items-center gap-3 border-b border-[var(--hairline)] px-6 pt-4 pb-3">
+                <h1 className="shrink-0 text-base font-semibold tracking-tight text-[var(--fg-strong)]">
                     {t("page_title")}
                 </h1>
-                <div className="relative flex-1">
-                    <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"/>
+                <span className="shrink-0 rounded-[5px] border border-[var(--hairline)] bg-[var(--surface-2)]
+                                 px-1.5 py-0.5 font-mono text-[11.5px] text-[var(--fg-subtle)]">
+                    {keys?.length ?? 0}
+                </span>
+                <div className="flex-1"/>
+                <div className="relative w-64 min-w-0 shrink">
+                    <Search className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-[var(--fg-subtle)]"/>
                     <Input
                         placeholder={t("search_keys")}
-                        className="w-full border-border bg-input/50 pl-9"
+                        className="h-[var(--control-height)] w-full border-[var(--hairline)]
+                                   bg-[var(--surface-0)] pl-8 text-[12.5px]"
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
                     />
                 </div>
-                <Button onClick={handleCreateNew} className="shrink-0">
+                <Button onClick={handleCreateNew} className="h-[var(--control-height)] shrink-0">
                     <Plus/>
                     {t("new_key")}
                 </Button>
             </div>
 
-            {isLoading && <div className="text-sm text-muted-foreground">{t("loading_keys")}</div>}
+            {/* 列表：卡片网格 */}
+            <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-8">
+                {isLoading && <div className="px-2 py-4 text-sm text-[var(--fg-muted)]">{t("loading_keys")}</div>}
 
-            {!isLoading && keys?.length === 0 && (
-                <div className="soft-card flex flex-col items-center justify-center py-20 text-center
-                                rounded-xl">
-                    <div className="mb-4 flex size-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                        <Key className="size-6"/>
+                {!isLoading && keys?.length === 0 && (
+                    <div className="soft-card mt-4 flex flex-col items-center justify-center py-20 text-center
+                                    rounded-xl">
+                        <div className="mb-4 flex size-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                            <Key className="size-6"/>
+                        </div>
+                        <h3 className="text-lg font-semibold text-[var(--fg-strong)]">{t("empty_title")}</h3>
+                        <p className="mb-4 mt-2 text-sm text-[var(--fg-muted)]">{t("empty_desc")}</p>
+                        <Button variant="outline" onClick={handleCreateNew}>{t("import_key")}</Button>
                     </div>
-                    <h3 className="text-lg font-semibold text-foreground">{t("empty_title")}</h3>
-                    <p className="mb-4 mt-2 text-sm text-muted-foreground">{t("empty_desc")}</p>
-                    <Button variant="outline" onClick={handleCreateNew}>{t("import_key")}</Button>
-                </div>
-            )}
+                )}
 
-            <div
-                className="grid w-full gap-4"
-                style={{gridTemplateColumns: "repeat(auto-fit, minmax(20rem, 1fr))"}}
-            >
-                {filteredKeys?.map((key, index) => (
-                    <div key={key.id} className="stagger-in" style={{['--stagger-index' as string]: index}}>
+                <div className="list-rows mt-2">
+                    {filteredKeys?.map((key) => (
                         <KeyCard
+                            key={key.id}
                             savedKey={key}
                             onEdit={handleEdit}
                             onDelete={handleDeletePrompt}
                         />
-                    </div>
-                ))}
-            </div>
+                    ))}
+                </div>
 
-            <ConfirmModal
-                isOpen={!!keyToDelete}
-                onClose={() => !deleteMutation.isPending && setKeyToDelete(null)}
-                onConfirm={handleConfirmDelete}
-                title={t("delete_title")}
-                description={t("delete_desc", {name: keyToDelete?.name})}
-                confirmText={t("delete", {ns: "common"})}
-                isDestructive={true}
-                confirmDisabled={deleteMutation.isPending}
-            />
+                <ConfirmModal
+                    isOpen={!!keyToDelete}
+                    onClose={() => !deleteMutation.isPending && setKeyToDelete(null)}
+                    onConfirm={handleConfirmDelete}
+                    title={t("delete_title")}
+                    description={t("delete_desc", {name: keyToDelete?.name})}
+                    confirmText={t("delete", {ns: "common"})}
+                    isDestructive={true}
+                    confirmDisabled={deleteMutation.isPending}
+                />
+            </div>
         </div>
 
             <SlidePanel

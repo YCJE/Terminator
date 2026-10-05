@@ -154,7 +154,7 @@ export function HostForm({initialData, isSaving, onSave, onCancel}: HostFormProp
         <form onSubmit={handleSubmit} className="flex flex-col gap-5">
             {/* 连接信息区 */}
             <section className="flex flex-col gap-4">
-                <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                <div className="flex items-center gap-2 text-sm font-semibold text-[var(--fg-strong)]">
                     <Server className="size-4 text-primary"/>
                     {t("section_connection")}
                 </div>
@@ -164,7 +164,7 @@ export function HostForm({initialData, isSaving, onSave, onCancel}: HostFormProp
                         <Label htmlFor="name">{t("label_optional", {ns: "common"})}</Label>
                         <div className="relative">
                             <Tag
-                                className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"/>
+                                className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--fg-subtle)]"/>
                             <Input
                                 id="name"
                                 className="pl-9"
@@ -179,7 +179,7 @@ export function HostForm({initialData, isSaving, onSave, onCancel}: HostFormProp
                         <Label htmlFor="group">{t("group_label")}</Label>
                         <div className="relative">
                             <FolderOpen
-                                className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"/>
+                                className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--fg-subtle)]"/>
                             <Input
                                 id="group"
                                 list="existing-groups"
@@ -204,7 +204,7 @@ export function HostForm({initialData, isSaving, onSave, onCancel}: HostFormProp
                         <Label htmlFor="host">{t("host_ip", {ns: "common"})}</Label>
                         <div className="relative">
                             <Globe
-                                className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"/>
+                                className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--fg-subtle)]"/>
                             <Input
                                 id="host"
                                 className="pl-9"
@@ -237,7 +237,7 @@ export function HostForm({initialData, isSaving, onSave, onCancel}: HostFormProp
                     <Label htmlFor="username">{t("username", {ns: "common"})}</Label>
                     <div className="relative">
                         <User
-                            className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"/>
+                            className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--fg-subtle)]"/>
                         <Input
                             id="username"
                             required
@@ -250,11 +250,11 @@ export function HostForm({initialData, isSaving, onSave, onCancel}: HostFormProp
                 </div>
             </section>
 
-            <div className="h-px w-full bg-border/60"/>
+            <div className="h-px w-full bg-[var(--hairline)]"/>
 
             {/* 身份认证区 */}
             <section className="flex flex-col gap-4">
-                <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                <div className="flex items-center gap-2 text-sm font-semibold text-[var(--fg-strong)]">
                     <KeyRound className="size-4 text-primary"/>
                     {t("section_authentication")}
                 </div>
@@ -283,7 +283,7 @@ export function HostForm({initialData, isSaving, onSave, onCancel}: HostFormProp
                         <Label htmlFor="password">{t("password_optional")}</Label>
                         <div className="relative">
                             <Lock
-                                className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"/>
+                                className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--fg-subtle)]"/>
                             <Input
                                 id="password"
                                 type="password"
@@ -298,7 +298,7 @@ export function HostForm({initialData, isSaving, onSave, onCancel}: HostFormProp
                 )}
 
                 {authMethod === "ask" && (
-                    <p className="rounded-lg bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                    <p className="rounded-lg bg-[var(--surface-2)] px-3 py-2 text-xs text-[var(--fg-muted)]">
                         {t("ask_on_connect_hint")}
                     </p>
                 )}
@@ -327,24 +327,24 @@ export function HostForm({initialData, isSaving, onSave, onCancel}: HostFormProp
                 )}
             </section>
 
-            <div className="h-px w-full bg-border/60"/>
+            <div className="h-px w-full bg-[var(--hairline)]"/>
 
             {/* 代理与高级设置区 */}
             <section className="flex flex-col gap-4">
-                <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                <div className="flex items-center gap-2 text-sm font-semibold text-[var(--fg-strong)]">
                     <Network className="size-4 text-primary"/>
                     {t("section_advanced")}
                 </div>
 
                 {/* SSH Agent 转发 */}
-                <div className="flex items-center justify-between rounded-lg border border-border/60 px-3 py-2.5">
+                <div className="flex items-center justify-between rounded-lg border border-[var(--hairline)] px-3 py-2.5">
                     <div className="flex items-center gap-2">
-                        <ShieldCheck className="size-4 text-muted-foreground"/>
+                        <ShieldCheck className="size-4 text-[var(--fg-subtle)]"/>
                         <div>
                             <Label className="cursor-pointer" htmlFor="agentForwarding">
                                 {t("agent_forwarding_label")}
                             </Label>
-                            <p className="text-xs text-muted-foreground">
+                            <p className="text-xs text-[var(--fg-muted)]">
                                 {t("agent_forwarding_desc")}
                             </p>
                         </div>
@@ -363,7 +363,7 @@ export function HostForm({initialData, isSaving, onSave, onCancel}: HostFormProp
                 {/* 跳板机配置 */}
                 <div className="grid gap-2">
                     <div className="flex items-center gap-2">
-                        <Route className="size-4 text-muted-foreground"/>
+                        <Route className="size-4 text-[var(--fg-subtle)]"/>
                         <Label>{t("jump_host_label")}</Label>
                     </div>
                     <Select
@@ -387,7 +387,7 @@ export function HostForm({initialData, isSaving, onSave, onCancel}: HostFormProp
                             ))}
                         </SelectContent>
                     </Select>
-                    <p className="text-xs text-muted-foreground">
+                    <p className="text-xs text-[var(--fg-muted)]">
                         {t("jump_host_desc")}
                     </p>
                 </div>
@@ -486,7 +486,7 @@ export function HostForm({initialData, isSaving, onSave, onCancel}: HostFormProp
             </section>
 
             {/* 底部操作按钮 */}
-            <div className="flex items-center justify-end gap-2 border-t border-border/60 pt-4">
+            <div className="flex items-center justify-end gap-2 border-t border-[var(--hairline)] pt-4">
                 <Button type="button" variant="outline" onClick={onCancel} disabled={isSaving}>
                     {t("cancel", {ns: "common"})}
                 </Button>

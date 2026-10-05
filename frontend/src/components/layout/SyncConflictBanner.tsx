@@ -20,9 +20,9 @@ export function SyncConflictBanner() {
     }
 
     return (
-        <div className="flex shrink-0 items-center gap-3 border-b border-destructive/30 bg-destructive/10 px-4 py-2">
+        <div className="flex shrink-0 items-center gap-3 border-b border-destructive/30 bg-destructive/10 px-4 py-1.5">
             <AlertTriangle className="size-4 shrink-0 text-destructive"/>
-            <span className="flex-1 text-sm text-foreground">
+            <span className="flex-1 text-[12.5px] text-[var(--fg-strong)]">
                 {t("conflict_banner_message", {ns: "settings", count: conflictCount})}
             </span>
             <Button

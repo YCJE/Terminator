@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { useQueryClient } from "@tanstack/react-query";
-import { Plus, Search, Server, ChevronRight, FolderOpen, Download, Upload } from "lucide-react";
+import { Plus, Search, Server, ChevronRight, Download, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { HostCard } from "@/components/views/HostCard";
@@ -291,121 +291,124 @@ export function HostsPage() {
 
     return (
         <div className="flex h-full w-full overflow-hidden">
-        <div className="lazy-fade-in flex h-full min-w-0 flex-1 flex-col overflow-y-auto p-8">
-            <div className="mb-8 flex w-full items-center gap-4">
-                <h1 className="shrink-0 text-2xl font-bold tracking-tight text-foreground">
+        <div className="lazy-fade-in flex h-full min-w-0 flex-1 flex-col overflow-hidden">
+            {/* 工具条：标题 + 计数 + 搜索 + 操作 */}
+            <div className="flex shrink-0 items-center gap-3 border-b border-[var(--hairline)] px-6 pt-4 pb-3">
+                <h1 className="shrink-0 text-base font-semibold tracking-tight text-[var(--fg-strong)]">
                     {t("page_title")}
                 </h1>
-                <div className="relative flex-1">
-                    <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"/>
+                <span className="shrink-0 rounded-[5px] border border-[var(--hairline)] bg-[var(--surface-2)]
+                                 px-1.5 py-0.5 font-mono text-[11.5px] text-[var(--fg-subtle)]">
+                    {hosts?.length ?? 0}
+                </span>
+                <div className="flex-1"/>
+                <div className="relative w-64 min-w-0 shrink">
+                    <Search className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-[var(--fg-subtle)]"/>
                     <Input
                         placeholder={t("search_hosts")}
-                        className="w-full border-border bg-input/50 pl-9"
+                        className="h-[var(--control-height)] w-full border-[var(--hairline)]
+                                   bg-[var(--surface-0)] pl-8 text-[12.5px]"
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
                     />
                 </div>
-                <Button variant="outline" onClick={handleImportClick} className="shrink-0" title={t("import_hosts")}>
+                <Button variant="outline" onClick={handleImportClick}
+                        className="h-[var(--control-height)] shrink-0 px-2.5" title={t("import_hosts")}>
                     <Upload/>
                 </Button>
-                <Button variant="outline" onClick={handleExport} className="shrink-0" title={t("export_hosts")}>
+                <Button variant="outline" onClick={handleExport}
+                        className="h-[var(--control-height)] shrink-0 px-2.5" title={t("export_hosts")}>
                     <Download/>
                 </Button>
-                <Button onClick={handleCreateNew} className="shrink-0">
+                <Button onClick={handleCreateNew} className="h-[var(--control-height)] shrink-0">
                     <Plus/>
                     {t("new_host")}
                 </Button>
             </div>
-            <input ref={fileInputRef} type="file" accept=".json" onChange={handleImportFile} className="hidden" />
+            <input ref={fileInputRef} type="file" accept=".json" onChange={handleImportFile} className="hidden"/>
 
-            {isLoading && <div className="text-sm text-muted-foreground">{t("loading_hosts")}</div>}
+            {/* 列表：分组 + 紧凑行 */}
+            <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-8">
+                {isLoading && <div className="px-2 py-4 text-sm text-[var(--fg-muted)]">{t("loading_hosts")}</div>}
 
-            {!isLoading && hosts?.length === 0 && (
-                <div
-                    className="soft-card flex flex-col items-center justify-center py-20 text-center
-                               rounded-xl">
-                    <div className="mb-4 flex size-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                        <Server className="size-6"/>
+                {!isLoading && hosts?.length === 0 && (
+                    <div
+                        className="soft-card mt-4 flex flex-col items-center justify-center py-20 text-center
+                                   rounded-xl">
+                        <div className="mb-4 flex size-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                            <Server className="size-6"/>
+                        </div>
+                        <h3 className="text-lg font-semibold text-[var(--fg-strong)]">{t("empty_title")}</h3>
+                        <p className="mb-4 mt-2 text-sm text-[var(--fg-muted)]">{t("empty_desc")}</p>
+                        <Button variant="outline" onClick={handleCreateNew}>{t("add_first_host")}</Button>
                     </div>
-                    <h3 className="text-lg font-semibold text-foreground">{t("empty_title")}</h3>
-                    <p className="mb-4 mt-2 text-sm text-muted-foreground">{t("empty_desc")}</p>
-                    <Button variant="outline" onClick={handleCreateNew}>{t("add_first_host")}</Button>
-                </div>
-            )}
+                )}
 
-            {/* 主机列表：有分组时按分组展示，无分组时平铺 */}
-            {hasGroups ? (
-                <div className="flex flex-col gap-6">
-                    {groupedHosts.map(([group, groupHosts]) => {
-                        const isCollapsed = collapsedGroups.has(group);
-                        const groupName = group === UNGROUPED ? t("ungrouped") : group;
-                        return (
-                            <div key={group}>
-                                {/* 分组标题 */}
-                                <button
-                                    onClick={() => toggleGroup(group)}
-                                    className="mb-3 flex w-full items-center gap-2 text-left"
-                                >
-                                    <ChevronRight
-                                        className={cn(
-                                            "size-4 text-muted-foreground transition-transform",
-                                            !isCollapsed && "rotate-90"
-                                        )}
-                                    />
-                                    {group !== UNGROUPED && (
-                                        <FolderOpen className="size-4 text-primary/70" />
-                                    )}
-                                    <span className="text-sm font-semibold text-foreground">
-                                        {groupName}
-                                    </span>
-                                    <span className="text-xs text-muted-foreground">
-                                        ({groupHosts.length})
-                                    </span>
-                                </button>
-
-                                {/* 分组内的主机卡片 */}
-                                {!isCollapsed && (
-                                    <div
-                                        className="grid w-full gap-4"
-                                        style={{gridTemplateColumns: "repeat(auto-fit, minmax(20rem, 1fr))"}}
+                {/* 主机列表：有分组时按分组展示，无分组时平铺 */}
+                {hasGroups ? (
+                    <div className="flex flex-col">
+                        {groupedHosts.map(([group, groupHosts]) => {
+                            const isCollapsed = collapsedGroups.has(group);
+                            const groupName = group === UNGROUPED ? t("ungrouped") : group;
+                            return (
+                                <div key={group} className="mt-5">
+                                    {/* 分组标题 */}
+                                    <button
+                                        onClick={() => toggleGroup(group)}
+                                        className="sticky top-0 z-[2] flex h-[30px] w-full items-center gap-2
+                                                   border-b border-[var(--hairline)] bg-[var(--surface-0)] px-2 text-left"
                                     >
-                                        {groupHosts.map((host, index) => (
-                                            <div key={host.id} className="stagger-in" style={{['--stagger-index' as string]: index}}>
+                                        <ChevronRight
+                                            className={cn(
+                                                "size-3.5 text-[var(--fg-subtle)] transition-transform",
+                                                !isCollapsed && "rotate-90"
+                                            )}
+                                        />
+                                        <span className="text-[11.5px] font-semibold uppercase tracking-[0.06em] text-[var(--fg-muted)]">
+                                            {groupName}
+                                        </span>
+                                        <span className="font-mono text-[11px] text-[var(--fg-subtle)]">
+                                            {groupHosts.length}
+                                        </span>
+                                        <span className="h-px flex-1 bg-[var(--hairline)]"/>
+                                    </button>
+
+                                    {/* 分组内的主机行 */}
+                                    {!isCollapsed && (
+                                        <div className="list-rows">
+                                            {groupHosts.map((host) => (
                                                 <HostCard
+                                                    key={host.id}
                                                     host={host}
                                                     onConnect={handleConnect}
                                                     onEdit={handleEdit}
                                                     onDelete={handleDeletePrompt}
                                                 />
-                                            </div>
-                                        ))}
-                                    </div>
-                                )}
-                            </div>
-                        );
-                    })}
-                </div>
-            ) : groupedHosts.length > 0 ? (
-                <div
-                    className="grid w-full gap-4"
-                    style={{gridTemplateColumns: "repeat(auto-fit, minmax(20rem, 1fr))"}}
-                >
-                    {groupedHosts[0][1].map((host, index) => (
-                        <div key={host.id} className="stagger-in" style={{['--stagger-index' as string]: index}}>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })}
+                    </div>
+                ) : groupedHosts.length > 0 ? (
+                    <div className="list-rows mt-2">
+                        {groupedHosts[0][1].map((host) => (
                             <HostCard
+                                key={host.id}
                                 host={host}
                                 onConnect={handleConnect}
                                 onEdit={handleEdit}
                                 onDelete={handleDeletePrompt}
                             />
-                        </div>
-                    ))}
-                </div>
-            ) : !isLoading && hosts && hosts.length > 0 ? (
-                <div className="py-12 text-center text-sm text-muted-foreground">
-                    {t("no_search_results")}
-                </div>
-            ) : null}
+                        ))}
+                    </div>
+                ) : !isLoading && hosts && hosts.length > 0 ? (
+                    <div className="py-12 text-center text-sm text-[var(--fg-muted)]">
+                        {t("no_search_results")}
+                    </div>
+                ) : null}
+            </div>
 
             <PasswordPromptDialog
                 isOpen={!!passwordPromptHost}

@@ -30,6 +30,7 @@ export function TerminalInstance({sessionId, isActive, config, disconnected}: Te
     const {t} = useTranslation("terminal");
     const theme = useUIStore((s) => s.theme);
     const accentColor = useUIStore((s) => s.accentColor);
+    const skin = useUIStore((s) => s.skin);
     const terminalColorLink = useUIStore((s) => s.terminalColorLink);
     const isFilePanelVisible = useUIStore((s) => s.isFilePanelVisible);
     const setSessionStatus = useSessionStore((s) => s.setSessionStatus);
@@ -70,7 +71,7 @@ export function TerminalInstance({sessionId, isActive, config, disconnected}: Te
 
         let cancelled = false;
 
-        const term = new Terminal(getTerminalTheme(theme, terminalColorLink ? accentColor : undefined));
+        const term = new Terminal(getTerminalTheme(theme, terminalColorLink ? accentColor : undefined, skin));
         const fitAddon = new FitAddon();
         const unicode11Addon = new Unicode11Addon();
         const serializeAddon = new SerializeAddon();
@@ -260,14 +261,14 @@ export function TerminalInstance({sessionId, isActive, config, disconnected}: Te
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [sessionId, config]);
 
-    // 主题/强调色/联动切换时实时更新终端颜色
+    // 主题/强调色/皮肤/联动切换时实时更新终端颜色
     useEffect(() => {
         const term = terminalRef.current;
         if (!term) return;
-        const colors = getTerminalTheme(theme, terminalColorLink ? accentColor : undefined).theme;
+        const colors = getTerminalTheme(theme, terminalColorLink ? accentColor : undefined, skin).theme;
         term.options.theme = colors;
         term.refresh(0, term.rows - 1);
-    }, [theme, accentColor, terminalColorLink]);
+    }, [theme, accentColor, skin, terminalColorLink]);
 
     // SSH 数据事件 — 使用流控写入器 + 滚动锚定
     useEffect(() => {
@@ -355,7 +356,7 @@ export function TerminalInstance({sessionId, isActive, config, disconnected}: Te
     return (
         <div
             className={cn(
-                "terminal-pane absolute inset-0 bg-background p-2",
+                "terminal-pane absolute inset-0 bg-[var(--surface-0)] p-[var(--terminal-padding)]",
                 isActive ? "terminal-pane-focused z-10" : "terminal-pane-unfocused pointer-events-none"
             )}
             style={{
@@ -372,7 +373,7 @@ export function TerminalInstance({sessionId, isActive, config, disconnected}: Te
                         setTimeout(() => searchInputRef.current?.focus(), 50);
                     }}
                     title={t("search_open")}
-                    className="absolute right-3 top-3 z-20 flex size-7 items-center justify-center rounded-md border border-border bg-popover/80 text-muted-foreground shadow-sm backdrop-blur-sm transition-colors hover:bg-accent hover:text-accent-foreground"
+                    className="terminal-overlay-btn absolute right-3 top-3 z-20 size-7"
                 >
                     <Search className="size-3.5"/>
                 </button>
@@ -380,7 +381,7 @@ export function TerminalInstance({sessionId, isActive, config, disconnected}: Te
 
             {/* 终端搜索面板（借鉴 Tabby） */}
             {showSearch && isActive && (
-                <div className="absolute right-3 top-3 z-20 flex items-center gap-1 rounded-md border border-border bg-popover p-1.5 shadow-lg">
+                <div className="terminal-search-panel absolute right-3 top-3 z-20">
                     <input
                         ref={searchInputRef}
                         type="text"
@@ -395,18 +396,18 @@ export function TerminalInstance({sessionId, isActive, config, disconnected}: Te
                             }
                         }}
                         placeholder={t("search_placeholder")}
-                        className="h-7 w-48 rounded-sm bg-background px-2 text-xs outline-none"
+                        className="terminal-search-input"
                     />
                     <button
                         onClick={() => handleSearch("prev")}
-                        className="flex size-6 items-center justify-center rounded-sm hover:bg-accent"
+                        className="terminal-search-btn"
                         title={t("search_prev")}
                     >
                         <ChevronUp className="size-3.5"/>
                     </button>
                     <button
                         onClick={() => handleSearch("next")}
-                        className="flex size-6 items-center justify-center rounded-sm hover:bg-accent"
+                        className="terminal-search-btn"
                         title={t("search_next")}
                     >
                         <ChevronDown className="size-3.5"/>
@@ -416,7 +417,7 @@ export function TerminalInstance({sessionId, isActive, config, disconnected}: Te
                             setShowSearch(false);
                             setSearchQuery("");
                         }}
-                        className="flex size-6 items-center justify-center rounded-sm hover:bg-accent"
+                        className="terminal-search-btn"
                         title={t("search_close")}
                     >
                         <X className="size-3.5"/>

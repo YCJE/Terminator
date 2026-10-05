@@ -9,8 +9,8 @@ const windowControlStyles = cva(
     {
         variants: {
             intent: {
-                default: "text-muted-foreground hover:bg-muted hover:text-foreground",
-                close: "text-muted-foreground hover:bg-destructive hover:text-destructive-foreground",
+                default: "text-[var(--fg-muted)] hover:bg-[var(--surface-2)] hover:text-[var(--fg-strong)]",
+                close: "text-[var(--fg-muted)] hover:bg-[var(--destructive)] hover:text-[var(--destructive-foreground)]",
             }
         },
         defaultVariants: {intent: "default"}

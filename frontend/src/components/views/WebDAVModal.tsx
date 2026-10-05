@@ -91,10 +91,9 @@ export function WebDAVModal({isOpen, onClose, onSuccess}: WebDAVModalProps) {
                 </DialogHeader>
 
                 <form onSubmit={handleSave} className="grid gap-4 py-4">
-                    <div className="flex items-start gap-3 p-4 text-info
-                                    rounded-lg border border-info/20 bg-info/10">
-                        <Cloud className="mt-0.5 size-5 shrink-0"/>
-                        <div className="text-xs">
+                    <div className="callout is-info">
+                        <Cloud className="mt-0.5 size-3.5 shrink-0"/>
+                        <div>
                             {t("webdav_info")}
                         </div>
                     </div>
@@ -130,9 +129,9 @@ export function WebDAVModal({isOpen, onClose, onSuccess}: WebDAVModalProps) {
                     </div>
 
                     {testResult === "success" && (
-                        <div className="flex items-center gap-2 text-sm text-success">
-                            <CheckCircle2 className="size-4"/>
-                            {t("webdav_test_success")}
+                        <div className="callout is-success text-[var(--success)]">
+                            <CheckCircle2 className="mt-0.5 size-3.5 shrink-0"/>
+                            <span>{t("webdav_test_success")}</span>
                         </div>
                     )}
 

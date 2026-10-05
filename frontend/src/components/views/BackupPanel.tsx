@@ -22,8 +22,8 @@ import { useSyncStore } from "@/store/syncStore";
 function SummaryRow({ label, value }: { label: string; value: string }) {
     return (
         <div className="flex items-start justify-between gap-4">
-            <span className="shrink-0 text-muted-foreground">{label}</span>
-            <span className="break-all text-right font-medium text-foreground">{value}</span>
+            <span className="shrink-0 text-[var(--fg-muted)]">{label}</span>
+            <span className="break-all text-right font-medium text-[var(--fg-strong)]">{value}</span>
         </div>
     );
 }
@@ -121,51 +121,51 @@ export function BackupPanel() {
     return (
         <>
             <SettingsCard title={t("backup_title")} description={t("backup_desc")}>
-                <div className="flex items-center justify-between">
-                    <div className="flex flex-col">
-                        <span className="font-medium text-foreground">{t("backup_export_title")}</span>
-                        <span className="text-xs text-muted-foreground">{t("backup_export_desc")}</span>
+                <div className="settings-row">
+                    <div className="settings-row-label">
+                        <span className="settings-row-title">{t("backup_export_title")}</span>
+                        <span className="settings-row-desc">{t("backup_export_desc")}</span>
                     </div>
-                    <Button variant="outline" onClick={handleExport} disabled={isExporting}>
-                        {isExporting ? (
-                            <Loader2 className="mr-2 size-4 animate-spin"/>
-                        ) : (
-                            <Download className="mr-2 size-4"/>
-                        )}
-                        {t("backup_export_btn")}
-                    </Button>
+                    <div className="settings-row-control">
+                        <Button variant="outline" className="settings-control" onClick={handleExport} disabled={isExporting}>
+                            {isExporting ? (
+                                <Loader2 className="mr-1.5 size-3.5 animate-spin"/>
+                            ) : (
+                                <Download className="mr-1.5 size-3.5"/>
+                            )}
+                            {t("backup_export_btn")}
+                        </Button>
+                    </div>
                 </div>
 
                 {exportedPath && (
-                    <div className="flex flex-col gap-2 rounded-md border border-green-500/30 bg-green-500/5 p-3">
-                        <div className="flex items-center gap-2">
-                            <ShieldCheck className="size-3.5 text-green-500"/>
-                            <span className="text-xs font-medium text-foreground">
+                    <div className="callout is-success mx-4 mb-3">
+                        <ShieldCheck className="mt-0.5 size-3.5 shrink-0"/>
+                        <div className="flex min-w-0 flex-col gap-1">
+                            <span className="text-[11.5px] font-medium text-[var(--fg-strong)]">
                                 {t("backup_export_success")}
                             </span>
+                            <span className="break-all font-mono text-[11px]">{exportedPath}</span>
+                            <span className="text-[11px]">{t("backup_export_hint")}</span>
                         </div>
-                        <span className="break-all font-mono text-xs text-muted-foreground">
-                            {exportedPath}
-                        </span>
-                        <span className="text-xs text-muted-foreground">{t("backup_export_hint")}</span>
                     </div>
                 )}
 
-                <div className="my-2 h-px w-full bg-border"/>
-
-                <div className="flex items-center justify-between">
-                    <div className="flex flex-col">
-                        <span className="font-medium text-destructive">{t("backup_import_title")}</span>
-                        <span className="text-xs text-muted-foreground">{t("backup_import_desc")}</span>
+                <div className="settings-row">
+                    <div className="settings-row-label">
+                        <span className="settings-row-title is-danger">{t("backup_import_title")}</span>
+                        <span className="settings-row-desc">{t("backup_import_desc")}</span>
                     </div>
-                    <Button variant="outline" onClick={handleSelectBackup} disabled={isSelecting}>
-                        {isSelecting ? (
-                            <Loader2 className="mr-2 size-4 animate-spin"/>
-                        ) : (
-                            <Upload className="mr-2 size-4"/>
-                        )}
-                        {t("backup_import_btn")}
-                    </Button>
+                    <div className="settings-row-control">
+                        <Button variant="outline" className="settings-control" onClick={handleSelectBackup} disabled={isSelecting}>
+                            {isSelecting ? (
+                                <Loader2 className="mr-1.5 size-3.5 animate-spin"/>
+                            ) : (
+                                <Upload className="mr-1.5 size-3.5"/>
+                            )}
+                            {t("backup_import_btn")}
+                        </Button>
+                    </div>
                 </div>
             </SettingsCard>
 
@@ -189,7 +189,7 @@ export function BackupPanel() {
                     </DialogHeader>
 
                     {pending && (
-                        <div className="flex flex-col gap-2 rounded-lg border border-border bg-muted/30 p-4 text-xs">
+                        <div className="flex flex-col gap-2 rounded-lg border border-[var(--hairline)] bg-[var(--surface-2)] p-4 text-xs">
                             <SummaryRow label={t("backup_restore_file")} value={pending.fileName}/>
                             <SummaryRow label={t("backup_restore_user")} value={pending.username}/>
                             <SummaryRow label={t("backup_restore_items")} value={String(pending.itemCount)}/>
@@ -221,9 +221,9 @@ export function BackupPanel() {
                         )}
                     </div>
 
-                    <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/5 p-3">
-                        <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-destructive"/>
-                        <span className="text-xs text-muted-foreground">{t("backup_restore_warning")}</span>
+                    <div className="callout is-danger">
+                        <AlertTriangle className="mt-0.5 size-3.5 shrink-0"/>
+                        <span className="text-xs text-[var(--fg-muted)]">{t("backup_restore_warning")}</span>
                     </div>
 
                     <div className="flex justify-end gap-2">

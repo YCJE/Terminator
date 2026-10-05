@@ -14,6 +14,7 @@ export class AppSettings {
     "webdav_password": string;
     "accent_color": string;
     "spaciness": number;
+    "skin": string;
     "terminal_color_link": boolean;
     "session_log_enabled": boolean;
     "session_log_retention_days": number;
@@ -50,6 +51,10 @@ export class AppSettings {
 
         if (!("spaciness" in $$source)) {
             this["spaciness"] = 0;
+        }
+
+        if (!("skin" in $$source)) {
+            this["skin"] = "";
         }
 
         if (!("terminal_color_link" in $$source)) {

@@ -65,18 +65,16 @@ export function SwitchServerModal({isOpen, onClose, currentUrl, onSuccess}: Swit
 
                 <form onSubmit={handleConnect} className="grid gap-4 py-4">
                     {isSwitching ? (
-                        <div className="flex items-start gap-3 p-4 text-warning
-                                        rounded-lg border border-warning/20 bg-warning/10">
-                            <AlertTriangle className="mt-0.5 size-5 shrink-0"/>
-                            <div className="text-xs">
+                        <div className="callout is-warning">
+                            <AlertTriangle className="mt-0.5 size-3.5 shrink-0"/>
+                            <div>
                                 {t("switch_warning", {url: currentUrl})}
                             </div>
                         </div>
                     ) : (
-                        <div className="flex items-start gap-3 p-4 text-info
-                                        rounded-lg border border-info/20 bg-info/10">
-                            <UploadCloud className="mt-0.5 size-5 shrink-0"/>
-                            <div className="text-xs">
+                        <div className="callout is-info">
+                            <UploadCloud className="mt-0.5 size-3.5 shrink-0"/>
+                            <div>
                                 {t("connect_info")}
                             </div>
                         </div>

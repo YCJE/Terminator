@@ -84,7 +84,7 @@ export function SlidePanel({
         <div
             className={cn(
                 "relative flex h-full shrink-0 flex-col overflow-hidden",
-                "border-l border-border/60 bg-background shadow-[-16px_0_32px_hsl(var(--foreground)/0.08)]",
+                "border-l border-[var(--hairline)] bg-[var(--surface-1)] shadow-[-16px_0_32px_var(--elevate-shadow-2)]",
                 "slide-panel-enter"
             )}
             style={{ width: `${width}px` }}
@@ -96,12 +96,12 @@ export function SlidePanel({
             />
 
             {/* Header — 固定高度 */}
-            <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border/60 px-4 py-3">
+            <div className="flex shrink-0 items-center justify-between gap-2 border-b border-[var(--hairline)] px-4 py-3">
                 <div className="flex min-w-0 items-center gap-2">
                     {showBackButton && onBack && (
                         <button
                             onClick={onBack}
-                            className="cursor-pointer rounded-md p-1 transition-colors hover:bg-muted"
+                            className="cursor-pointer rounded-md p-1 transition-colors hover:bg-[var(--surface-3)]"
                         >
                             <ArrowLeft className="size-4" />
                         </button>
@@ -109,7 +109,7 @@ export function SlidePanel({
                     <div className="min-w-0">
                         <h3 className="truncate text-sm font-semibold">{title}</h3>
                         {subtitle && (
-                            <p className="truncate text-xs text-muted-foreground">{subtitle}</p>
+                            <p className="truncate text-xs text-[var(--fg-muted)]">{subtitle}</p>
                         )}
                     </div>
                 </div>
@@ -117,7 +117,7 @@ export function SlidePanel({
                     {actions}
                     <button
                         onClick={onClose}
-                        className="cursor-pointer rounded-md p-1.5 transition-colors hover:bg-muted"
+                        className="cursor-pointer rounded-md p-1.5 transition-colors hover:bg-[var(--surface-3)]"
                     >
                         <X className="size-4" />
                     </button>
@@ -133,7 +133,7 @@ export function SlidePanel({
 
             {/* Footer — 固定高度（可选） */}
             {footer && (
-                <div className="shrink-0 border-t border-border/60 px-4 py-3">
+                <div className="shrink-0 border-t border-[var(--hairline)] px-4 py-3">
                     {footer}
                 </div>
             )}

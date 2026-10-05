@@ -3,7 +3,7 @@ import { Events } from "@wailsio/runtime";
 import { AppEvent } from "@/lib/events";
 import { useTranslation } from "react-i18next";
 import { useQueryClient } from "@tanstack/react-query";
-import { User, Server, Lock, Trash2, Globe, AlertTriangle, Palette, Moon, Sun, Unplug, FolderSync, ScrollText, Download, ExternalLink, Loader2, CheckCircle2, Info, Keyboard, ShieldCheck, type LucideIcon } from "lucide-react";
+import { User, Server, Lock, Trash2, AlertTriangle, Palette, Moon, Sun, Unplug, ScrollText, Download, ExternalLink, Loader2, CheckCircle2, Info, Keyboard, ShieldCheck, type LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SwitchServerModal } from "@/components/views/SwitchServerModal";
 import { WebDAVModal } from "@/components/views/WebDAVModal";
@@ -12,7 +12,7 @@ import { KnownHostsPanel } from "@/components/views/KnownHostsPanel";
 import { BackupPanel } from "@/components/views/BackupPanel";
 import { LogViewer } from "@/components/views/LogViewer";
 import { ConfirmModal } from "@/components/ui/confirm-modal";
-import { SettingsCard } from "@/components/ui/settings-card";
+import { SettingsCard, SettingsRow, SettingsSwitch, SettingsSegmented } from "@/components/ui/settings-card";
 import { useCurrentUser } from "@/hooks/useAuth";
 import { useAuthStore } from "@/store/authStore";
 import { useSessionStore } from "@/store/sessionStore";
@@ -30,7 +30,7 @@ import {
     SelectValue,
 } from "@/components/ui/select";
 import { useSyncStore } from "@/store/syncStore.ts";
-import { useUIStore, Theme, ACCENT_PRESETS, SPACINESS_PRESETS, type AccentColor, type Spaciness, type SettingsCategory } from "@/store/uiStore.ts";
+import { useUIStore, Theme, ACCENT_PRESETS, SPACINESS_PRESETS, SKIN_PRESETS, type AccentColor, type Spaciness, type Skin, type SettingsCategory } from "@/store/uiStore.ts";
 import { applyTerminalColorLink } from "@/lib/terminalTheme";
 import { cn } from "@/lib/utils";
 
@@ -43,13 +43,27 @@ const NAV_ITEMS: { id: SettingsCategory; labelKey: string; icon: LucideIcon }[] 
     { id: "about", labelKey: "nav_about", icon: Download },
 ];
 
+/** 快捷键列表数据 */
+const TERMINAL_SHORTCUTS: { keys: string; labelKey: string }[] = [
+    { keys: "Ctrl+F", labelKey: "shortcut_search" },
+    { keys: "Ctrl+Shift+C", labelKey: "shortcut_copy" },
+    { keys: "Ctrl+Shift+V", labelKey: "shortcut_paste" },
+    { keys: "Esc", labelKey: "shortcut_close_search" },
+];
+
+const TAB_SHORTCUTS: { keys: string; labelKey: string }[] = [
+    { keys: "Enter", labelKey: "shortcut_tab_activate" },
+    { keys: "Drag", labelKey: "shortcut_tab_reorder" },
+    { keys: "Right-Click", labelKey: "shortcut_tab_color" },
+];
+
 export function SettingsPage() {
     const {t, i18n} = useTranslation(["settings", "common", "errors"]);
     const {data: user, refetch} = useCurrentUser();
     const {setUnlocked, setHasUser} = useAuthStore();
     const {clearSessions} = useSessionStore();
     const {lastError} = useSyncStore();
-    const {theme, setTheme, accentColor, setAccentColor, spaciness, setSpaciness, terminalColorLink, setTerminalColorLink, keywordHighlight, setKeywordHighlight, broadcastEnabled, toggleBroadcastEnabled, tabColorEnabled, toggleTabColorEnabled} = useUIStore();
+    const {theme, setTheme, accentColor, setAccentColor, spaciness, setSpaciness, skin, setSkin, terminalColorLink, setTerminalColorLink, keywordHighlight, setKeywordHighlight, broadcastEnabled, toggleBroadcastEnabled, tabColorEnabled, toggleTabColorEnabled} = useUIStore();
     const queryClient = useQueryClient();
 
     const {settingsCategory: activeCategory, setSettingsCategory: setActiveCategory} = useUIStore();
@@ -259,6 +273,22 @@ export function SettingsPage() {
         }
     };
 
+    // 皮肤切换：data-skin 由 App 的 effect 统一下发，这里只改状态并持久化
+    const handleSkinChange = async (next: Skin) => {
+        const prev = skin;
+        try {
+            setSkin(next);
+            const current = await SettingsService.GetSettings();
+            await SettingsService.SaveSettings(new AppSettings({
+                ...current,
+                skin: next,
+            }));
+        } catch (error) {
+            setSkin(prev);
+            handleAppError(error);
+        }
+    };
+
     const handleTerminalColorLinkChange = async (enabled: boolean) => {
         try {
             setTerminalColorLink(enabled);
@@ -308,22 +338,19 @@ export function SettingsPage() {
     return (
         <div className="lazy-fade-in flex h-full w-full">
 
-            {/* 左侧导航栏 */}
-            <nav className="flex w-56 shrink-0 flex-col border-r border-border p-4">
-                <h1 className="mb-4 px-2 text-lg font-bold tracking-tight text-foreground">{t("page_title")}</h1>
-                <div className="flex flex-col gap-1">
+            {/* 左侧分类导航 */}
+            <nav className="flex w-52 shrink-0 flex-col border-r border-[var(--hairline)]">
+                <h1 className="px-5 pt-5 pb-3 text-[13px] font-semibold tracking-tight text-[var(--fg-strong)]">
+                    {t("page_title")}
+                </h1>
+                <div className="settings-nav">
                     {NAV_ITEMS.map((item) => (
                         <button
                             key={item.id}
                             onClick={() => setActiveCategory(item.id)}
-                            className={cn(
-                                "flex cursor-pointer items-center gap-2.5 rounded-md px-3 py-2 text-sm transition-colors",
-                                activeCategory === item.id
-                                    ? "bg-accent text-accent-foreground"
-                                    : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-                            )}
+                            className={cn("settings-nav-item", activeCategory === item.id && "is-active")}
                         >
-                            <item.icon className="size-4 shrink-0" />
+                            <item.icon className="size-3.5 shrink-0"/>
                             {t(item.labelKey)}
                         </button>
                     ))}
@@ -331,61 +358,52 @@ export function SettingsPage() {
             </nav>
 
             {/* 右侧内容区 */}
-            <div className="flex-1 overflow-y-auto p-8">
-                <div className="mx-auto flex w-full max-w-2xl flex-col gap-6">
+            <div className="flex-1 overflow-y-auto">
+                <div className="mx-auto flex w-full max-w-2xl flex-col gap-4 px-8 py-6">
 
                     {/* ============ 外观 ============ */}
                     {activeCategory === "appearance" && (
                         <SettingsCard title={t("preferences_title")}>
-                            {/* 主题 */}
-                            <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-4">
-                                    <div
-                                        className="flex size-10 shrink-0 items-center justify-center
-                                                   rounded-lg bg-primary/10 text-primary">
-                                        <Palette className="size-5"/>
-                                    </div>
-                                    <span className="text-sm font-medium text-foreground">
-                                        {t("theme_label")}
-                                    </span>
-                                </div>
-                                <Select value={theme} onValueChange={(v) => changeTheme(v as Theme)}>
-                                    <SelectTrigger className="w-45">
+                            <SettingsRow
+                                title={t("theme_label")}
+                                desc={skin !== "default" ? t("theme_overridden_by_skin") : undefined}
+                            >
+                                <Select value={theme} onValueChange={(v) => changeTheme(v as Theme)}
+                                        disabled={skin !== "default"}>
+                                    <SelectTrigger className="settings-control w-40 text-[12.5px]">
                                         <SelectValue placeholder={t("select_theme")}/>
                                     </SelectTrigger>
                                     <SelectContent>
                                         <SelectItem value="dark">
                                             <span className="flex items-center gap-2">
-                                                <Moon className="size-4"/>
+                                                <Moon className="size-3.5"/>
                                                 {t("theme_dark")}
                                             </span>
                                         </SelectItem>
                                         <SelectItem value="light">
                                             <span className="flex items-center gap-2">
-                                                <Sun className="size-4"/>
+                                                <Sun className="size-3.5"/>
                                                 {t("theme_light")}
                                             </span>
                                         </SelectItem>
                                     </SelectContent>
                                 </Select>
-                            </div>
+                            </SettingsRow>
 
-                            <div className="my-2 h-px w-full bg-border"/>
+                            <SettingsRow title={t("skin_label")} desc={t("skin_desc")}>
+                                <SettingsSegmented
+                                    value={skin}
+                                    onChange={handleSkinChange}
+                                    options={SKIN_PRESETS.map((preset) => ({
+                                        value: preset.value,
+                                        label: t(preset.labelKey),
+                                    }))}
+                                />
+                            </SettingsRow>
 
-                            {/* 语言 */}
-                            <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-4">
-                                    <div
-                                        className="flex size-10 shrink-0 items-center justify-center
-                                                   rounded-lg bg-primary/10 text-primary">
-                                        <Globe className="size-5"/>
-                                    </div>
-                                    <span className="text-sm font-medium text-foreground">
-                                        {t("language_label")}
-                                    </span>
-                                </div>
+                            <SettingsRow title={t("language_label")}>
                                 <Select value={i18n.resolvedLanguage} onValueChange={changeLanguage}>
-                                    <SelectTrigger className="w-45">
+                                    <SelectTrigger className="settings-control w-40 text-[12.5px]">
                                         <SelectValue placeholder={t("select_language")}/>
                                     </SelectTrigger>
                                     <SelectContent>
@@ -393,16 +411,9 @@ export function SettingsPage() {
                                         <SelectItem value="zh">中文</SelectItem>
                                     </SelectContent>
                                 </Select>
-                            </div>
+                            </SettingsRow>
 
-                            <div className="my-2 h-px w-full bg-border"/>
-
-                            {/* 强调色 */}
-                            <div className="flex items-center justify-between">
-                                <div className="flex flex-col">
-                                    <span className="font-medium text-foreground">{t("accent_color_label")}</span>
-                                    <span className="text-xs text-muted-foreground">{t("accent_color_desc")}</span>
-                                </div>
+                            <SettingsRow title={t("accent_color_label")} desc={t("accent_color_desc")}>
                                 <div className="flex items-center gap-2">
                                     {ACCENT_PRESETS.map((preset) => {
                                         // 使用 theme 变量而非 DOM 读取，确保主题切换时同步更新
@@ -413,10 +424,10 @@ export function SettingsPage() {
                                                 key={preset.value}
                                                 onClick={() => handleAccentChange(preset.value)}
                                                 className={cn(
-                                                    "size-7 rounded-full transition-all hover:scale-110",
+                                                    "size-6 rounded-full transition-all hover:scale-110",
                                                     accentColor === preset.value
-                                                        ? "ring-2 ring-foreground ring-offset-2 ring-offset-background"
-                                                        : "ring-1 ring-border"
+                                                        ? "ring-2 ring-[var(--fg-strong)] ring-offset-2 ring-offset-[var(--surface-1)]"
+                                                        : "ring-1 ring-[var(--hairline-strong)]"
                                                 )}
                                                 style={{backgroundColor: bgColor}}
                                                 title={t(preset.labelKey)}
@@ -425,61 +436,26 @@ export function SettingsPage() {
                                         );
                                     })}
                                 </div>
-                            </div>
+                            </SettingsRow>
 
-                            <div className="my-2 h-px w-full bg-border"/>
+                            <SettingsRow title={t("density_label")} desc={t("density_desc")}>
+                                <SettingsSegmented
+                                    value={spaciness}
+                                    onChange={handleSpacinessChange}
+                                    options={SPACINESS_PRESETS.map((preset) => ({
+                                        value: preset.value,
+                                        label: t(preset.labelKey),
+                                    }))}
+                                />
+                            </SettingsRow>
 
-                            {/* 密度 */}
-                            <div className="flex items-center justify-between">
-                                <div className="flex flex-col">
-                                    <span className="font-medium text-foreground">{t("density_label")}</span>
-                                    <span className="text-xs text-muted-foreground">{t("density_desc")}</span>
-                                </div>
-                                <div className="flex items-center gap-1 rounded-lg border border-border p-1">
-                                    {SPACINESS_PRESETS.map((preset) => (
-                                        <button
-                                            key={preset.value}
-                                            onClick={() => handleSpacinessChange(preset.value)}
-                                            className={cn(
-                                                "cursor-pointer rounded-md px-3 py-1 text-xs font-medium transition-all",
-                                                spaciness === preset.value
-                                                    ? "bg-primary text-primary-foreground"
-                                                    : "text-muted-foreground hover:text-foreground"
-                                            )}
-                                        >
-                                            {t(preset.labelKey)}
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-
-                            <div className="my-2 h-px w-full bg-border"/>
-
-                            {/* 终端配色联动 */}
-                            <div className="flex items-center justify-between">
-                                <div className="flex flex-col">
-                                    <span className="font-medium text-foreground">{t("terminal_color_link_label")}</span>
-                                    <span className="text-xs text-muted-foreground">{t("terminal_color_link_desc")}</span>
-                                </div>
-                                <button
-                                    role="switch"
-                                    aria-checked={terminalColorLink}
-                                    onClick={() => handleTerminalColorLinkChange(!terminalColorLink)}
-                                    className={cn(
-                                        "relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center",
-                                        "rounded-full border-2 border-transparent transition-colors",
-                                        terminalColorLink ? "bg-primary" : "bg-muted"
-                                    )}
-                                >
-                                    <span
-                                        className={cn(
-                                            "pointer-events-none block size-5 rounded-full bg-background shadow-lg",
-                                            "transition-transform",
-                                            terminalColorLink ? "translate-x-5" : "translate-x-0"
-                                        )}
-                                    />
-                                </button>
-                            </div>
+                            <SettingsRow title={t("terminal_color_link_label")} desc={t("terminal_color_link_desc")}>
+                                <SettingsSwitch
+                                    checked={terminalColorLink}
+                                    onChange={handleTerminalColorLinkChange}
+                                    label={t("terminal_color_link_label")}
+                                />
+                            </SettingsRow>
                         </SettingsCard>
                     )}
 
@@ -487,152 +463,68 @@ export function SettingsPage() {
                     {activeCategory === "terminal" && (
                         <>
                         <SettingsCard title={t("terminal_features_title")} description={t("terminal_features_desc")}>
-                            {/* 关键词高亮开关 */}
-                            <div className="flex items-center justify-between">
-                                <div className="flex flex-col">
-                                    <span className="font-medium text-foreground">{t("keyword_highlight_label")}</span>
-                                    <span className="text-xs text-muted-foreground">{t("keyword_highlight_desc")}</span>
-                                </div>
-                                <button
-                                    role="switch"
-                                    aria-checked={keywordHighlight}
-                                    onClick={() => setKeywordHighlight(!keywordHighlight)}
-                                    className={cn(
-                                        "relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center",
-                                        "rounded-full border-2 border-transparent transition-colors",
-                                        keywordHighlight ? "bg-primary" : "bg-muted"
-                                    )}
-                                >
-                                    <span
-                                        className={cn(
-                                            "pointer-events-none block size-5 rounded-full bg-background shadow-lg",
-                                            "transition-transform",
-                                            keywordHighlight ? "translate-x-5" : "translate-x-0"
-                                        )}
-                                    />
-                                </button>
-                            </div>
+                            <SettingsRow title={t("keyword_highlight_label")} desc={t("keyword_highlight_desc")}>
+                                <SettingsSwitch
+                                    checked={keywordHighlight}
+                                    onChange={setKeywordHighlight}
+                                    label={t("keyword_highlight_label")}
+                                />
+                            </SettingsRow>
 
-                            <div className="my-2 h-px w-full bg-border"/>
+                            <SettingsRow title={t("broadcast_label")} desc={t("broadcast_desc")}>
+                                <SettingsSwitch
+                                    checked={broadcastEnabled}
+                                    onChange={() => toggleBroadcastEnabled()}
+                                    label={t("broadcast_label")}
+                                />
+                            </SettingsRow>
 
-                            {/* 多终端广播模式开关 */}
-                            <div className="flex items-center justify-between">
-                                <div className="flex flex-col">
-                                    <span className="font-medium text-foreground">{t("broadcast_label")}</span>
-                                    <span className="text-xs text-muted-foreground">{t("broadcast_desc")}</span>
-                                </div>
-                                <button
-                                    role="switch"
-                                    aria-checked={broadcastEnabled}
-                                    onClick={toggleBroadcastEnabled}
-                                    className={cn(
-                                        "relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center",
-                                        "rounded-full border-2 border-transparent transition-colors",
-                                        broadcastEnabled ? "bg-primary" : "bg-muted"
-                                    )}
-                                >
-                                    <span
-                                        className={cn(
-                                            "pointer-events-none block size-5 rounded-full bg-background shadow-lg",
-                                            "transition-transform",
-                                            broadcastEnabled ? "translate-x-5" : "translate-x-0"
-                                        )}
-                                    />
-                                </button>
-                            </div>
-
-                            <div className="my-2 h-px w-full bg-border"/>
-
-                            {/* 标签页自定义颜色开关 */}
-                            <div className="flex items-center justify-between">
-                                <div className="flex flex-col">
-                                    <span className="font-medium text-foreground">{t("tab_color_label")}</span>
-                                    <span className="text-xs text-muted-foreground">{t("tab_color_desc")}</span>
-                                </div>
-                                <button
-                                    role="switch"
-                                    aria-checked={tabColorEnabled}
-                                    onClick={toggleTabColorEnabled}
-                                    className={cn(
-                                        "relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center",
-                                        "rounded-full border-2 border-transparent transition-colors",
-                                        tabColorEnabled ? "bg-primary" : "bg-muted"
-                                    )}
-                                >
-                                    <span
-                                        className={cn(
-                                            "pointer-events-none block size-5 rounded-full bg-background shadow-lg",
-                                            "transition-transform",
-                                            tabColorEnabled ? "translate-x-5" : "translate-x-0"
-                                        )}
-                                    />
-                                </button>
-                            </div>
+                            <SettingsRow title={t("tab_color_label")} desc={t("tab_color_desc")}>
+                                <SettingsSwitch
+                                    checked={tabColorEnabled}
+                                    onChange={() => toggleTabColorEnabled()}
+                                    label={t("tab_color_label")}
+                                />
+                            </SettingsRow>
                         </SettingsCard>
 
                         {/* Agent 转发和代理说明 */}
-                        <div className="flex items-start gap-2 rounded-lg border border-border/60 bg-muted/30 px-3 py-2.5 text-xs text-muted-foreground">
+                        <div className="callout">
                             <Info className="mt-0.5 size-3.5 shrink-0"/>
                             <span>{t("agent_forwarding_info")}</span>
                         </div>
 
                         <SettingsCard title={t("session_log_title")} description={t("session_log_desc")}>
-                            {/* 会话日志开关 */}
-                            <div className="flex items-center justify-between">
-                                <div className="flex flex-col">
-                                    <span className="font-medium text-foreground">{t("session_log_enable_label")}</span>
-                                    <span className="text-xs text-muted-foreground">{t("session_log_enable_desc")}</span>
-                                </div>
-                                <button
-                                    role="switch"
-                                    aria-checked={sessionLogEnabled}
-                                    onClick={() => handleSessionLogToggle(!sessionLogEnabled)}
-                                    className={cn(
-                                        "relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center",
-                                        "rounded-full border-2 border-transparent transition-colors",
-                                        sessionLogEnabled ? "bg-primary" : "bg-muted"
-                                    )}
-                                >
-                                    <span
-                                        className={cn(
-                                            "pointer-events-none block size-5 rounded-full bg-background shadow-lg",
-                                            "transition-transform",
-                                            sessionLogEnabled ? "translate-x-5" : "translate-x-0"
-                                        )}
-                                    />
-                                </button>
-                            </div>
+                            <SettingsRow title={t("session_log_enable_label")} desc={t("session_log_enable_desc")}>
+                                <SettingsSwitch
+                                    checked={sessionLogEnabled}
+                                    onChange={handleSessionLogToggle}
+                                    label={t("session_log_enable_label")}
+                                />
+                            </SettingsRow>
 
                             {/* 保留期仅在开启时可调 */}
                             {sessionLogEnabled && (
-                                <>
-                                    <div className="my-2 h-px w-full bg-border"/>
-
-                                    <div className="flex items-center justify-between">
-                                        <div className="flex flex-col">
-                                            <span className="font-medium text-foreground">{t("session_log_retention_label")}</span>
-                                            <span className="text-xs text-muted-foreground">{t("session_log_retention_desc")}</span>
-                                        </div>
-                                        <Select
-                                            value={String(sessionLogRetentionDays)}
-                                            onValueChange={handleSessionLogRetentionChange}
-                                        >
-                                            <SelectTrigger className="w-45">
-                                                <SelectValue/>
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                {[1, 7, 30, 90].map((days) => (
-                                                    <SelectItem key={days} value={String(days)}>
-                                                        {t("session_log_days", {count: days})}
-                                                    </SelectItem>
-                                                ))}
-                                            </SelectContent>
-                                        </Select>
-                                    </div>
-                                </>
+                                <SettingsRow title={t("session_log_retention_label")} desc={t("session_log_retention_desc")}>
+                                    <Select
+                                        value={String(sessionLogRetentionDays)}
+                                        onValueChange={handleSessionLogRetentionChange}
+                                    >
+                                        <SelectTrigger className="settings-control w-40 text-[12.5px]">
+                                            <SelectValue/>
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {[1, 7, 30, 90].map((days) => (
+                                                <SelectItem key={days} value={String(days)}>
+                                                    {t("session_log_days", {count: days})}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </SettingsRow>
                             )}
 
-                            <div className="flex items-start gap-2 rounded-lg border border-border/60 bg-muted/30 px-3 py-2.5 text-xs text-muted-foreground">
+                            <div className="callout mx-4 mb-3">
                                 <AlertTriangle className="mt-0.5 size-3.5 shrink-0"/>
                                 <span>{t("session_log_warning")}</span>
                             </div>
@@ -649,31 +541,30 @@ export function SettingsPage() {
                         <>
                         <SettingsCard title={t("profile_sync_title")} description={t("profile_sync_desc")}>
                             {/* 账户信息 */}
-                            <div className="flex items-center gap-4">
-                                <div
-                                    className="flex size-12 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
-                                    <User className="size-6"/>
+                            <div className="flex items-center gap-3 px-4 py-3.5">
+                                <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                                    <User className="size-4"/>
                                 </div>
-                                <div className="flex flex-col">
-                                    <span
-                                        className="text-sm font-medium text-muted-foreground">{t("username", {ns: "common"})}</span>
-                                    <span className="text-lg font-semibold text-foreground">
+                                <div className="flex min-w-0 flex-col">
+                                    <span className="text-[11.5px] text-[var(--fg-subtle)]">
+                                        {t("username", {ns: "common"})}
+                                    </span>
+                                    <span className="truncate text-[14px] font-semibold text-[var(--fg-strong)]">
                                         {user?.username || t("loading", {ns: "common"})}
                                     </span>
                                 </div>
                             </div>
 
                             {lastError && (
-                                <div className="p-4 flex items-start gap-3 text-destructive
-                                                border border-destructive/20 bg-destructive/10 rounded-lg">
-                                    <AlertTriangle className="mt-0.5 size-5 shrink-0" />
-                                    <div className="flex flex-col">
-                                        <span className="text-sm font-medium">{t("sync_offline")}</span>
-                                        <span className="text-xs opacity-90">
-                                            {t(`errors:${lastError.code}`, { defaultValue: lastError.message })}
+                                <div className="callout is-danger mx-4 mb-3">
+                                    <AlertTriangle className="mt-0.5 size-3.5 shrink-0"/>
+                                    <div className="flex min-w-0 flex-col gap-0.5">
+                                        <span className="text-[12px] font-medium">{t("sync_offline")}</span>
+                                        <span className="text-[11px] opacity-90">
+                                            {t(`errors:${lastError.code}`, {defaultValue: lastError.message})}
                                         </span>
                                         {lastError.detailsString && (
-                                            <span className="mt-1 text-2xs font-mono opacity-75">
+                                            <span className="mt-0.5 break-all font-mono text-[10.5px] opacity-75">
                                                 {lastError.detailsString}
                                             </span>
                                         )}
@@ -681,67 +572,43 @@ export function SettingsPage() {
                                 </div>
                             )}
 
-                            {/* 同步方式分隔线 */}
-                            <div className="my-2 h-px w-full bg-border"/>
-
                             {/* 服务器同步 */}
-                            <div className="flex items-center justify-between
-                                           rounded-lg border border-border bg-background p-4">
-                                <div className="flex items-center gap-4">
-                                    <div className="flex size-10 shrink-0 items-center justify-center
-                                                   rounded-lg bg-primary/10 text-primary">
-                                        <Server className="size-5"/>
-                                    </div>
-                                    <div className="flex flex-col">
-                                        <span className="text-sm font-medium text-foreground">
-                                            {t("sync_server_title")}
-                                        </span>
-                                        <span className="text-xs text-muted-foreground">
-                                            {syncMethod === "server" && user?.serverUrl
-                                                ? user.serverUrl
-                                                : t("sync_server_desc")}
-                                        </span>
-                                    </div>
-                                </div>
-                                <Button variant={syncMethod === "server" ? "secondary" : "outline"}
-                                        onClick={() => setIsServerModalOpen(true)}>
-                                    {user?.serverUrl ? t("switch_server_btn") : t("connect_btn")}
-                                </Button>
-                            </div>
-
-                            {syncMethod === "server" && user?.serverUrl && (
-                                <div className="flex justify-end">
+                            <SettingsRow
+                                title={t("sync_server_title")}
+                                desc={syncMethod === "server" && user?.serverUrl
+                                    ? user.serverUrl
+                                    : t("sync_server_desc")}
+                            >
+                                {syncMethod === "server" && user?.serverUrl && (
                                     <Button variant="ghost" size="sm" onClick={() => setIsDisconnectModalOpen(true)}>
-                                        <Unplug className="mr-2 size-4"/>
+                                        <Unplug className="mr-1.5 size-3.5"/>
                                         {t("disconnect_btn")}
                                     </Button>
-                                </div>
-                            )}
+                                )}
+                                <Button
+                                    variant={syncMethod === "server" ? "secondary" : "outline"}
+                                    className="settings-control"
+                                    onClick={() => setIsServerModalOpen(true)}
+                                >
+                                    {user?.serverUrl ? t("switch_server_btn") : t("connect_btn")}
+                                </Button>
+                            </SettingsRow>
 
                             {/* WebDAV 同步 */}
-                            <div className="mt-2 flex items-center justify-between
-                                           rounded-lg border border-border bg-background p-4">
-                                <div className="flex items-center gap-4">
-                                    <div className="flex size-10 shrink-0 items-center justify-center
-                                                   rounded-lg bg-accent/10 text-accent">
-                                        <FolderSync className="size-5"/>
-                                    </div>
-                                    <div className="flex flex-col">
-                                        <span className="text-sm font-medium text-foreground">
-                                            {t("webdav_title")}
-                                        </span>
-                                        <span className="text-xs text-muted-foreground">
-                                            {syncMethod === "webdav" && webdavUrl
-                                                ? webdavUrl
-                                                : t("webdav_card_desc")}
-                                        </span>
-                                    </div>
-                                </div>
-                                <Button variant={syncMethod === "webdav" ? "secondary" : "outline"}
-                                        onClick={() => setIsWebDAVModalOpen(true)}>
+                            <SettingsRow
+                                title={t("webdav_title")}
+                                desc={syncMethod === "webdav" && webdavUrl
+                                    ? webdavUrl
+                                    : t("webdav_card_desc")}
+                            >
+                                <Button
+                                    variant={syncMethod === "webdav" ? "secondary" : "outline"}
+                                    className="settings-control"
+                                    onClick={() => setIsWebDAVModalOpen(true)}
+                                >
                                     {syncMethod === "webdav" ? t("webdav_edit_btn") : t("webdav_setup_btn")}
                                 </Button>
-                            </div>
+                            </SettingsRow>
                         </SettingsCard>
 
                         <SyncConflictPanel/>
@@ -752,29 +619,20 @@ export function SettingsPage() {
                     {activeCategory === "security" && (
                         <>
                         <SettingsCard title={t("security_title")} description={t("security_desc")}>
-                            <div className="flex items-center justify-between">
-                                <div className="flex flex-col">
-                                    <span className="font-medium text-foreground">{t("lock_vault_title")}</span>
-                                    <span className="text-xs text-muted-foreground">{t("lock_vault_desc")}</span>
-                                </div>
-                                <Button variant="outline" onClick={handleLockVault}>
-                                    <Lock className="mr-2 size-4"/>
+                            <SettingsRow title={t("lock_vault_title")} desc={t("lock_vault_desc")}>
+                                <Button variant="outline" className="settings-control" onClick={handleLockVault}>
+                                    <Lock className="mr-1.5 size-3.5"/>
                                     {t("lock_btn")}
                                 </Button>
-                            </div>
+                            </SettingsRow>
 
-                            <div className="my-2 h-px w-full bg-border"/>
-
-                            <div className="flex items-center justify-between">
-                                <div className="flex flex-col">
-                                    <span className="font-medium text-destructive">{t("wipe_data_title")}</span>
-                                    <span className="text-xs text-muted-foreground">{t("wipe_data_desc")}</span>
-                                </div>
-                                <Button variant="destructive" onClick={() => setIsWipeModalOpen(true)}>
-                                    <Trash2 className="mr-2 size-4"/>
+                            <SettingsRow title={t("wipe_data_title")} desc={t("wipe_data_desc")} danger>
+                                <Button variant="destructive" className="settings-control"
+                                        onClick={() => setIsWipeModalOpen(true)}>
+                                    <Trash2 className="mr-1.5 size-3.5"/>
                                     {t("wipe_btn")}
                                 </Button>
-                            </div>
+                            </SettingsRow>
                         </SettingsCard>
 
                         <KnownHostsPanel/>
@@ -786,109 +644,86 @@ export function SettingsPage() {
                     {/* ============ 快捷键 ============ */}
                     {activeCategory === "shortcuts" && (
                         <SettingsCard title={t("shortcuts_title")} description={t("shortcuts_desc")}>
-                            <div className="flex flex-col gap-1">
-                                {/* 终端快捷键 */}
-                                <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-foreground">
-                                    <ScrollText className="size-4 text-primary"/>
-                                    {t("shortcuts_terminal")}
-                                </div>
-                                {[
-                                    { keys: "Ctrl+F", desc: t("shortcut_search") },
-                                    { keys: "Ctrl+Shift+C", desc: t("shortcut_copy") },
-                                    { keys: "Ctrl+Shift+V", desc: t("shortcut_paste") },
-                                    { keys: "Esc", desc: t("shortcut_close_search") },
-                                ].map((item) => (
-                                    <div key={item.keys} className="flex items-center justify-between rounded-lg px-3 py-2 hover:bg-muted/40 transition-colors">
-                                        <span className="text-sm text-muted-foreground">{item.desc}</span>
-                                        <kbd className="inline-flex items-center gap-1 rounded-md border border-border bg-muted px-2 py-0.5 font-mono text-xs font-medium text-foreground">
-                                            {item.keys}
-                                        </kbd>
+                            <div className="settings-group-label">{t("shortcuts_terminal")}</div>
+                            {TERMINAL_SHORTCUTS.map((item) => (
+                                <div key={item.keys} className="settings-row">
+                                    <span className="settings-row-title">{t(item.labelKey)}</span>
+                                    <div className="settings-row-control">
+                                        <kbd className="kbd-key">{item.keys}</kbd>
                                     </div>
-                                ))}
-
-                                <div className="my-3 h-px w-full bg-border"/>
-
-                                {/* 标签页快捷键 */}
-                                <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-foreground">
-                                    <FolderSync className="size-4 text-primary"/>
-                                    {t("shortcuts_tabs")}
                                 </div>
-                                {[
-                                    { keys: "Enter", desc: t("shortcut_tab_activate") },
-                                    { keys: "Drag", desc: t("shortcut_tab_reorder") },
-                                    { keys: "Right-Click", desc: t("shortcut_tab_color") },
-                                ].map((item) => (
-                                    <div key={item.keys} className="flex items-center justify-between rounded-lg px-3 py-2 hover:bg-muted/40 transition-colors">
-                                        <span className="text-sm text-muted-foreground">{item.desc}</span>
-                                        <kbd className="inline-flex items-center gap-1 rounded-md border border-border bg-muted px-2 py-0.5 font-mono text-xs font-medium text-foreground">
-                                            {item.keys}
-                                        </kbd>
+                            ))}
+
+                            <div className="settings-group-label">{t("shortcuts_tabs")}</div>
+                            {TAB_SHORTCUTS.map((item) => (
+                                <div key={item.keys} className="settings-row">
+                                    <span className="settings-row-title">{t(item.labelKey)}</span>
+                                    <div className="settings-row-control">
+                                        <kbd className="kbd-key">{item.keys}</kbd>
                                     </div>
-                                ))}
-                            </div>
+                                </div>
+                            ))}
                         </SettingsCard>
                     )}
 
                     {/* ============ 关于 ============ */}
                     {activeCategory === "about" && (
                         <SettingsCard title={t("about_title")} description={t("about_desc")}>
-                            <div className="flex items-center justify-between">
-                                <div className="flex flex-col">
-                                    <span className="font-medium text-foreground">{t("check_update_title")}</span>
-                                    <span className="text-xs text-muted-foreground">{t("check_update_desc")}</span>
-                                </div>
+                            <SettingsRow title={t("check_update_title")} desc={t("check_update_desc")}>
                                 <Button
                                     variant="outline"
+                                    className="settings-control"
                                     onClick={handleCheckUpdate}
                                     disabled={isCheckingUpdate}
                                 >
                                     {isCheckingUpdate ? (
-                                        <Loader2 className="mr-2 size-4 animate-spin"/>
+                                        <Loader2 className="mr-1.5 size-3.5 animate-spin"/>
                                     ) : (
-                                        <Download className="mr-2 size-4"/>
+                                        <Download className="mr-1.5 size-3.5"/>
                                     )}
                                     {isCheckingUpdate ? t("checking", {ns: "common"}) : t("check_update_btn")}
                                 </Button>
-                            </div>
+                            </SettingsRow>
 
                             {/* 检查结果 */}
                             {releaseInfo && (
-                                <div className="mt-4 rounded-lg border border-border bg-muted/30 p-4">
+                                <div className="mx-4 mb-4 rounded-[var(--radius-md)] border border-[var(--hairline)]
+                                                bg-[var(--surface-2)] p-3.5">
                                     {releaseInfo.hasUpdate ? (
                                         <>
                                             <div className="mb-2 flex items-center gap-2">
                                                 <Download className="size-4 text-primary"/>
-                                                <span className="font-semibold text-primary">
+                                                <span className="text-[13px] font-semibold text-primary">
                                                     {t("new_version_available", {version: releaseInfo.latestVersion})}
                                                 </span>
                                             </div>
-                                            <p className="mb-2 text-xs text-muted-foreground">
+                                            <p className="text-[11.5px] text-[var(--fg-subtle)]">
                                                 {t("current_version", {version: releaseInfo.currentVersion})}
                                             </p>
                                             {releaseInfo.publishedAt && (
-                                                <p className="mb-2 text-xs text-muted-foreground">
+                                                <p className="mt-0.5 text-[11.5px] text-[var(--fg-subtle)]">
                                                     {t("published_at", {date: new Date(releaseInfo.publishedAt).toLocaleDateString()})}
                                                 </p>
                                             )}
-                                            <div className="mt-2 flex flex-wrap items-center gap-2">
+                                            <div className="mt-3 flex flex-wrap items-center gap-2">
                                                 <Button size="sm" onClick={handleDownloadAndVerify} disabled={isDownloading}>
                                                     {isDownloading ? (
-                                                        <Loader2 className="mr-2 size-3 animate-spin"/>
+                                                        <Loader2 className="mr-1.5 size-3 animate-spin"/>
                                                     ) : (
-                                                        <Download className="mr-2 size-3"/>
+                                                        <Download className="mr-1.5 size-3"/>
                                                     )}
                                                     {isDownloading
                                                         ? t("downloading_verified", {percent: downloadPercent})
                                                         : t("download_and_verify")}
                                                 </Button>
                                                 <Button size="sm" variant="outline" onClick={handleOpenReleasePage}>
-                                                    <ExternalLink className="mr-2 size-3"/>
+                                                    <ExternalLink className="mr-1.5 size-3"/>
                                                     {t("go_to_download")}
                                                 </Button>
                                             </div>
 
                                             {isDownloading && (
-                                                <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                                                <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-[var(--surface-3)]">
                                                     <div
                                                         className="h-full bg-primary transition-all"
                                                         style={{width: `${downloadPercent}%`}}
@@ -897,29 +732,29 @@ export function SettingsPage() {
                                             )}
 
                                             {verifiedPath && (
-                                                <div className="mt-3 flex flex-col gap-2 rounded-md border border-green-500/30 bg-green-500/5 p-3">
-                                                    <div className="flex items-center gap-2">
-                                                        <ShieldCheck className="size-3.5 text-green-500"/>
-                                                        <span className="text-xs font-medium text-foreground">
+                                                <div className="callout is-success mt-3">
+                                                    <ShieldCheck className="mt-0.5 size-3.5 shrink-0"/>
+                                                    <div className="flex min-w-0 flex-col gap-1">
+                                                        <span className="text-[11.5px] font-medium text-[var(--fg-strong)]">
                                                             {t("download_verified")}
                                                         </span>
-                                                    </div>
-                                                    <span className="break-all font-mono text-xs text-muted-foreground">
-                                                        {verifiedPath}
-                                                    </span>
-                                                    <div>
-                                                        <Button size="sm" variant="outline" onClick={handleOpenVerified}>
-                                                            <ExternalLink className="mr-2 size-3"/>
-                                                            {t("open_installer")}
-                                                        </Button>
+                                                        <span className="break-all font-mono text-[11px]">
+                                                            {verifiedPath}
+                                                        </span>
+                                                        <div>
+                                                            <Button size="sm" variant="outline" onClick={handleOpenVerified}>
+                                                                <ExternalLink className="mr-1.5 size-3"/>
+                                                                {t("open_installer")}
+                                                            </Button>
+                                                        </div>
                                                     </div>
                                                 </div>
                                             )}
                                         </>
                                     ) : (
                                         <div className="flex items-center gap-2">
-                                            <CheckCircle2 className="size-4 text-green-500"/>
-                                            <span className="text-sm text-foreground">
+                                            <CheckCircle2 className="size-4 text-[var(--success)]"/>
+                                            <span className="text-[13px] text-[var(--fg-strong)]">
                                                 {t("already_latest", {version: releaseInfo.currentVersion})}
                                             </span>
                                         </div>

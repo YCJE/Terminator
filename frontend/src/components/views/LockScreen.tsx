@@ -175,18 +175,15 @@ export function LockScreen() {
     const strength = passwordStrength(password);
 
     if (isChecking) return (
-        <div className="flex h-full items-center justify-center bg-background text-muted-foreground">
-            <span className="activity-dot mr-3 size-2 rounded-full bg-primary"/>
+        <div className="flex h-full items-center justify-center bg-[var(--surface-0)] text-[var(--fg-muted)]">
+            <span className="mr-3 size-2 rounded-full bg-primary"/>
             {t("initializing")}
         </div>
     );
 
     return (
-        <div className="absolute inset-0 z-50 flex h-full w-full items-center justify-center bg-background">
-            {/* Ambient glow behind the panel */}
-            <div className="pointer-events-none absolute left-1/2 top-1/2 -z-0 h-96 w-96 -translate-x-1/2 -translate-y-1/2
-                            rounded-full bg-primary/5 blur-3xl"/>
-            <div className="glass-panel lazy-fade-in relative w-full max-w-sm rounded-2xl p-7 shadow-lg">
+        <div className="absolute inset-0 z-50 flex h-full w-full items-center justify-center bg-[var(--surface-0)]">
+            <div className="lazy-fade-in relative w-full max-w-sm rounded-2xl border border-[var(--hairline)] bg-[var(--surface-1)] p-7 shadow-[0_12px_40px_var(--elevate-shadow-2)]">
 
                 {mode !== "select" && mode !== "login" && (
                     <Button
@@ -198,7 +195,7 @@ export function LockScreen() {
                             setConfirmPassword("");
                             setCreateError("");
                         }}
-                        className="absolute left-4 top-4 text-muted-foreground"
+                        className="absolute left-4 top-4 text-[var(--fg-subtle)]"
                     >
                         <ArrowLeft className="size-4"/>
                     </Button>
@@ -207,12 +204,12 @@ export function LockScreen() {
                 {mode === "login" && (
                     <form onSubmit={handleLogin} className="space-y-4">
                         <div className="mb-6 flex flex-col items-center text-center">
-                            <div className="pulse-glow mb-4 flex size-12 items-center justify-center
+                            <div className="mb-4 flex size-12 items-center justify-center
                                             rounded-full bg-primary/10 text-primary">
                                 <Lock className="size-6"/>
                             </div>
-                            <h2 className="text-2xl font-bold tracking-tight">{t("vault_locked_title")}</h2>
-                            <p className="mt-1 text-sm text-muted-foreground">{t("vault_locked_desc")}</p>
+                            <h2 className="text-2xl font-bold tracking-tight text-[var(--fg-strong)]">{t("vault_locked_title")}</h2>
+                            <p className="mt-1 text-sm text-[var(--fg-muted)]">{t("vault_locked_desc")}</p>
                         </div>
                         <div className="space-y-2">
                             <Label htmlFor="password-login">{t("master_password")}</Label>
@@ -232,7 +229,7 @@ export function LockScreen() {
                             <AlertDialog>
                                 <AlertDialogTrigger asChild>
                                     <button type="button"
-                                        className="text-xs text-muted-foreground/60 underline-offset-2
+                                        className="text-xs text-[var(--fg-subtle)] underline-offset-2
                                                    transition-colors hover:text-destructive hover:underline">
                                         {t("forgot_password")}
                                     </button>
@@ -266,14 +263,14 @@ export function LockScreen() {
                     <div className="space-y-4">
                         <div className="mb-6 text-center">
                             <img src="/appicon.png" alt="Terminator" className="mx-auto mb-4 size-12 rounded-xl"/>
-                            <h2 className="text-2xl font-bold tracking-tight">{t("welcome_title")}</h2>
-                            <p className="mt-1 text-sm text-muted-foreground">{t("welcome_desc")}</p>
+                            <h2 className="text-2xl font-bold tracking-tight text-[var(--fg-strong)]">{t("welcome_title")}</h2>
+                            <p className="mt-1 text-sm text-[var(--fg-muted)]">{t("welcome_desc")}</p>
                         </div>
 
                         <Button
                             variant="outline"
                             onClick={() => setMode("create")}
-                            className="elevate flex h-auto w-full items-center justify-start gap-4 p-4
+                            className="flex h-auto w-full items-center justify-start gap-4 p-4
                                        whitespace-normal text-left"
                         >
                             <div className="flex size-10 shrink-0 items-center justify-center
@@ -281,15 +278,15 @@ export function LockScreen() {
                                 <Shield className="size-5"/>
                             </div>
                             <div>
-                                <div className="font-medium text-foreground">{t("create_local_title")}</div>
-                                <div className="text-xs text-muted-foreground">{t("create_local_desc")}</div>
+                                <div className="font-medium text-[var(--fg-strong)]">{t("create_local_title")}</div>
+                                <div className="text-xs text-[var(--fg-muted)]">{t("create_local_desc")}</div>
                             </div>
                         </Button>
 
                         <Button
                             variant="outline"
                             onClick={() => setMode("connect")}
-                            className="elevate flex h-auto w-full items-center justify-start gap-4 p-4
+                            className="flex h-auto w-full items-center justify-start gap-4 p-4
                                        whitespace-normal text-left"
                         >
                             <div className="flex size-10 shrink-0 items-center justify-center
@@ -297,8 +294,8 @@ export function LockScreen() {
                                 <Server className="size-5"/>
                             </div>
                             <div>
-                                <div className="font-medium text-foreground">{t("restore_server_title")}</div>
-                                <div className="text-xs text-muted-foreground">{t("restore_server_desc")}</div>
+                                <div className="font-medium text-[var(--fg-strong)]">{t("restore_server_title")}</div>
+                                <div className="text-xs text-[var(--fg-muted)]">{t("restore_server_desc")}</div>
                             </div>
                         </Button>
                     </div>
@@ -307,7 +304,7 @@ export function LockScreen() {
                 {mode === "create" && (
                     <form onSubmit={handleCreateLocal} className="space-y-4">
                         <div className="mb-6 mt-2 px-12 text-center">
-                            <h2 className="text-xl font-bold tracking-tight">{t("create_vault_title")}</h2>
+                            <h2 className="text-xl font-bold tracking-tight text-[var(--fg-strong)]">{t("create_vault_title")}</h2>
                         </div>
                         <div className="space-y-2">
                             <Label>{t("username", {ns: "common"})}</Label>
@@ -340,14 +337,14 @@ export function LockScreen() {
                                                 "h-1 flex-1 rounded-full transition-colors",
                                                 level <= strength
                                                     ? STRENGTH_COLOR_CLASSES[strength]
-                                                    : "bg-muted"
+                                                    : "bg-[var(--surface-3)]"
                                             )}
                                         />
                                     ))}
                                 </div>
                                 <p className={cn(
                                     "text-xs",
-                                    strength === 1 ? "text-destructive" : "text-muted-foreground"
+                                    strength === 1 ? "text-destructive" : "text-[var(--fg-muted)]"
                                 )}>
                                     {t(STRENGTH_LABEL_KEYS[strength])}
                                 </p>
@@ -377,7 +374,7 @@ export function LockScreen() {
                 {mode === "connect" && (
                     <form onSubmit={handleConnectCloud} className="space-y-4">
                         <div className="mb-6 mt-2 px-12 text-center">
-                            <h2 className="text-xl font-bold tracking-tight">{t("restore_server_title")}</h2>
+                            <h2 className="text-xl font-bold tracking-tight text-[var(--fg-strong)]">{t("restore_server_title")}</h2>
                         </div>
                         <div className="space-y-2">
                             <Label>{t("server_url")}</Label>

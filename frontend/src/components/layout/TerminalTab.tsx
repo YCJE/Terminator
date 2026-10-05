@@ -24,13 +24,13 @@ interface TerminalTabProps {
 function getStatusColor(status: string): string {
     switch (status) {
         case "connected":
-            return "bg-emerald-400";
+            return "bg-[var(--success)]";
         case "connecting":
-            return "bg-amber-400";
+            return "bg-[var(--warning)]";
         case "disconnected":
-            return "bg-rose-500";
+            return "bg-[var(--destructive)]";
         default:
-            return "bg-muted-foreground";
+            return "bg-[var(--fg-subtle)]";
     }
 }
 
@@ -159,7 +159,7 @@ export function TerminalTab({
                     }
                 }}
                 className={cn(
-                    "tab-enter wails-no-drag group relative flex h-7 min-w-28 max-w-48 cursor-pointer",
+                    "tab-enter shell-tab wails-no-drag group relative flex min-w-28 max-w-48 cursor-pointer",
                     "items-center justify-between gap-1.5 px-2.5 text-xs font-medium",
                     "terminal-tab",
                     isActive ? "terminal-tab-active" : "terminal-tab-inactive"
@@ -176,8 +176,7 @@ export function TerminalTab({
                 <span
                     className={cn(
                         "size-1.5 shrink-0 rounded-full ring-2 ring-transparent",
-                        getStatusColor(session.status || "connected"),
-                        isActive && session.status === "connected" && "activity-dot"
+                        getStatusColor(session.status || "connected")
                     )}
                 />
                 <span className="truncate flex-1">{session.title}</span>
@@ -201,13 +200,14 @@ export function TerminalTab({
             {/* 右键颜色选择菜单 —— 使用 Portal 渲染到 body，避免被 overflow:hidden 裁切 */}
             {colorMenuOpen && createPortal(
                 <div
-                    className="fixed z-50 min-w-44 rounded-lg border border-border bg-popover p-2 shadow-2xl"
+                    className="fixed z-50 min-w-44 rounded-[var(--radius-md)] border border-[var(--hairline)]
+                               bg-[var(--surface-2)] p-2 shadow-2xl"
                     style={{ left: menuPos.x, top: menuPos.y }}
                     onClick={(e) => e.stopPropagation()}
                     onContextMenu={(e) => e.preventDefault()}
                 >
                     {/* 菜单标题 */}
-                    <div className="mb-2 px-1 text-xs font-medium text-muted-foreground">
+                    <div className="mb-2 px-1 text-xs font-medium text-[var(--fg-subtle)]">
                         {t("tab_color")}
                     </div>
                     {/* 颜色网格 */}
@@ -219,8 +219,8 @@ export function TerminalTab({
                                 className={cn(
                                     "size-6 rounded-md transition-all hover:scale-110",
                                     session.color === preset.value
-                                        ? "ring-2 ring-foreground ring-offset-1 ring-offset-popover"
-                                        : "ring-1 ring-border"
+                                        ? "ring-2 ring-[var(--fg-strong)] ring-offset-1 ring-offset-[var(--surface-2)]"
+                                        : "ring-1 ring-[var(--hairline-strong)]"
                                 )}
                                 style={{ backgroundColor: preset.value }}
                                 title={t(preset.labelKey)}
@@ -229,15 +229,15 @@ export function TerminalTab({
                         ))}
                     </div>
                     {/* 分隔线 */}
-                    <div className="my-2 h-px w-full bg-border"/>
+                    <div className="my-2 h-px w-full bg-[var(--hairline)]"/>
                     {/* 清除颜色按钮 */}
                     <button
                         onClick={() => handlePickColor("")}
                         className={cn(
                             "flex w-full items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs transition-colors",
                             !session.color
-                                ? "bg-accent text-accent-foreground"
-                                : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                                ? "bg-[var(--surface-3)] text-[var(--fg-strong)]"
+                                : "text-[var(--fg-muted)] hover:bg-[var(--surface-3)] hover:text-[var(--fg-strong)]"
                         )}
                     >
                         <Ban className="size-3.5"/>

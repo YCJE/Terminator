@@ -9,7 +9,6 @@ import { TerminalInstance } from "@/components/terminal/TerminalInstance";
 import { SnippetPanel } from "@/components/terminal/SnippetPanel";
 import { FilePanel } from "@/components/sftp/FilePanel";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
-import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { SFTP_PROGRESS_EVENT, SFTP_COMPLETE_EVENT } from "@/lib/sftpEvents";
 
@@ -83,7 +82,7 @@ export function TerminalStack({isVisible}: TerminalStackProps) {
 
             {/* 代码片段面板（底部可折叠） */}
             {isSnippetPanelVisible && (
-                <div className="h-48 shrink-0">
+                <div className="shrink-0" style={{ height: "var(--snippet-panel-height)" }}>
                     <ErrorBoundary>
                         <SnippetPanel sessionId={activeSessionId}/>
                     </ErrorBoundary>
@@ -91,13 +90,12 @@ export function TerminalStack({isVisible}: TerminalStackProps) {
             )}
 
             {/* 代码片段面板切换按钮（浮动在终端区域右下角） */}
-            <Button
-                variant="outline"
-                size="sm"
+            <button
+                type="button"
                 onClick={toggleSnippetPanel}
                 className={cn(
-                    "absolute bottom-2 right-2 z-10 gap-1.5 shadow-md",
-                    isSnippetPanelVisible && "bottom-[12.5rem]"
+                    "terminal-overlay-btn absolute right-2 z-10 px-2.5 py-1.5 text-xs font-medium",
+                    isSnippetPanelVisible && "bottom-[calc(var(--snippet-panel-height)+8px)]"
                 )}
                 title={t("snippet_toggle")}
             >
@@ -107,7 +105,7 @@ export function TerminalStack({isVisible}: TerminalStackProps) {
                     ? <ChevronDown className="size-3"/>
                     : <ChevronUp className="size-3"/>
                 }
-            </Button>
+            </button>
         </div>
     );
 }

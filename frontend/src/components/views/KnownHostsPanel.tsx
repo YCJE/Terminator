@@ -52,31 +52,33 @@ export function KnownHostsPanel() {
     return (
         <SettingsCard title={t("known_hosts_title")} description={t("known_hosts_desc")}>
             {loading ? (
-                <div className="flex items-center justify-center py-6 text-muted-foreground">
+                <div className="flex items-center justify-center py-8 text-[var(--fg-subtle)]">
                     <Loader2 className="size-4 animate-spin"/>
                 </div>
             ) : hosts.length === 0 ? (
-                <div className="flex flex-col items-center gap-2 py-6 text-center text-muted-foreground">
+                <div className="flex flex-col items-center gap-2 py-8 text-center text-[var(--fg-subtle)]">
                     <ShieldCheck className="size-6"/>
-                    <span className="text-sm">{t("known_hosts_empty")}</span>
+                    <span className="text-[12.5px]">{t("known_hosts_empty")}</span>
                 </div>
             ) : (
                 hosts.map((host) => (
-                    <div key={host.address} className="flex items-center justify-between gap-4">
-                        <div className="flex min-w-0 flex-col gap-0.5">
-                            <span className="truncate font-mono text-sm text-foreground">
+                    <div key={host.address} className="settings-row">
+                        <div className="settings-row-label">
+                            <span className="truncate font-mono text-[12.5px] text-[var(--fg-strong)]">
                                 {host.address}
                             </span>
-                            <span className="flex items-center gap-1.5 truncate font-mono text-xs text-muted-foreground">
+                            <span className="flex items-center gap-1.5 truncate font-mono text-[11px] text-[var(--fg-subtle)]">
                                 <Fingerprint className="size-3 shrink-0"/>
                                 {host.fingerprint || t("known_hosts_unknown_fp")}
                             </span>
-                            <span className="text-xs text-muted-foreground">{host.keyType}</span>
+                            <span className="text-[11px] text-[var(--fg-subtle)]">{host.keyType}</span>
                         </div>
-                        <Button variant="outline" size="sm" onClick={() => setPendingRemove(host)}>
-                            <Trash2 className="mr-2 size-3.5"/>
-                            {t("known_hosts_remove")}
-                        </Button>
+                        <div className="settings-row-control">
+                            <Button variant="outline" size="sm" onClick={() => setPendingRemove(host)}>
+                                <Trash2 className="mr-1.5 size-3.5"/>
+                                {t("known_hosts_remove")}
+                            </Button>
+                        </div>
                     </div>
                 ))
             )}

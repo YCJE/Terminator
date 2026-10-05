@@ -14,6 +14,8 @@ export type SettingsCategory = "appearance" | "terminal" | "shortcuts" | "sync" 
 export type Theme = "dark" | "light";
 export type AccentColor = "monochrome" | "sky" | "emerald" | "violet" | "amber" | "rose" | "cyan";
 export type Spaciness = 0.8 | 1 | 1.2;
+/** 皮肤：default = 现有外观；hud = HUD 战术（暗）；editorial = 编辑纸感（亮） */
+export type Skin = "default" | "hud" | "editorial";
 
 interface UIState {
     activeView: ViewType;
@@ -33,6 +35,7 @@ interface UIState {
     theme: Theme;
     accentColor: AccentColor;
     spaciness: Spaciness;
+    skin: Skin;
     terminalColorLink: boolean;
     /** 终端关键词高亮开关（前端纯本地设置，持久化到 localStorage） */
     keywordHighlight: boolean;
@@ -51,6 +54,7 @@ interface UIState {
     setTheme: (theme: Theme) => void;
     setAccentColor: (color: AccentColor) => void;
     setSpaciness: (s: Spaciness) => void;
+    setSkin: (skin: Skin) => void;
     setTerminalColorLink: (enabled: boolean) => void;
     setKeywordHighlight: (enabled: boolean) => void;
     /** 广播模式功能开关（控制广播按钮是否显示） */
@@ -103,6 +107,7 @@ export const useUIStore = create<UIState>((set) => ({
     theme: "dark",
     accentColor: "monochrome",
     spaciness: 1,
+    skin: "default",
     terminalColorLink: false,
     keywordHighlight: loadBool(STORAGE_KEYS.keywordHighlight, true),
     broadcastEnabled: loadBool(STORAGE_KEYS.broadcastEnabled, false),
@@ -121,6 +126,7 @@ export const useUIStore = create<UIState>((set) => ({
     setTheme: (theme) => set({ theme }),
     setAccentColor: (color) => set({ accentColor: color }),
     setSpaciness: (s) => set({ spaciness: s }),
+    setSkin: (skin) => set({ skin }),
     setTerminalColorLink: (enabled) => set({ terminalColorLink: enabled }),
     setKeywordHighlight: (enabled) => {
         saveBool(STORAGE_KEYS.keywordHighlight, enabled);
@@ -160,4 +166,11 @@ export const SPACINESS_PRESETS: { value: Spaciness; labelKey: string }[] = [
     { value: 0.8, labelKey: "density_compact" },
     { value: 1, labelKey: "density_standard" },
     { value: 1.2, labelKey: "density_loose" },
+];
+
+/** 皮肤预设列表。labelKey 指向 settings 命名空间的文案键 */
+export const SKIN_PRESETS: { value: Skin; labelKey: string }[] = [
+    { value: "default", labelKey: "skin_default" },
+    { value: "hud", labelKey: "skin_hud" },
+    { value: "editorial", labelKey: "skin_editorial" },
 ];

@@ -147,18 +147,20 @@ export function PortForwardingPage() {
 
     return (
         <div className="flex h-full w-full overflow-hidden">
-        <div
-            className="lazy-fade-in flex h-full min-w-0 flex-1 flex-col overflow-y-auto p-8"
-        >
-            {/* 头部：标题 + 添加按钮 */}
-            <div className="mb-8 flex w-full items-center gap-4">
-                <h1 className="shrink-0 text-2xl font-bold tracking-tight text-foreground">
+        <div className="lazy-fade-in flex h-full min-w-0 flex-1 flex-col overflow-hidden">
+            {/* 工具条：标题 + 计数 + 添加按钮 */}
+            <div className="flex shrink-0 items-center gap-3 border-b border-[var(--hairline)] px-6 pt-4 pb-3">
+                <h1 className="shrink-0 text-base font-semibold tracking-tight text-[var(--fg-strong)]">
                     {t("title")}
                 </h1>
+                <span className="shrink-0 rounded-[5px] border border-[var(--hairline)] bg-[var(--surface-2)]
+                                 px-1.5 py-0.5 font-mono text-[11.5px] text-[var(--fg-subtle)]">
+                    {forwards.length}
+                </span>
                 <div className="flex-1"/>
                 <Button
                     onClick={handleOpenForm}
-                    className="shrink-0"
+                    className="h-[var(--control-height)] shrink-0"
                     disabled={connectedSessions.length === 0}
                     title={
                         connectedSessions.length === 0
@@ -171,66 +173,61 @@ export function PortForwardingPage() {
                 </Button>
             </div>
 
-            {/* 空状态 */}
-            {forwards.length === 0 && (
-                <div
-                    className="soft-card flex flex-col items-center justify-center py-20 text-center
-                               rounded-xl"
-                >
+            {/* 列表 */}
+            <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-8">
+                {/* 空状态 */}
+                {forwards.length === 0 && (
                     <div
-                        className="mb-4 flex size-12 items-center justify-center rounded-xl
-                                   bg-primary/10 text-primary"
+                        className="soft-card mt-4 flex flex-col items-center justify-center py-20 text-center
+                                   rounded-xl"
                     >
-                        <ArrowRightLeft className="size-6"/>
-                    </div>
-                    <h3 className="text-lg font-semibold text-foreground">
-                        {t("empty_title")}
-                    </h3>
-                    <p className="mb-4 mt-2 max-w-md text-sm text-muted-foreground">
-                        {t("empty_desc")}
-                    </p>
-                    {connectedSessions.length === 0 ? (
-                        <p className="text-xs text-muted-foreground">{t("no_sessions")}</p>
-                    ) : (
-                        <Button variant="outline" onClick={handleOpenForm}>
-                            <Plus/>
-                            {t("add_button")}
-                        </Button>
-                    )}
-                </div>
-            )}
-
-            {/* 端口转发列表 */}
-            {forwards.length > 0 && (
-                <div
-                    className="grid w-full gap-4"
-                    style={{gridTemplateColumns: "repeat(auto-fit, minmax(22rem, 1fr))"}}
-                >
-                    {forwards.map((forward, index) => (
                         <div
-                            key={forward.id}
-                            className="stagger-in"
-                            style={{["--stagger-index" as string]: index}}
+                            className="mb-4 flex size-12 items-center justify-center rounded-xl
+                                       bg-primary/10 text-primary"
                         >
+                            <ArrowRightLeft className="size-6"/>
+                        </div>
+                        <h3 className="text-lg font-semibold text-[var(--fg-strong)]">
+                            {t("empty_title")}
+                        </h3>
+                        <p className="mb-4 mt-2 max-w-md text-sm text-[var(--fg-muted)]">
+                            {t("empty_desc")}
+                        </p>
+                        {connectedSessions.length === 0 ? (
+                            <p className="text-xs text-[var(--fg-muted)]">{t("no_sessions")}</p>
+                        ) : (
+                            <Button variant="outline" onClick={handleOpenForm}>
+                                <Plus/>
+                                {t("add_button")}
+                            </Button>
+                        )}
+                    </div>
+                )}
+
+                {/* 端口转发列表 */}
+                {forwards.length > 0 && (
+                    <div className="list-rows mt-2">
+                        {forwards.map((forward) => (
                             <PortForwardCard
+                                key={forward.id}
                                 forward={forward}
                                 onDelete={() => handleDeletePrompt(forward)}
                             />
-                        </div>
-                    ))}
-                </div>
-            )}
+                        ))}
+                    </div>
+                )}
 
-            {/* 删除确认 */}
-            <ConfirmModal
-                isOpen={!!forwardToDelete}
-                onClose={() => setForwardToDelete(null)}
-                onConfirm={handleConfirmDelete}
-                title={t("title")}
-                description={`${forwardToDelete?.localHost}:${forwardToDelete?.localPort} → ${forwardToDelete?.remoteHost}:${forwardToDelete?.remotePort}`}
-                confirmText={t("delete", {ns: "common"})}
-                isDestructive={true}
-            />
+                {/* 删除确认 */}
+                <ConfirmModal
+                    isOpen={!!forwardToDelete}
+                    onClose={() => setForwardToDelete(null)}
+                    onConfirm={handleConfirmDelete}
+                    title={t("title")}
+                    description={`${forwardToDelete?.localHost}:${forwardToDelete?.localPort} → ${forwardToDelete?.remoteHost}:${forwardToDelete?.remotePort}`}
+                    confirmText={t("delete", {ns: "common"})}
+                    isDestructive={true}
+                />
+            </div>
         </div>
 
             {/* 添加表单侧滑面板 */}
@@ -273,64 +270,45 @@ interface PortForwardCardProps {
 function PortForwardCard({forward, onDelete}: PortForwardCardProps) {
     const {t} = useTranslation(["portForwarding", "common"]);
     const isLocal = forward.type === "local";
+    const isActive = forward.status === "active";
     const Icon = isLocal ? ArrowRightLeft : Network;
 
     return (
-        <div
-            className="soft-card group flex items-center gap-4 rounded-xl border border-border
-                       p-5 transition-all hover:border-primary/40 hover:shadow-md"
-        >
+        <div className="list-row group">
             {/* 类型图标 */}
-            <div
-                className={cn(
-                    "flex size-10 shrink-0 items-center justify-center rounded-lg",
-                    isLocal
-                        ? "bg-primary/10 text-primary"
-                        : "bg-emerald-500/10 text-emerald-500"
-                )}
+            <span
+                className="list-chip is-tinted"
+                style={{["--chip-tint" as string]: isLocal ? "var(--primary)" : "var(--info)"}}
             >
-                <Icon className="size-5"/>
-            </div>
+                <Icon className="size-3.5"/>
+            </span>
 
-            {/* 中间信息 */}
-            <div className="flex min-w-0 flex-1 flex-col gap-1">
-                <div className="flex items-center gap-2 text-sm font-semibold text-card-foreground">
-                    <span className="truncate">{forward.localHost}:{forward.localPort}</span>
-                    <ArrowRight className="size-3.5 shrink-0 text-muted-foreground"/>
-                    <span className="truncate">{forward.remoteHost}:{forward.remotePort}</span>
-                </div>
-                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <Server className="size-3.5 shrink-0"/>
-                    <span className="truncate">{forward.sessionTitle}</span>
-                    <span className="text-muted-foreground/50">·</span>
-                    <span
-                        className={cn(
-                            "inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium",
-                            forward.status === "active"
-                                ? "bg-success/10 text-success"
-                                : "bg-muted text-muted-foreground"
-                        )}
-                    >
-                        <span
-                            className={cn(
-                                "size-1.5 rounded-full",
-                                forward.status === "active" ? "bg-success" : "bg-muted-foreground"
-                            )}
-                        />
-                        {forward.status === "active" ? t("forward_active") : t("forward_stopped")}
-                    </span>
-                </div>
-            </div>
+            {/* 主信息：本地地址 → 远程地址 */}
+            <span className="list-mono is-strong">
+                {forward.localHost}:{forward.localPort}
+                <ArrowRight className="list-arrow size-3.5"/>
+                {forward.remoteHost}:{forward.remotePort}
+            </span>
+
+            {/* 次信息：所属会话 */}
+            <span className="list-tag is-icon" title={forward.sessionTitle}>
+                <Server className="size-3 shrink-0"/>
+                <span>{forward.sessionTitle}</span>
+            </span>
+
+            {/* 状态 */}
+            <span className={cn("status-pill", isActive && "is-active")}>
+                <span className="dot"/>
+                {isActive ? t("forward_active") : t("forward_stopped")}
+            </span>
 
             {/* 删除按钮 */}
-            <div className="flex shrink-0 items-center">
+            <div className="list-actions">
                 <Button
                     variant="ghost"
                     size="icon-sm"
                     onClick={onDelete}
-                    className="text-muted-foreground opacity-0 transition-opacity
-                               hover:text-destructive group-hover:opacity-100
-                               focus-visible:opacity-100"
+                    className="text-[var(--fg-muted)] hover:text-destructive"
                     title={t("delete", {ns: "common"})}
                 >
                     <Trash2 className="size-4"/>
@@ -361,7 +339,7 @@ function PortForwardForm({formData, onChange, connectedSessions}: PortForwardFor
             <div className="grid gap-2">
                 <Label>{t("label_session")}</Label>
                 {connectedSessions.length === 0 ? (
-                    <p className="rounded-lg bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                    <p className="rounded-lg bg-[var(--surface-2)] px-3 py-2 text-xs text-[var(--fg-muted)]">
                         {t("no_sessions")}
                     </p>
                 ) : (
@@ -406,7 +384,7 @@ function PortForwardForm({formData, onChange, connectedSessions}: PortForwardFor
                         {t("type_remote")}
                     </Button>
                 </div>
-                <p className="text-xs text-muted-foreground">
+                <p className="text-xs text-[var(--fg-muted)]">
                     {formData.type === "local" ? t("desc_local") : t("desc_remote")}
                 </p>
             </div>
@@ -417,7 +395,7 @@ function PortForwardForm({formData, onChange, connectedSessions}: PortForwardFor
                     <Label htmlFor="localHost">{t("label_local_host")}</Label>
                     <div className="relative">
                         <Globe
-                            className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"/>
+                            className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--fg-subtle)]"/>
                         <Input
                             id="localHost"
                             className="pl-9"
@@ -447,7 +425,7 @@ function PortForwardForm({formData, onChange, connectedSessions}: PortForwardFor
                     <Label htmlFor="remoteHost">{t("label_remote_host")}</Label>
                     <div className="relative">
                         <Globe
-                            className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"/>
+                            className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--fg-subtle)]"/>
                         <Input
                             id="remoteHost"
                             className="pl-9"

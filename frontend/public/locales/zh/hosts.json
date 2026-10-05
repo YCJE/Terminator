@@ -26,6 +26,8 @@
   "group_label": "分组",
   "group_placeholder": "输入分组名称（可选）",
   "ungrouped": "未分组",
+  "tag_jump": "经跳板",
+  "tag_proxy": "代理",
   "auth_method_label": "认证方式",
   "auth_save_password": "保存密码",
   "auth_ask_on_connect": "每次连接时输入",

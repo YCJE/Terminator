@@ -76,6 +76,7 @@ export function SyncConflictPanel() {
 
     return (
         <SettingsCard title={t("conflict_title")} description={t("conflict_desc")}>
+            <div className="flex flex-col gap-3 p-4">
             {conflicts.map((conflict) => {
                 const Icon = TYPE_ICONS[conflict.itemType] ?? AlertTriangle;
                 const typeLabelKey = TYPE_LABEL_KEYS[conflict.itemType];
@@ -84,47 +85,48 @@ export function SyncConflictPanel() {
                 return (
                     <div
                         key={conflict.blobId}
-                        className="flex flex-col gap-3 rounded-lg border border-border bg-background p-4"
+                        className="flex flex-col gap-3 rounded-[var(--radius-md)] border border-[var(--hairline)]
+                                   bg-[var(--surface-0)] p-3.5"
                     >
-                        <div className="flex items-center gap-4">
+                        <div className="flex items-center gap-3">
                             <div
-                                className="flex size-10 shrink-0 items-center justify-center
-                                           rounded-lg bg-destructive/10 text-destructive">
-                                <Icon className="size-5"/>
+                                className="flex size-9 shrink-0 items-center justify-center
+                                           rounded-[var(--radius-sm)] bg-destructive/10 text-destructive">
+                                <Icon className="size-4"/>
                             </div>
                             <div className="flex min-w-0 flex-col">
-                                <span className="truncate text-sm font-medium text-foreground">
+                                <span className="truncate text-[12.5px] font-medium text-[var(--fg-strong)]">
                                     {conflict.name || t("conflict_unknown_item")}
                                 </span>
-                                <span className="text-xs text-muted-foreground">
+                                <span className="text-[11px] text-[var(--fg-subtle)]">
                                     {typeLabelKey ? t(typeLabelKey) : t("conflict_unknown_item")}
                                 </span>
                             </div>
                         </div>
 
                         <div className="grid grid-cols-2 gap-3">
-                            <div className="flex flex-col gap-1 rounded-md bg-muted/40 px-3 py-2">
-                                <span className="text-xs font-medium text-foreground">
+                            <div className="flex flex-col gap-1 rounded-[var(--radius-sm)] bg-[var(--surface-2)] px-3 py-2">
+                                <span className="text-[11px] font-medium text-[var(--fg-strong)]">
                                     {t("conflict_local")}
                                 </span>
-                                <span className="text-xs text-muted-foreground">
+                                <span className="text-[11px] text-[var(--fg-subtle)]">
                                     {formatDateTime(conflict.localUpdatedAt)}
                                 </span>
                                 {conflict.localDeleted && (
-                                    <span className="text-xs text-destructive">
+                                    <span className="text-[11px] text-destructive">
                                         {t("conflict_deleted")}
                                     </span>
                                 )}
                             </div>
-                            <div className="flex flex-col gap-1 rounded-md bg-muted/40 px-3 py-2">
-                                <span className="text-xs font-medium text-foreground">
+                            <div className="flex flex-col gap-1 rounded-[var(--radius-sm)] bg-[var(--surface-2)] px-3 py-2">
+                                <span className="text-[11px] font-medium text-[var(--fg-strong)]">
                                     {t("conflict_remote")}
                                 </span>
-                                <span className="text-xs text-muted-foreground">
+                                <span className="text-[11px] text-[var(--fg-subtle)]">
                                     {formatDateTime(conflict.remoteUpdatedAt)}
                                 </span>
                                 {conflict.remoteDeleted && (
-                                    <span className="text-xs text-destructive">
+                                    <span className="text-[11px] text-destructive">
                                         {t("conflict_deleted")}
                                     </span>
                                 )}
@@ -138,7 +140,7 @@ export function SyncConflictPanel() {
                                 disabled={isBusy}
                                 onClick={() => resolve(conflict.blobId, true)}
                             >
-                                {isBusy && <Loader2 className="mr-2 size-3 animate-spin"/>}
+                                {isBusy && <Loader2 className="mr-1.5 size-3 animate-spin"/>}
                                 {t("conflict_keep_local")}
                             </Button>
                             <Button
@@ -153,6 +155,7 @@ export function SyncConflictPanel() {
                     </div>
                 );
             })}
+            </div>
         </SettingsCard>
     );
 }

@@ -1,5 +1,4 @@
-import { Server, Key, Settings, ArrowRightLeft } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Server, Key, Settings, ArrowRightLeft, type LucideIcon } from "lucide-react";
 import { useUIStore, ViewType } from "@/store/uiStore";
 import { cn } from "@/lib/utils";
 import { SyncStatus } from "../../../bindings/terminator-desktop/backend/internal/services/sync";
@@ -12,74 +11,58 @@ export function Sidebar() {
     const {activeView, setActiveView, isSidebarVisible} = useUIStore();
     const {status, conflictCount} = useSyncStore();
 
-    let dotColor = "bg-muted-foreground";
-    if (status === SyncStatus.SyncStatusSyncing) dotColor = "bg-info activity-dot";
+    let dotColor = "bg-[var(--fg-subtle)]";
+    if (status === SyncStatus.SyncStatusSyncing) dotColor = "bg-info";
     if (status === SyncStatus.SyncStatusSuccess) dotColor = "bg-success";
     if (status === SyncStatus.SyncStatusError || status === SyncStatus.SyncStatusUnauthenticated) dotColor = "bg-destructive";
 
-    const sidebarWidth = (activeView !== ViewType.Terminal || isSidebarVisible) ? "var(--sidebar-width)" : "0px";
+    // 终端视图下侧栏可折叠，其余视图恒定展开
+    const isVisible = activeView !== ViewType.Terminal || isSidebarVisible;
+
+    const navItems: { view: ViewType; icon: LucideIcon; title: string }[] = [
+        { view: ViewType.Hosts, icon: Server, title: t("page_title", {ns: "hosts"}) },
+        { view: ViewType.Keys, icon: Key, title: t("page_title", {ns: "keys"}) },
+        { view: ViewType.PortForwarding, icon: ArrowRightLeft, title: t("title", {ns: "portForwarding"}) },
+    ];
 
     return (
         <aside
-            className={cn(
-                "wails-drag flex shrink-0 flex-col items-center justify-between " +
-                "border-r border-border bg-sidebar pb-4 pt-2 transition-[width] duration-200",
-                (activeView !== ViewType.Terminal || isSidebarVisible) ? "overflow-visible" : "overflow-hidden border-r-0"
-            )}
-            style={{ width: sidebarWidth }}
+            className={cn("shell-sidebar wails-drag", !isVisible && "is-collapsed")}
+            style={{ width: isVisible ? "var(--sidebar-width)" : "0px" }}
         >
-            <nav className="flex flex-col gap-2">
-                <Button
-                    variant={activeView === ViewType.Hosts ? "secondary" : "ghost"}
-                    size="icon"
-                    onClick={() => setActiveView(ViewType.Hosts)}
-                    className={cn("wails-no-drag transition-all duration-200", activeView === ViewType.Hosts && "nav-item-active")}
-                    title={t("page_title", { ns: "hosts" })}
-                >
-                    <Server className="size-5"/>
-                </Button>
-
-                <Button
-                    variant={activeView === ViewType.Keys ? "secondary" : "ghost"}
-                    size="icon"
-                    onClick={() => setActiveView(ViewType.Keys)}
-                    className={cn("wails-no-drag transition-all duration-200", activeView === ViewType.Keys && "nav-item-active")}
-                    title={t("page_title", { ns: "keys" })}
-                >
-                    <Key className="size-5"/>
-                </Button>
-
-                <Button
-                    variant={activeView === ViewType.PortForwarding ? "secondary" : "ghost"}
-                    size="icon"
-                    onClick={() => setActiveView(ViewType.PortForwarding)}
-                    className={cn("wails-no-drag transition-all duration-200", activeView === ViewType.PortForwarding && "nav-item-active")}
-                    title={t("title", { ns: "portForwarding" })}
-                >
-                    <ArrowRightLeft className="size-5"/>
-                </Button>
+            <nav className="shell-nav">
+                {navItems.map((item) => (
+                    <button
+                        key={item.view}
+                        type="button"
+                        onClick={() => setActiveView(item.view)}
+                        title={item.title}
+                        className={cn("shell-nav-btn wails-no-drag", activeView === item.view && "is-active")}
+                    >
+                        <item.icon className="size-[18px]"/>
+                    </button>
+                ))}
             </nav>
 
-            <nav className="flex flex-col gap-2">
+            <nav className="shell-nav">
                 <UpdatePopover/>
 
                 <div className="relative">
-                    <Button
-                        variant={activeView === ViewType.Settings ? "secondary" : "ghost"}
-                        size="icon"
+                    <button
+                        type="button"
                         onClick={() => setActiveView(ViewType.Settings)}
-                        className={cn("wails-no-drag text-muted-foreground hover:text-foreground transition-all duration-200", activeView === ViewType.Settings && "nav-item-active")}
+                        className={cn("shell-nav-btn wails-no-drag", activeView === ViewType.Settings && "is-active")}
                         // 徽标自身设了 pointer-events-none，title 不会触发，
                         // 因此把冲突提示挂到按钮上，悬停时仍能看到数量
                         title={conflictCount > 0
                             ? `${t("page_title", { ns: "settings" })} · ${t("conflict_badge_tooltip", {ns: "settings", count: conflictCount})}`
                             : t("page_title", { ns: "settings" })}
                     >
-                        <Settings className="size-5"/>
-                    </Button>
+                        <Settings className="size-[18px]"/>
+                    </button>
 
                     <div className={cn(
-                        "absolute right-1 top-1 size-2 rounded-full border border-sidebar",
+                        "absolute right-1 top-1 size-2 rounded-full border border-[var(--sidebar)]",
                         dotColor
                     )}/>
 

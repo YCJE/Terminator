@@ -42,13 +42,13 @@ export function TitleBar() {
     };
 
     return (
-        <header className="titlebar wails-drag flex shrink-0 items-end justify-between pr-0" style={{ height: "var(--tabs-height)" }}>
+        <header className="titlebar shell-titlebar wails-drag pr-0">
 
             {isUnlocked && (
                 <div
                     className={cn(
                         "relative flex h-full shrink-0 flex-col items-center justify-center",
-                        showSidebarStyling ? "bg-sidebar border-r" : "bg-transparent"
+                        showSidebarStyling ? "bg-sidebar border-r border-[var(--hairline)]" : "bg-transparent"
                     )}
                     style={{ width: "var(--sidebar-width)" }}
                 >
@@ -57,7 +57,7 @@ export function TitleBar() {
                             variant="ghost"
                             size="icon"
                             onClick={toggleSidebar}
-                            className="wails-no-drag text-muted-foreground hover:text-foreground"
+                            className="wails-no-drag text-[var(--fg-muted)] hover:text-[var(--fg-strong)]"
                         >
                             {isSidebarVisible
                                 ? <PanelLeftClose className="size-4"/>
@@ -69,7 +69,7 @@ export function TitleBar() {
                     )}
 
                     {showSidebarStyling && (
-                        <div className="absolute bottom-0 h-px w-8 bg-border"/>
+                        <div className="absolute bottom-0 h-px w-8 bg-[var(--hairline-strong)]"/>
                     )}
                 </div>
             )}
@@ -110,7 +110,7 @@ export function TitleBar() {
                         variant="ghost"
                         size="icon-sm"
                         onClick={toggleBroadcastMode}
-                        className={cn("wails-no-drag", broadcastMode ? "text-primary" : "text-muted-foreground hover:text-foreground")}
+                        className={cn("wails-no-drag", broadcastMode ? "text-primary" : "text-[var(--fg-muted)] hover:text-[var(--fg-strong)]")}
                         title={broadcastMode ? tTerm("broadcast_on") : tTerm("broadcast_off")}
                     >
                         <Radio className="size-4"/>
@@ -121,7 +121,7 @@ export function TitleBar() {
                         variant="ghost"
                         size="icon-sm"
                         onClick={toggleFilePanel}
-                        className="wails-no-drag text-muted-foreground hover:text-foreground"
+                        className="wails-no-drag text-[var(--fg-muted)] hover:text-[var(--fg-strong)]"
                         title={tSftp("toggle_panel")}
                     >
                         {isFilePanelVisible

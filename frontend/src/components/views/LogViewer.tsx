@@ -63,28 +63,28 @@ function parseLogLine(line: string): ParsedLogLine {
 function getLevelColor(level: string): string {
     switch (level.toUpperCase()) {
         case "ERROR":
-            return "text-red-500 font-semibold";
+            return "text-destructive font-semibold";
         case "WARN":
         case "WARNING":
-            return "text-amber-500 font-semibold";
+            return "text-warning font-semibold";
         case "INFO":
-            return "text-sky-500 font-semibold";
+            return "text-info font-semibold";
         case "DEBUG":
-            return "text-muted-foreground/60";
+            return "text-[var(--fg-subtle)]";
         default:
-            return "text-muted-foreground";
+            return "text-[var(--fg-muted)]";
     }
 }
 
 function getLevelBgColor(level: string): string {
     switch (level.toUpperCase()) {
         case "ERROR":
-            return "bg-red-500/10";
+            return "bg-destructive/10";
         case "WARN":
         case "WARNING":
-            return "bg-amber-500/10";
+            return "bg-warning/10";
         case "INFO":
-            return "bg-sky-500/5";
+            return "bg-info/5";
         default:
             return "";
     }
@@ -156,11 +156,11 @@ export function LogViewer() {
     const isEmpty = !rawLogs || parsedLines.length === 0;
 
     return (
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-2 p-4">
             <div className="flex items-center justify-between">
                 <div className="flex flex-col">
-                    <span className="font-medium">{t("log_title")}</span>
-                    <span className="text-xs text-muted-foreground">{t("log_desc")}</span>
+                    <span className="settings-row-title">{t("log_title")}</span>
+                    <span className="settings-row-desc">{t("log_desc")}</span>
                 </div>
                 <div className="flex items-center gap-2">
                     <Button variant="outline" size="sm" onClick={loadLogs} disabled={loading}>
@@ -180,9 +180,10 @@ export function LogViewer() {
                 </div>
             </div>
             {/* select-text 确保可以通过鼠标选中文本复制 */}
-            <div className="h-72 overflow-auto rounded-lg border border-border bg-zinc-950/80 p-3 select-text">
+            <div className="h-72 overflow-auto rounded-[var(--radius-md)] border border-[var(--hairline)]
+                            bg-[var(--surface-0)] p-3 select-text">
                 {isEmpty ? (
-                    <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+                    <div className="flex h-full items-center justify-center text-sm text-[var(--fg-muted)]">
                         <ScrollText className="mr-2 size-4" />
                         {t("log_click_refresh")}
                     </div>
@@ -197,7 +198,7 @@ export function LogViewer() {
                                 )}
                             >
                                 {line.time && (
-                                    <span className="shrink-0 text-zinc-500">
+                                    <span className="shrink-0 text-[var(--fg-subtle)]">
                                         [{line.time}]
                                     </span>
                                 )}
@@ -208,7 +209,7 @@ export function LogViewer() {
                                 )}
                                 <span className={cn(
                                     "min-w-0 flex-1 break-all",
-                                    line.level === "ERROR" ? "text-red-300" : "text-zinc-300"
+                                    line.level === "ERROR" ? "text-destructive" : "text-[var(--fg-muted)]"
                                 )}>
                                     {line.message}
                                 </span>
