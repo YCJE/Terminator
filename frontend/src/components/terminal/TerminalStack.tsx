@@ -95,7 +95,11 @@ export function TerminalStack({isVisible}: TerminalStackProps) {
                 onClick={toggleSnippetPanel}
                 className={cn(
                     "terminal-overlay-btn absolute right-2 z-10 px-2.5 py-1.5 text-xs font-medium",
-                    isSnippetPanelVisible && "bottom-[calc(var(--snippet-panel-height)+8px)]"
+                    // 默认态必须给出 bottom：绝对定位且 top/bottom 均为 auto 时，
+                    // 元素会回退到 flex 容器的静态位置（顶部），从而压住终端右上角的搜索按钮
+                    isSnippetPanelVisible
+                        ? "bottom-[calc(var(--snippet-panel-height)+8px)]"
+                        : "bottom-2"
                 )}
                 title={t("snippet_toggle")}
             >
