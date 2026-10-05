@@ -215,6 +215,10 @@ func TestImportRejectsWrongPassword(t *testing.T) {
 	if err := q.WipeUsers(ctx); err != nil {
 		t.Fatalf("清空用户失败: %v", err)
 	}
+	// 模拟全新安装：数据已清空且保险库处于锁定状态。
+	// seedAccount 会解锁保险库，若不在此锁回，就无法验证导入失败时
+	// 保险库仍保持锁定（而非被这次失败的操作解锁）。
+	v.Lock()
 
 	dialog.openPath = path
 	if _, err := svc.SelectBackupFile(); err != nil {
