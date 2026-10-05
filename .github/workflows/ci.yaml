@@ -78,12 +78,15 @@ jobs:
         env:
           CGO_ENABLED: '0'
         run: |
+          # GitHub 的 bash 默认带 -e -o pipefail，go test 一旦失败会在管道处直接退出，
+          # 拿不到退出码、也来不及汇总失败信息；此处先临时关闭 errexit。
+          set +e
           go test ./... 2>&1 | tee go-test.log
           status=${PIPESTATUS[0]}
           if [ "$status" -ne 0 ]; then
             # CI 运行日志需登录才能查看，而 check-run 的 annotation 公开可读；
-            # 把失败摘要折叠进单条 annotation，便于在外部定位失败包与原因。
-            body="$(grep -E '^(FAIL|fork/exec|--- FAIL)' go-test.log | head -n 30)"
+            # 剔除通过行后把剩余内容折叠进单条 annotation，便于在外部定位失败原因。
+            body="$(grep -vE '^(ok|\?)' go-test.log | head -n 60)"
             body="${body//'%'/'%25'}"
             body="${body//$'\r'/'%0D'}"
             body="${body//$'\n'/'%0A'}"
