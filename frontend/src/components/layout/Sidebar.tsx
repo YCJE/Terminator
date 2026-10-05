@@ -69,7 +69,11 @@ export function Sidebar() {
                         size="icon"
                         onClick={() => setActiveView(ViewType.Settings)}
                         className={cn("wails-no-drag text-muted-foreground hover:text-foreground transition-all duration-200", activeView === ViewType.Settings && "nav-item-active")}
-                        title={t("page_title", { ns: "settings" })}
+                        // 徽标自身设了 pointer-events-none，title 不会触发，
+                        // 因此把冲突提示挂到按钮上，悬停时仍能看到数量
+                        title={conflictCount > 0
+                            ? `${t("page_title", { ns: "settings" })} · ${t("conflict_badge_tooltip", {ns: "settings", count: conflictCount})}`
+                            : t("page_title", { ns: "settings" })}
                     >
                         <Settings className="size-5"/>
                     </Button>
@@ -82,10 +86,10 @@ export function Sidebar() {
                     {/* 未解决的同步冲突数量；点击设置进入同步分类处理 */}
                     {conflictCount > 0 && (
                         <span
+                            aria-label={t("conflict_badge_tooltip", {ns: "settings", count: conflictCount})}
                             className="pointer-events-none absolute -bottom-1 -right-1 flex size-4 items-center
                                        justify-center rounded-full bg-destructive text-[10px] font-medium
                                        leading-none text-destructive-foreground"
-                            title={t("conflict_badge_tooltip", {ns: "settings", count: conflictCount})}
                         >
                             {conflictCount > 9 ? "9+" : conflictCount}
                         </span>
