@@ -13,7 +13,12 @@ concurrency:
 jobs:
   backend:
     name: Backend (vet / gofmt / test)
-    runs-on: ubuntu-latest
+    # 使用 Windows runner：wails v3 alpha 的 Linux 实现分为 cgo 与 purego 两套，
+    # 前者需要 cgo、后者需要 purego 构建标签，而 purego 变体在当前版本自身存在
+    # 编译错误。CGO_ENABLED=0 的 Linux 环境下 cmd/terminator-desktop 无法编译，
+    # 会使 go vet ./... 报 undefined: pointer / linuxApp。桌面端以 Windows 为主，
+    # 在此平台上可对 ./... 做完整校验。
+    runs-on: windows-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
@@ -27,6 +32,8 @@ jobs:
       # CGO 关闭：与发布构建保持一致，且无需安装 gcc/系统库，
       # velopack 的更新能力在无 cgo 时会优雅降级。
       - name: gofmt
+        # Windows runner 默认 shell 为 PowerShell，此步骤沿用 bash 脚本
+        shell: bash
         env:
           CGO_ENABLED: '0'
         run: |
