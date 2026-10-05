@@ -892,7 +892,11 @@ func (s *SshService) saveKnownHosts(known map[string]string) error {
 	if err := os.WriteFile(tmp, []byte(b.String()), 0600); err != nil {
 		return err
 	}
-	return os.Rename(tmp, s.knownHostsPath)
+	if err := os.Rename(tmp, s.knownHostsPath); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return nil
 }
 
 // KnownHostEntry 描述一条已固定的主机密钥，供设置界面展示与管理。
