@@ -17,14 +17,25 @@ jobs:
 
       - uses: ./.github/actions/setup
 
+      # windows-latest 已切换到 Windows Server 2025 镜像，该镜像不再预装 NSIS，
+      # 而安装包由 package 链路的 create:nsis:installer 调用 makensis 生成
+      # （Windows Server 2022 镜像自带 NSIS 3.10，因此旧版本发布未暴露此问题）。
+      # 这里显式安装，并把 makensis 所在目录写入 PATH 供后续任务使用。
+      - name: Install NSIS
+        shell: pwsh
+        run: |
+          choco install nsis -y --no-progress
+          $nsis = "C:\Program Files (x86)\NSIS"
+          if (-not (Test-Path "$nsis\makensis.exe")) {
+            throw "NSIS 安装失败：$nsis\makensis.exe 不存在"
+          }
+          Add-Content -Path $env:GITHUB_PATH -Value $nsis -Encoding ascii
+
       # 必须用 package 而不是 build：build 只产出免安装版 terminator.exe，
       # NSIS 安装包由 package 链路的 create:nsis:installer 生成，
       # 而下面的发布步骤要同时上传这两个文件。
       - name: Build Wails App
-        shell: pwsh
-        run: |
-          $env:PATH += ";C:\Program Files (x86)\NSIS"
-          wails3 task package
+        run: wails3 task package
         env:
           CGO_ENABLED: 1
 
@@ -52,6 +63,8 @@ jobs:
             bin/terminator.exe \
             bin/terminator-amd64-installer.exe \
             --clobber
+          # 发布可能已被其它平台任务以草稿形式创建，这里在两个安装包就位后再对外公开
+          gh release edit "$TAG" --draft=false
 
       - name: Velopack
         shell: bash
@@ -247,8 +260,17 @@ jobs:
         shell: bash
         run: |
           cd releases
-          # 生成除校验和文件自身外所有发布资产的 SHA256，供客户端校验下载完整性
-          find . -maxdepth 1 -type f ! -name 'SHA256SUMS-*' -printf '%f\n' | sort | while read -r f; do sha256sum "$f"; done > SHA256SUMS-macos.txt
+          # 生成除校验和文件自身外所有发布资产的 SHA256，供客户端校验下载完整性。
+          # macOS 自带的是 BSD find（不支持 -printf）且没有 sha256sum，故用可移植写法。
+          for f in *; do
+            [ -f "$f" ] || continue
+            case "$f" in SHA256SUMS-*) continue;; esac
+            if command -v sha256sum >/dev/null 2>&1; then
+              sha256sum "$f"
+            else
+              shasum -a 256 "$f"
+            fi
+          done | sort -k2 > SHA256SUMS-macos.txt
 
       - name: Upload checksums
         shell: bash
