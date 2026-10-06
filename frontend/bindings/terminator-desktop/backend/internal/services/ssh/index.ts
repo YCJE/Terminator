@@ -12,7 +12,3 @@ export {
     PortForwardSpec,
     SSHConnectionConfig
 } from "./models.js";
-
-export type {
-    SessionLogConfig
-} from "./models.js";

@@ -44,14 +44,3 @@ export class BackupFileInfo {
         return new BackupFileInfo($$parsedSource as Partial<BackupFileInfo>);
     }
 }
-
-/**
- * SessionDisconnector 断开所有 SSH 会话的接口（避免循环依赖）
- */
-export type SessionDisconnector = any;
-
-/**
- * SyncPauser 暂停后台同步的接口（避免循环依赖）。
- * 导入会整体替换本地数据，必须确保期间没有同步在跑。
- */
-export type SyncPauser = any;

@@ -57,21 +57,6 @@ export function RegisterOnServer(serverURL: string): $CancellablePromise<void> {
     return $Call.ByID(2102841450, serverURL);
 }
 
-/**
- * SetSessionDisconnector 注入 SSH 服务引用，用于 WipeData 时断开所有连接
- */
-export function SetSessionDisconnector(d: $models.SessionDisconnector): $CancellablePromise<void> {
-    return $Call.ByID(3784343510, d);
-}
-
-/**
- * SetSyncPauser 注入同步服务引用，用于 WipeData 时暂停后台同步。
- * 否则在途同步会把擦除前的旧条目推送到服务器，导致已清除的数据残留在云端。
- */
-export function SetSyncPauser(p: $models.SyncPauser): $CancellablePromise<void> {
-    return $Call.ByID(692209416, p);
-}
-
 export function WipeData(): $CancellablePromise<void> {
     return $Call.ByID(132727258);
 }

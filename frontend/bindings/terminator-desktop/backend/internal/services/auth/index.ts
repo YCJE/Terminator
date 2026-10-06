@@ -9,8 +9,3 @@ export {
 export {
     UserInfo
 } from "./models.js";
-
-export type {
-    SessionDisconnector,
-    SyncPauser
-} from "./models.js";

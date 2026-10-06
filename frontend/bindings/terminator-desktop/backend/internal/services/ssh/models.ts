@@ -193,12 +193,6 @@ export class SSHConnectionConfig {
     }
 }
 
-/**
- * SessionLogConfig 提供会话日志的运行时开关。
- * 用接口而非固定布尔值，使设置变更无需重启应用即可生效。
- */
-export type SessionLogConfig = any;
-
 // Private type creation functions
 const $$createType0 = JumpHostConfig.createFrom;
 const $$createType1 = $Create.Nullable($$createType0);

@@ -158,6 +158,8 @@ func defaultKnownHostsPath() string {
 
 // SetSessionLogConfig 注入会话日志开关。未注入时视为关闭：
 // 会话日志会把完整终端输出明文落盘，不应在未明确开启的情况下记录。
+//
+//wails:ignore 仅由后端装配（main.go）调用，参数是接口类型无法 JSON 序列化，不暴露给前端
 func (s *SshService) SetSessionLogConfig(cfg SessionLogConfig) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

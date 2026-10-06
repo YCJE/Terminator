@@ -5,17 +5,6 @@
 // @ts-ignore: Unused imports
 import { Create as $Create } from "@wailsio/runtime";
 
-/**
- * SessionDisconnector 断开所有 SSH 会话的接口（避免循环依赖）
- */
-export type SessionDisconnector = any;
-
-/**
- * SyncPauser 暂停后台同步的接口（避免循环依赖）。
- * 擦除会整体清空本地数据，必须确保期间没有同步在跑。
- */
-export type SyncPauser = any;
-
 export class UserInfo {
     "username": string;
     "serverUrl": string;

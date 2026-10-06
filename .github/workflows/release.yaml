@@ -66,6 +66,31 @@ jobs:
           # 发布可能已被其它平台任务以草稿形式创建，这里在两个安装包就位后再对外公开
           gh release edit "$TAG" --draft=false
 
+      # 同一 tag 重跑时，上一次运行遗留的 Velopack 产物（尤其是频道 feed）会让
+      # `vpk pack` 判定该版本已存在而直接失败（exit 255）。先清掉本平台的全部
+      # Velopack 资产，使发布链路可重复执行（幂等）。
+      - name: Cleanup residual Velopack assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="v${{ env.VERSION }}"
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            echo "release $TAG 不存在，无需清理"
+            exit 0
+          fi
+          existing=$(gh release view "$TAG" --json assets --jq '.assets[].name')
+          for asset in \
+            "releases.windows-stable.json" \
+            "Terminator-${VERSION}-windows-stable-full.nupkg" \
+            "Terminator-windows-stable-Setup.exe" \
+            "Terminator-windows-stable-Portable.zip"; do
+            if printf '%s\n' "$existing" | grep -Fxq "$asset"; then
+              echo "删除残留资产：$asset"
+              gh release delete-asset "$TAG" "$asset" --yes
+            fi
+          done
+
       - name: Velopack
         shell: bash
         run: |
@@ -145,6 +170,30 @@ jobs:
         env:
           CGO_ENABLED: 1
 
+      # 同一 tag 重跑时，上一次运行遗留的 Velopack 产物（尤其是频道 feed）会让
+      # `vpk pack` 判定该版本已存在而直接失败（exit 255）。先清掉本平台的全部
+      # Velopack 资产，使发布链路可重复执行（幂等）。
+      - name: Cleanup residual Velopack assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="v${{ env.VERSION }}"
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            echo "release $TAG 不存在，无需清理"
+            exit 0
+          fi
+          existing=$(gh release view "$TAG" --json assets --jq '.assets[].name')
+          for asset in \
+            "releases.linux-stable.json" \
+            "Terminator-${VERSION}-linux-stable-full.nupkg" \
+            "Terminator-linux-stable.AppImage"; do
+            if printf '%s\n' "$existing" | grep -Fxq "$asset"; then
+              echo "删除残留资产：$asset"
+              gh release delete-asset "$TAG" "$asset" --yes
+            fi
+          done
+
       - name: Velopack
         shell: bash
         run: |
@@ -213,6 +262,31 @@ jobs:
         run: wails3 task package
         env:
           CGO_ENABLED: 1
+
+      # 同一 tag 重跑时，上一次运行遗留的 Velopack 产物（尤其是频道 feed）会让
+      # `vpk pack` 判定该版本已存在而直接失败（exit 255）。先清掉本平台的全部
+      # Velopack 资产，使发布链路可重复执行（幂等）。
+      - name: Cleanup residual Velopack assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="v${{ env.VERSION }}"
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            echo "release $TAG 不存在，无需清理"
+            exit 0
+          fi
+          existing=$(gh release view "$TAG" --json assets --jq '.assets[].name')
+          for asset in \
+            "releases.macos-stable.json" \
+            "Terminator-${VERSION}-macos-stable-full.nupkg" \
+            "Terminator-macos-stable-Portable.zip" \
+            "Terminator-macos-stable-Setup.pkg"; do
+            if printf '%s\n' "$existing" | grep -Fxq "$asset"; then
+              echo "删除残留资产：$asset"
+              gh release delete-asset "$TAG" "$asset" --yes
+            fi
+          done
 
       - name: Velopack
         shell: bash

@@ -77,12 +77,16 @@ func NewAuthService(
 }
 
 // SetSessionDisconnector 注入 SSH 服务引用，用于 WipeData 时断开所有连接
+//
+//wails:ignore 仅由后端装配（main.go）调用，参数是接口类型无法 JSON 序列化，不暴露给前端
 func (s *AuthService) SetSessionDisconnector(d SessionDisconnector) {
 	s.sshDisconn = d
 }
 
 // SetSyncPauser 注入同步服务引用，用于 WipeData 时暂停后台同步。
 // 否则在途同步会把擦除前的旧条目推送到服务器，导致已清除的数据残留在云端。
+//
+//wails:ignore 仅由后端装配（main.go）调用，参数是接口类型无法 JSON 序列化，不暴露给前端
 func (s *AuthService) SetSyncPauser(p SyncPauser) {
 	s.syncPauser = p
 }

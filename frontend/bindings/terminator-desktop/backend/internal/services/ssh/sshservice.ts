@@ -100,14 +100,6 @@ export function Resize(sessionID: string, rows: number, cols: number): $Cancella
     return $Call.ByID(639676773, sessionID, rows, cols);
 }
 
-/**
- * SetSessionLogConfig 注入会话日志开关。未注入时视为关闭：
- * 会话日志会把完整终端输出明文落盘，不应在未明确开启的情况下记录。
- */
-export function SetSessionLogConfig(cfg: $models.SessionLogConfig): $CancellablePromise<void> {
-    return $Call.ByID(2179631703, cfg);
-}
-
 // Private type creation functions
 const $$createType0 = sftp$0.Client.createFrom;
 const $$createType1 = $Create.Nullable($$createType0);

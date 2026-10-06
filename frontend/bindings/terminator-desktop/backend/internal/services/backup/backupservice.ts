@@ -37,22 +37,6 @@ export function SelectBackupFile(): $CancellablePromise<$models.BackupFileInfo |
     });
 }
 
-/**
- * SetSessionDisconnector 注入 SSH 服务引用，导入前断开所有连接。
- * 导入会整体替换主机列表，留着旧会话没有意义，且会持有已不存在的主机记录。
- */
-export function SetSessionDisconnector(d: $models.SessionDisconnector): $CancellablePromise<void> {
-    return $Call.ByID(4020864726, d);
-}
-
-/**
- * SetSyncPauser 注入同步服务引用，导入前暂停后台同步。
- * 否则在途同步会把导入前的旧条目推送到服务器，覆盖掉刚恢复的数据。
- */
-export function SetSyncPauser(p: $models.SyncPauser): $CancellablePromise<void> {
-    return $Call.ByID(1265558536, p);
-}
-
 // Private type creation functions
 const $$createType0 = $models.BackupFileInfo.createFrom;
 const $$createType1 = $Create.Nullable($$createType0);

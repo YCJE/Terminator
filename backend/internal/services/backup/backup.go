@@ -134,12 +134,16 @@ func NewBackupService(
 
 // SetSessionDisconnector 注入 SSH 服务引用，导入前断开所有连接。
 // 导入会整体替换主机列表，留着旧会话没有意义，且会持有已不存在的主机记录。
+//
+//wails:ignore 仅由后端装配（main.go）调用，参数是接口类型无法 JSON 序列化，不暴露给前端
 func (s *BackupService) SetSessionDisconnector(d SessionDisconnector) {
 	s.sshDisconn = d
 }
 
 // SetSyncPauser 注入同步服务引用，导入前暂停后台同步。
 // 否则在途同步会把导入前的旧条目推送到服务器，覆盖掉刚恢复的数据。
+//
+//wails:ignore 仅由后端装配（main.go）调用，参数是接口类型无法 JSON 序列化，不暴露给前端
 func (s *BackupService) SetSyncPauser(p SyncPauser) {
 	s.syncPauser = p
 }
