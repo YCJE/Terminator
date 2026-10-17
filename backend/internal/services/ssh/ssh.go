@@ -98,6 +98,17 @@ type activeSession struct {
 	agentCloser io.Closer            // SSH Agent 转发连接（可选，清理时关闭）
 }
 
+// closeLogFile 关闭会话日志文件。
+// 与 writeLog 共用 logMu：Close 若与在途 Write 交叉，会静默丢掉最后一段日志。
+func (a *activeSession) closeLogFile() {
+	if a == nil || a.logFile == nil {
+		return
+	}
+	a.logMu.Lock()
+	_ = a.logFile.Close()
+	a.logMu.Unlock()
+}
+
 type SshService struct {
 	emitter  SSHEmitter
 	mu       sync.RWMutex
@@ -113,12 +124,30 @@ type SshService struct {
 	connPool   map[string]*pooledConn
 	connPoolMu sync.Mutex
 
+	// retired 记录已被移出连接池、但仍有会话持有的旧连接及其剩余引用计数。
+	// 池中条目被剔除/替换时，若该连接仍有持有者，不能立即关闭（否则会打断
+	// 其它会话），必须把剩余计数转移到这里，由各持有者各自递减、归零才关闭。
+	retired map[*ssh.Client]int
+
+	// probes 记录每个 client 是否有 keepalive 探测正在进行中（key = *ssh.Client）。
+	// 探测在连接黑洞时会一直阻塞在 ssh 库的 readPacket 上，无法在超时后回收其
+	// goroutine；若每次都新建探测（keepalive 每 30s 一次），goroutine 会无界增长。
+	// 因此同一 client 只保留一个在途探测，其余调用复用其结果。
+	probes   map[*ssh.Client]*connProbe
+	probesMu sync.Mutex
+
 	// 端口转发管理
 	forwards   map[string]net.Listener // key = forward ID
 	forwardsMu sync.Mutex
 
 	// sessionID → forwardID[] 反向索引，用于会话断开时批量清理端口转发
 	sessionForwards map[string][]string
+
+	// forwardConns 记录每个转发当前活跃的隧道连接（key = forward ID）。
+	// 仅关闭 listener 不会关闭已 Accept 的连接，其 io.Copy goroutine 会一直存活
+	// 到对端断开，造成 fd/goroutine 泄漏，且"已删除"的转发仍在传输数据；
+	// 因此移除/清理转发时须显式关闭这些连接。与 forwards 共用 forwardsMu 保护。
+	forwardConns map[string]map[net.Conn]struct{}
 
 	// logDir 会话日志输出目录（空则不记录日志）
 	logDir string
@@ -143,8 +172,11 @@ func NewSshService(emitter SSHEmitter, logDir string) *SshService {
 		sessions:        make(map[string]*activeSession),
 		knownHostsPath:  defaultKnownHostsPath(),
 		connPool:        make(map[string]*pooledConn),
+		retired:         make(map[*ssh.Client]int),
+		probes:          make(map[*ssh.Client]*connProbe),
 		forwards:        make(map[string]net.Listener),
 		sessionForwards: make(map[string][]string),
+		forwardConns:    make(map[string]map[net.Conn]struct{}),
 		logDir:          logDir,
 	}
 }
@@ -327,7 +359,7 @@ func (s *SshService) Connect(config *SSHConnectionConfig) error {
 				case <-keepaliveDone:
 					return
 				case <-ticker.C:
-					if !isConnectionAlive(client) {
+					if !s.isConnectionAlive(client) {
 						slog.Warn("SSH keepalive failed, closing session", "session", config.ID)
 						_ = session.Close()
 						_ = pw.Close()
@@ -359,9 +391,7 @@ func (s *SshService) Connect(config *SSHConnectionConfig) error {
 	s.mu.Unlock()
 
 	if old != nil {
-		if old.logFile != nil {
-			_ = old.logFile.Close()
-		}
+		old.closeLogFile()
 		if old.agentCloser != nil {
 			_ = old.agentCloser.Close()
 		}
@@ -399,27 +429,65 @@ func connKey(config *SSHConnectionConfig) string {
 	return base
 }
 
-// isConnectionAlive 发送 keepalive 请求检测连接是否存活
-// 3 秒超时，避免阻塞太久
-// 注意：超时后不关闭 client，因为 client 可能是连接池中的共享连接
-// 由调用方决定如何处理（关闭 session 而非 client）
-func isConnectionAlive(client *ssh.Client) bool {
-	done := make(chan error, 1)
+// probeTimeout keepalive 探测超时时间。
+const probeTimeout = 3 * time.Second
+
+// connProbe 表示一次在途的连接存活探测，多个调用方共享其结果。
+type connProbe struct {
+	done  chan struct{}
+	alive bool
+}
+
+// isConnectionAlive 发送 keepalive 请求检测连接是否存活。
+//
+// 探测依赖 ssh 库读取对端应答，连接为黑洞时会一直阻塞，超时后其 goroutine
+// 也无法被回收。若每次调用都新建探测（keepalive 每 30s 一次、每次 acquire 一次），
+// 这些 goroutine 会无界增长。因此对同一 client 只保留一个在途探测，其余调用
+// 复用其结果；该探测 goroutine 会在连接最终被关闭（池中剔除/引用归零触发
+// readPacket 返回错误）时退出，从而不再累积。
+//
+// 超时仅返回 false，不关闭 client：它可能是连接池中的共享连接，
+// 由调用方决定如何处理（关闭 session，或把连接标记为 poisoned）。
+func (s *SshService) isConnectionAlive(client *ssh.Client) bool {
+	s.probesMu.Lock()
+	if p, ok := s.probes[client]; ok {
+		s.probesMu.Unlock()
+		// 已有在途探测：复用其结果；超时仍视为不存活，与单次探测语义一致。
+		select {
+		case <-p.done:
+			return p.alive
+		case <-time.After(probeTimeout):
+			return false
+		}
+	}
+	p := &connProbe{done: make(chan struct{})}
+	s.probes[client] = p
+	s.probesMu.Unlock()
+
 	go func() {
+		alive := false
 		defer func() {
 			if r := recover(); r != nil {
-				done <- fmt.Errorf("keepalive panic: %v", r)
+				alive = false
 			}
+			// 先写结果再 close(done)：等待方在收到 done 后读取 p.alive 是安全的
+			p.alive = alive
+			s.probesMu.Lock()
+			// 仅当仍是当前探测时才移除，避免误删随后新建的探测
+			if cur, ok := s.probes[client]; ok && cur == p {
+				delete(s.probes, client)
+			}
+			s.probesMu.Unlock()
+			close(p.done)
 		}()
 		_, _, err := client.SendRequest("keepalive@openssh.com", true, nil)
-		done <- err
+		alive = err == nil
 	}()
+
 	select {
-	case err := <-done:
-		return err == nil
-	case <-time.After(3 * time.Second):
-		// 超时仅返回 false，不关闭共享 client
-		// 调用方（keepalive goroutine）会关闭自己的 session
+	case <-p.done:
+		return p.alive
+	case <-time.After(probeTimeout):
 		return false
 	}
 }
@@ -435,7 +503,7 @@ func (s *SshService) acquireClient(config *SSHConnectionConfig) (*ssh.Client, er
 		client := pc.client
 		s.connPoolMu.Unlock()
 
-		if isConnectionAlive(client) {
+		if s.isConnectionAlive(client) {
 			s.connPoolMu.Lock()
 			// 二次确认池中条目未被其他 goroutine 移除
 			if pc2, ok := s.connPool[key]; ok && pc2.client == client {
@@ -445,45 +513,68 @@ func (s *SshService) acquireClient(config *SSHConnectionConfig) (*ssh.Client, er
 			}
 			s.connPoolMu.Unlock()
 		} else {
-			// 连接已死，从池中移除。
-			// refCount>0 时不删除条目，仅标记为 poisoned，让 acquire 跳过
-			// releaseClient 继续递减 refCount，归零时才关闭和删除
-			var shouldClose bool
+			// 连接已死。refCount>0 时不能立即关闭（仍有会话在用），仅标记
+			// poisoned 让新 acquire 跳过；其剩余引用计数会在条目被替换时由
+			// detachLocked 转入 retired，各持有者各自释放、归零时才关闭。
+			var toClose *ssh.Client
 			s.connPoolMu.Lock()
 			if pc2, ok := s.connPool[key]; ok && pc2.client == client {
 				if pc2.refCount <= 0 {
-					delete(s.connPool, key)
-					shouldClose = true
+					toClose = s.detachLocked(key)
 				} else {
-					// 标记为 poisoned，新 acquire 会跳过此条目
 					pc2.poisoned = true
 				}
 			}
 			s.connPoolMu.Unlock()
-			if shouldClose {
-				_ = client.Close()
+			if toClose != nil {
+				_ = toClose.Close()
 			}
 		}
 	} else {
 		s.connPoolMu.Unlock()
 	}
 
-	client, err := s.dialSSH(config)
+	dialed, err := s.dialSSH(config)
 	if err != nil {
 		return nil, err
 	}
 
 	s.connPoolMu.Lock()
 	if pc, ok := s.connPool[key]; ok && pc.client != nil && !pc.poisoned {
-		_ = client.Close()
+		// 竞态：期间其他 goroutine 已建立可复用连接，丢弃本次新拨的
 		pc.refCount++
-		client = pc.client
-	} else {
-		s.connPool[key] = &pooledConn{client: client, refCount: 1}
+		existing := pc.client
+		s.connPoolMu.Unlock()
+		_ = dialed.Close()
+		return existing, nil
 	}
+	// 安装新连接前先摘除池中残留的旧条目（poisoned，且可能仍有持有者）。
+	// 若直接覆盖，旧连接的引用计数会丢失，任一持有者释放时都会立即关闭它，
+	// 从而打断其余仍在使用该连接的会话。detachLocked 会把剩余计数转入 retired。
+	stale := s.detachLocked(key)
+	s.connPool[key] = &pooledConn{client: dialed, refCount: 1}
 	s.connPoolMu.Unlock()
 
-	return client, nil
+	if stale != nil {
+		_ = stale.Close()
+	}
+	return dialed, nil
+}
+
+// detachLocked 从连接池摘除 key 的条目。若该连接仍有持有者（refCount>0），
+// 把剩余引用计数转入 retired，使各持有者仍能安全释放、归零时才真正关闭；
+// 否则返回该连接，由调用方在锁外关闭。调用方须持有 connPoolMu。
+func (s *SshService) detachLocked(key string) (toClose *ssh.Client) {
+	pc, ok := s.connPool[key]
+	if !ok || pc.client == nil {
+		return nil
+	}
+	delete(s.connPool, key)
+	if pc.refCount > 0 {
+		s.retired[pc.client] = pc.refCount
+		return nil
+	}
+	return pc.client
 }
 
 // releaseClient 释放连接池引用。
@@ -495,8 +586,20 @@ func (s *SshService) releaseClient(config *SSHConnectionConfig, client *ssh.Clie
 	s.connPoolMu.Lock()
 	pc, ok := s.connPool[key]
 	if !ok || pc.client != client {
-		// 池中条目已被替换或移除（如健康检查剔除了死连接），
-		// 直接关闭传入的 client 即可
+		// 该连接已不在池中（被健康检查剔除或已替换）：若它仍被其他会话持有
+		// （retired 中留有计数），只递减，归零才关闭；否则直接关闭。
+		if n, retired := s.retired[client]; retired {
+			n--
+			if n > 0 {
+				s.retired[client] = n
+				s.connPoolMu.Unlock()
+				return
+			}
+			delete(s.retired, client)
+			s.connPoolMu.Unlock()
+			_ = client.Close()
+			return
+		}
 		s.connPoolMu.Unlock()
 		_ = client.Close()
 		return
@@ -1000,9 +1103,7 @@ func (s *SshService) Disconnect(sessionID string) {
 	if exists {
 		// 清理该会话的所有端口转发监听器
 		s.cleanupForwards(sessionID)
-		if active.logFile != nil {
-			_ = active.logFile.Close()
-		}
+		active.closeLogFile()
 		if active.agentCloser != nil {
 			_ = active.agentCloser.Close()
 		}
@@ -1049,32 +1150,77 @@ func (s *SshService) GetSFTPClient(sessionID string) (*sftp.Client, error) {
 	}
 	s.mu.RUnlock()
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	active, exists = s.sessions[sessionID]
 	if !exists {
 		return nil, apperror.SSHSessionNotFound()
 	}
-	if active.sftpClient != nil {
-		return active.sftpClient, nil
-	}
+
+	// 在锁外创建：sftp.NewClient 需打开子系统通道并完成协议握手，属于可能长时间
+	// 阻塞的网络 I/O。若在持有 s.mu 写锁时执行，一旦服务端无响应，Input/Resize/
+	// Disconnect 等所有需要该锁的操作都会一并挂死，用户连"断开"都无法自救。
 	client, err := sftp.NewClient(active.client,
 		sftp.MaxConcurrentRequestsPerFile(8),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("创建 SFTP 客户端失败: %w", err)
 	}
-	active.sftpClient = client
-	return client, nil
+
+	s.mu.Lock()
+	// 二次确认：会话仍在且未被替换，且期间无人抢先创建
+	if current, ok := s.sessions[sessionID]; ok && current == active {
+		if current.sftpClient == nil {
+			current.sftpClient = client
+			s.mu.Unlock()
+			return client, nil
+		}
+		existing := current.sftpClient
+		s.mu.Unlock()
+		_ = client.Close()
+		return existing, nil
+	}
+	s.mu.Unlock()
+
+	// 会话已被移除或替换，丢弃刚创建的客户端
+	_ = client.Close()
+	return nil, apperror.SSHSessionNotFound()
 }
 
 func (s *SshService) ResetSFTPClient(sessionID string) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	var stale *sftp.Client
 	if active, exists := s.sessions[sessionID]; exists && active.sftpClient != nil {
-		active.sftpClient.Close()
+		stale = active.sftpClient
 		active.sftpClient = nil
 	}
+	s.mu.Unlock()
+
+	// 在锁外关闭：Close 会发送通道关闭消息，同样可能阻塞
+	if stale != nil {
+		_ = stale.Close()
+	}
+}
+
+// NewSFTPClient 基于会话的 SSH 连接新建一个独立的 SFTP 客户端（不缓存、不共享）。
+//
+// 供临时性重试使用：会话共享的 SFTP 客户端上可能正有并发传输在进行，
+// 直接 Reset 会把它们一并打断；新建独立客户端可隔离重试的影响，
+// 调用方负责在使用后关闭它。
+//
+//wails:ignore 仅由后端 sftp 服务调用，返回 *sftp.Client 无法 JSON 序列化，不暴露给前端
+func (s *SshService) NewSFTPClient(sessionID string) (*sftp.Client, error) {
+	s.mu.RLock()
+	active, exists := s.sessions[sessionID]
+	var sshClient *ssh.Client
+	if exists {
+		sshClient = active.client
+	}
+	s.mu.RUnlock()
+
+	if !exists || sshClient == nil {
+		return nil, apperror.SSHSessionNotFound()
+	}
+	return sftp.NewClient(sshClient,
+		sftp.MaxConcurrentRequestsPerFile(8),
+	)
 }
 
 // ExecCommand 在指定会话的 SSH 连接上执行非交互式命令，返回合并的 stdout+stderr 输出。
@@ -1204,6 +1350,10 @@ func (s *SshService) startLocalForward(spec *PortForwardSpec, client *ssh.Client
 				}
 				defer remoteConn.Close()
 
+				// 登记双端连接：移除转发时统一关闭，避免隧道与 io.Copy goroutine 泄漏
+				s.trackForwardConn(spec.ID, conn, remoteConn)
+				defer s.untrackForwardConn(spec.ID, conn, remoteConn)
+
 				// 任意方向的 io.Copy 结束时关闭双端，避免单向阻塞泄漏
 				var once sync.Once
 				closeBoth := func() {
@@ -1274,6 +1424,10 @@ func (s *SshService) startRemoteForward(spec *PortForwardSpec, client *ssh.Clien
 				}
 				defer localConn.Close()
 
+				// 登记双端连接：移除转发时统一关闭，避免隧道与 io.Copy goroutine 泄漏
+				s.trackForwardConn(spec.ID, conn, localConn)
+				defer s.untrackForwardConn(spec.ID, conn, localConn)
+
 				// 任意方向的 io.Copy 结束时关闭双端，避免单向阻塞泄漏
 				var once sync.Once
 				closeBoth := func() {
@@ -1323,6 +1477,9 @@ func (s *SshService) RemovePortForward(forwardID string) error {
 	if ok && listener != nil {
 		_ = listener.Close()
 	}
+	// 关闭该转发已建立的隧道连接：仅关 listener 不会关闭已 Accept 的连接，
+	// 否则"已删除"的转发仍会继续传输并泄漏 fd/goroutine
+	s.closeForwardConns(forwardID)
 	return nil
 }
 
@@ -1343,12 +1500,75 @@ func (s *SshService) cleanupForwards(sessionID string) {
 	for _, listener := range listeners {
 		_ = listener.Close()
 	}
+	// 一并关闭这些转发的活跃隧道连接，否则仅关 listener 会留下仍在传输的
+	// 连接和 io.Copy goroutine，直到对端断开为止
+	for _, id := range forwardIDs {
+		s.closeForwardConns(id)
+	}
+}
+
+// trackForwardConn 登记某个转发当前活跃的隧道连接。
+// 连接建立后登记，确保移除转发时能一并关闭它们。
+func (s *SshService) trackForwardConn(forwardID string, conns ...net.Conn) {
+	s.forwardsMu.Lock()
+	if s.forwardConns[forwardID] == nil {
+		s.forwardConns[forwardID] = make(map[net.Conn]struct{})
+	}
+	for _, c := range conns {
+		s.forwardConns[forwardID][c] = struct{}{}
+	}
+	s.forwardsMu.Unlock()
+}
+
+// untrackForwardConn 从登记表中移除已结束的连接
+func (s *SshService) untrackForwardConn(forwardID string, conns ...net.Conn) {
+	s.forwardsMu.Lock()
+	if m, ok := s.forwardConns[forwardID]; ok {
+		for _, c := range conns {
+			delete(m, c)
+		}
+		if len(m) == 0 {
+			delete(s.forwardConns, forwardID)
+		}
+	}
+	s.forwardsMu.Unlock()
+}
+
+// closeForwardConns 关闭并移除某个转发的全部活跃连接。
+//
+// net.Listener.Close 不会关闭已 Accept 的连接，必须显式关闭，否则隧道与其
+// io.Copy goroutine 会一直存活到对端断开——表现为"移除转发后仍在传输"，
+// 并持续泄漏 fd 与 goroutine。
+func (s *SshService) closeForwardConns(forwardID string) {
+	s.forwardsMu.Lock()
+	m := s.forwardConns[forwardID]
+	delete(s.forwardConns, forwardID)
+	conns := make([]net.Conn, 0, len(m))
+	for c := range m {
+		conns = append(conns, c)
+	}
+	s.forwardsMu.Unlock()
+
+	// 在锁外关闭，避免 Close 阻塞时占用 forwardsMu
+	for _, c := range conns {
+		_ = c.Close()
+	}
 }
 
 func (s *SshService) streamOutput(sessionID string, stdout io.Reader, current *activeSession) {
+	// 带缓冲的 channel。提前声明，以便 panic 恢复路径也能访问并排空它。
+	dataChan := make(chan []byte, 4)
+
 	defer func() {
 		if r := recover(); r != nil {
 			slog.Error("streamOutput panic", "session", sessionID, "panic", r, "stack", string(debug.Stack()))
+			// 异常退出后本函数不再消费 dataChan：readOutput 会在缓冲填满后永久
+			// 阻塞在发送上，导致其 goroutine 泄漏。这里主动排空，直到 readOutput
+			// 因 stdout 结束（cleanupSession 关闭管道写端触发 EOF）而关闭该 channel。
+			go func() {
+				for range dataChan {
+				}
+			}()
 			func() {
 				defer func() { recover() }()
 				s.cleanupSession(sessionID, current)
@@ -1357,8 +1577,6 @@ func (s *SshService) streamOutput(sessionID string, stdout io.Reader, current *a
 	}()
 
 	buf := make([]byte, 32*1024)
-	// 带缓冲的 channel，防止 streamOutput panic 时 readOutput 阻塞在发送上导致 goroutine 泄漏
-	dataChan := make(chan []byte, 4)
 
 	go readOutput(stdout, buf, dataChan)
 
@@ -1442,9 +1660,7 @@ func (s *SshService) cleanupSession(sessionID string, current *activeSession) {
 
 		// 清理该会话的所有端口转发监听器
 		s.cleanupForwards(sessionID)
-		if current.logFile != nil {
-			_ = current.logFile.Close()
-		}
+		current.closeLogFile()
 		if current.agentCloser != nil {
 			_ = current.agentCloser.Close()
 		}

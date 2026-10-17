@@ -2,6 +2,11 @@
 SELECT * FROM encrypted_blobs
 WHERE is_deleted = 0;
 
+-- name: GetBlobByID :one
+-- 冲突解决前校验本地副本是否仍与冲突快照一致（含已软删除的墓碑行）。
+SELECT * FROM encrypted_blobs
+WHERE id = ?;
+
 -- name: GetBlobsSince :many
 SELECT * FROM encrypted_blobs
 WHERE updated_at > ?;

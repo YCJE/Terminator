@@ -195,6 +195,11 @@ export function FilePanel({ sessionId }: FilePanelProps) {
     // 请求序列号，防止快速切换目录时的竞态条件
     const loadIdRef = useRef(0);
 
+    // 预览请求序列号：切换会话时递增，使在途的 ReadFile 失效。
+    // 与 loadIdRef 分开：loadIdRef 会被目录导航递增，若复用它，
+    // "预览途中切换目录"会把正在加载的预览误当作过期而取消。
+    const previewIdRef = useRef(0);
+
     // 清空搜索状态：使在途搜索失效、取消未触发的防抖定时器、复位结果与加载态。
     // 清空文本/结果时必须统一走这里：只调用 setSearchResults(null) 而不递增
     // searchIdRef，已发出的全局搜索请求在返回后仍会通过 myId 校验并回填结果。
@@ -228,9 +233,10 @@ export function FilePanel({ sessionId }: FilePanelProps) {
         scrollPositions.current.set(currentPathRef.current, currentScrollTop.current);
         // 设置目标目录的恢复位置（首次访问为 0）
         setRestoreScrollTop(scrollPositions.current.get(path) ?? 0);
-        // 清空搜索文本和结果
+        // 清空搜索文本和结果（统一走 resetSearchState，
+        // 使在途的全局搜索请求失效，避免其返回后把结果回填到已清空的列表）
         setSearchText("");
-        setSearchResults(null);
+        resetSearchState();
 
         const myId = ++loadIdRef.current;
         setLoading(true);
@@ -248,7 +254,7 @@ export function FilePanel({ sessionId }: FilePanelProps) {
         } finally {
             if (myId === loadIdRef.current) setLoading(false);
         }
-    }, [sessionId, loadTreeChildren]);
+    }, [sessionId, loadTreeChildren, resetSearchState]);
 
     // 切换会话时清空所有与会话绑定的状态。
     // 面板在切换会话时不会卸载（TerminalStack 复用同一实例），若不重置，
@@ -262,6 +268,9 @@ export function FilePanel({ sessionId }: FilePanelProps) {
         // 使在途的目录/目录树加载失效：新会话可能尚未连接，若不递增序列号，
         // 上一个会话的在途请求返回后仍会通过校验，把旧主机的文件写入新会话面板
         ++loadIdRef.current;
+        // 使在途的文件预览失效：否则旧主机的预览内容会在切换后回填，
+        // 此时"编辑→保存"会用新会话身份写入旧主机的路径（跨会话误写）
+        ++previewIdRef.current;
 
         // 关闭右键菜单与全部文件操作对话框
         setContextMenu(null);
@@ -422,15 +431,20 @@ export function FilePanel({ sessionId }: FilePanelProps) {
             toast.error(t("file_too_large"));
             return;
         }
+        const myId = ++previewIdRef.current;
         try {
             const path = resolveEntryPath(entry);
             const content = await SftpService.ReadFile(sessionId, path);
+            // 切换会话后旧请求的返回必须丢弃：否则会把上一个主机的文件内容
+            // 回填到新会话面板，且此时"保存"会用新 sessionId 写入旧主机的路径
+            if (myId !== previewIdRef.current) return;
             setPreviewEntry(entry);
             setPreviewContent(content ?? "");
             setPreviewPath(path);
             setPreviewEditing(false); // 默认只读模式
             setPreviewOpen(true);
         } catch (err) {
+            if (myId !== previewIdRef.current) return;
             handleAppError(err);
         }
     };
@@ -438,12 +452,15 @@ export function FilePanel({ sessionId }: FilePanelProps) {
     // 保存编辑后的文件内容到远程
     const handleSavePreview = async () => {
         if (!previewPath) return;
+        const myId = previewIdRef.current;
         setPreviewSaving(true);
         try {
             await SftpService.WriteFile(sessionId, previewPath, previewContent);
+            if (myId !== previewIdRef.current) return;
             toast.success(t("save_success"));
             setPreviewEditing(false);
         } catch (err) {
+            if (myId !== previewIdRef.current) return;
             handleAppError(err);
         } finally {
             setPreviewSaving(false);

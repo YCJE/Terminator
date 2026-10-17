@@ -217,9 +217,12 @@ func (s *BackupService) ExportBackup(ctx context.Context) (string, error) {
 		path += backupFileExt
 	}
 
-	// 原子写：先写临时文件再改名，避免中途失败留下半截备份被误当作可用文件
+	// 原子写：先写临时文件并 fsync 落盘，再改名。
+	// 若只写不 fsync，rename 可能先于数据真正落盘生效，掉电后目标文件会变为
+	// 空/截断，而备份往往是用户唯一副本，此时等于全量丢失。
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0600); err != nil {
+	if err := writeFileSync(tmp, data); err != nil {
+		_ = os.Remove(tmp)
 		return "", err
 	}
 	if err := os.Rename(tmp, path); err != nil {
@@ -227,6 +230,24 @@ func (s *BackupService) ExportBackup(ctx context.Context) (string, error) {
 		return "", err
 	}
 	return path, nil
+}
+
+// writeFileSync 将数据写入 path 并 fsync，确保内容真正落盘后才返回。
+// 供原子写使用：只有数据先持久化，随后的 rename 才能在掉电后保持文件完整。
+func writeFileSync(path string, data []byte) error {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
+	if err != nil {
+		return err
+	}
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		return err
+	}
+	return f.Close()
 }
 
 // SelectBackupFile 弹出文件选择框并解析备份摘要，暂存文件内容供 ImportBackup 使用。

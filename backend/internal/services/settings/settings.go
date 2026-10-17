@@ -154,7 +154,12 @@ func (s *SettingsService) SaveSettings(settings AppSettings) error {
 	// 防止调用方发送部分设置时覆盖未包含的字段（如 WebDAV 凭据）
 	var existing AppSettings
 	if data, err := os.ReadFile(s.configPath); err == nil {
-		_ = json.Unmarshal(data, &existing)
+		if err := json.Unmarshal(data, &existing); err != nil {
+			// 配置文件已损坏：不能用零值参与下方的"传入为空则沿用旧值"合并，
+			// 否则合并逻辑全部失效，WebDAV 凭据等字段会被静默清空且无从察觉。
+			// 宁可直接拒绝本次保存，也不要用零值把用户数据覆盖掉。
+			return fmt.Errorf("配置文件已损坏，拒绝覆盖以避免丢失现有设置（请先修复或删除 %s）: %w", s.configPath, err)
+		}
 	}
 	merged := AppSettings{
 		Language:                settings.Language,
@@ -278,6 +283,9 @@ func (s *SettingsService) SaveSettings(settings AppSettings) error {
 	// 原子写：先写临时文件再 rename，防止写入中途崩溃损坏配置
 	tmpPath := s.configPath + ".tmp"
 	if err := os.WriteFile(tmpPath, data, 0600); err != nil {
+		// 写入失败（磁盘满、权限）时同 rename 分支一样清理残留临时文件，
+		// 避免下次启动把半截 .tmp 误当作配置或被误读
+		_ = os.Remove(tmpPath)
 		return err
 	}
 	if err := os.Rename(tmpPath, s.configPath); err != nil {

@@ -45,6 +45,8 @@ type SyncService struct {
 	mutex      sync.Mutex
 	isSyncing  bool
 	cancelSync context.CancelFunc
+	// syncDone 在自动同步 goroutine 退出时被关闭，供 StopAutoSync 等待在途同步结束
+	syncDone chan struct{}
 
 	// syncGate 保护「同步执行」与「整体替换本地数据」的互斥。
 	// 同步持读锁，备份导入/数据擦除持写锁：前者保证替换期间没有同步在跑，
@@ -121,6 +123,10 @@ func (s *SyncService) Authenticate(ctx context.Context) error {
 //
 // 备份导入、数据擦除等会整体替换本地数据的操作必须先调用它，否则在途同步
 // 可能读到替换前的旧副本并推送到服务器，把刚恢复/擦除的数据覆盖回去。
+// 返回值是函数类型，绑定层无法序列化；若暴露给前端，前端拿到的是不可调用
+// 的值、无法释放写锁，会导致同步永久挂死。
+//
+//wails:ignore 仅由后端装配调用，不暴露给前端
 func (s *SyncService) PauseSync() func() {
 	s.syncGate.Lock()
 	return func() {
@@ -216,8 +222,13 @@ func (s *SyncService) Sync(ctx context.Context) (err error) {
 	// 耗时（含超时重试）超过安全余量，请求期间产生的本地修改会小于下一轮的下界，
 	// 从而被永久跳过、静默丢失。以本地时钟为准的下界必然早于本地查询时刻，
 	// 可保证这些修改在下一轮仍被纳入；重复上传是幂等 upsert，无副作用。
+	//
+	// 以本地时钟为基准时必须再叠加一个轮询间隔：下界每轮随本地时间前移一个间隔，
+	// 若只回退 SyncMargin（默认间隔 3s > 余量 2s），相邻两轮的查询窗口之间会出现
+	// 缝隙，落进缝隙（例如服务器时钟领先时，下界恒为 now-2s）的本地修改将永久
+	// 落在后续下界之外、再也无法被 GetBlobsSince 命中，导致静默丢失。
 	pushBound := timeutil.SinceBound(lastSyncString)
-	if localBound := timeutil.SinceBoundNow(); localBound < pushBound {
+	if localBound := timeutil.SinceBoundNowBy(s.syncInterval + timeutil.SyncMargin); localBound < pushBound {
 		pushBound = localBound
 	}
 
@@ -242,7 +253,7 @@ func (s *SyncService) Sync(ctx context.Context) (err error) {
 
 		apiBlobs = append(apiBlobs, api.EncryptedBlob{
 			ID:        b.ID,
-			UpdatedAt: parsedTime,
+			UpdatedAt: api.Timestamp(parsedTime),
 			IsDeleted: b.IsDeleted,
 			Blob:      b.Blob,
 		})
@@ -250,7 +261,7 @@ func (s *SyncService) Sync(ctx context.Context) (err error) {
 
 	req := &api.SyncRequest{
 		Blobs:        apiBlobs,
-		LastSyncTime: lastSyncTime,
+		LastSyncTime: api.Timestamp(lastSyncTime),
 	}
 
 	res, err := s.client.Sync(ctx, serverUrl, req)
@@ -269,7 +280,7 @@ func (s *SyncService) Sync(ctx context.Context) (err error) {
 
 	if len(res.Blobs) > 0 {
 		for _, incoming := range res.Blobs {
-			updatedAtStr := timeutil.Format(incoming.UpdatedAt)
+			updatedAtStr := timeutil.Format(time.Time(incoming.UpdatedAt))
 
 			// 冲突检测：该 blob 本轮既被本地修改、又被服务端改动，且密文不同，
 			// 说明两端各自编辑过同一项。服务端回显我们刚推送的副本时密文相同，
@@ -306,7 +317,7 @@ func (s *SyncService) Sync(ctx context.Context) (err error) {
 		s.emitter.EmitUpdatesAvailable()
 	}
 
-	newSyncTimeStr := timeutil.Format(res.SyncTime)
+	newSyncTimeStr := timeutil.Format(time.Time(res.SyncTime))
 	err = s.q.UpdateUserLastSyncTime(ctx, dbgen.UpdateUserLastSyncTimeParams{
 		LastSyncTime: sql.NullString{String: newSyncTimeStr, Valid: true},
 		ID:           user.ID,

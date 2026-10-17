@@ -3,6 +3,7 @@ package blob
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"terminator-desktop/backend/internal/apperror"
 	"terminator-desktop/backend/internal/crypto"
@@ -68,10 +69,15 @@ func getAllItems[T any](ctx context.Context, q *dbgen.Queries, v *vault.Vault, e
 	}
 
 	items := make([]T, 0)
+	// 解密失败计数。单条损坏可跳过，但若整库都无法解密（如主密钥与数据不匹配、
+	// 密文被篡改），只返回空列表会让界面表现为"数据全部消失"却毫无提示，
+	// 用户会误判为已丢失。故此处对全部失败的情形显式报错。
+	decryptFailures := 0
 
 	for _, b := range blobs {
 		decryptedJSON, err := crypto.UnpackAndDecrypt(b.Blob, mk)
 		if err != nil {
+			decryptFailures++
 			slog.Warn("blob decryption failed, skipping", "id", b.ID, "error", err)
 			continue
 		}
@@ -91,6 +97,10 @@ func getAllItems[T any](ctx context.Context, q *dbgen.Queries, v *vault.Vault, e
 		} else if err != nil {
 			slog.Warn("blob header deserialization failed, skipping", "id", b.ID, "error", err)
 		}
+	}
+
+	if len(blobs) > 0 && decryptFailures == len(blobs) {
+		return nil, fmt.Errorf("全部 %d 条数据均无法解密，主密钥可能不匹配或数据已损坏", decryptFailures)
 	}
 
 	return items, nil

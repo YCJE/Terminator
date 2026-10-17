@@ -32,7 +32,7 @@ func Epoch() string {
 	return epoch
 }
 
-// syncMargin 增量同步查询的时间回退量。
+// SyncMargin 增量同步查询的时间回退量。
 //
 // 历史版本写入的时间戳为可变宽度（time.RFC3339Nano 会去掉小数末尾的 0），
 // 与定长格式混用做文本比较时，同一秒内的值可能被误判为"更旧"而漏查。
@@ -41,7 +41,11 @@ func Epoch() string {
 //
 // 查询时统一下界回退该余量，使边界附近的数据被保守地重新纳入。
 // 重复上传是幂等的 upsert，不会产生副作用。
-const syncMargin = 2 * time.Second
+//
+// 注意：仅这一个余量不足以保证相邻两轮查询窗口重叠。调用方若以本地
+// 时钟为基准查询，必须叠加轮询间隔（见 SinceBoundNowBy），否则窗口之间
+// 会出现缝隙，落进缝隙的本地修改将永久无法被查询命中。
+const SyncMargin = 2 * time.Second
 
 // Parse 解析 RFC3339 时间字符串，同时兼容定长与可变宽度（含无小数部分）格式。
 func Parse(s string) (time.Time, error) {
@@ -58,14 +62,24 @@ func SinceBound(lastSync string) string {
 	if err != nil {
 		return epoch
 	}
-	return Format(t.Add(-syncMargin))
+	return Format(t.Add(-SyncMargin))
 }
 
 // SinceBoundNow 返回以本地当前时间为基准的增量查询下界（定长字符串）。
 //
 // 与 SinceBound 不同，该下界不依赖任何外部时钟，因此必然早于调用时刻。
 // 用于本地变更的增量查询：同步游标来自服务器时间，可能晚于本次查询时刻，
-// 若仅以游标为下界，请求耗时超过 syncMargin 时产生的本地修改会被永久跳过。
+// 若仅以游标为下界，请求耗时超过 SyncMargin 时产生的本地修改会被永久跳过。
 func SinceBoundNow() string {
-	return Format(time.Now().Add(-syncMargin))
+	return SinceBoundNowBy(SyncMargin)
+}
+
+// SinceBoundNowBy 返回以本地当前时间为基准、按指定回退量计算的增量查询下界。
+//
+// 以本地时钟为基准时，相邻两轮的查询窗口是否重叠由回退量决定：
+// 若下界每轮随本地时钟前移一个轮询间隔，而回退量小于该间隔，则窗口之间
+// 会出现缝隙，落进缝隙的本地修改将永久落在后续下界之外、再也无法被查询命中。
+// 因此以 now 为基准查询本地变更时，回退量应至少为「轮询间隔 + SyncMargin」。
+func SinceBoundNowBy(retreat time.Duration) string {
+	return Format(time.Now().Add(-retreat))
 }

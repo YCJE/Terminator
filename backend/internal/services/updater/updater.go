@@ -3,9 +3,11 @@ package updater
 import (
 	"errors"
 	"fmt"
+	neturl "net/url"
 	"os/exec"
 	"runtime"
 	"runtime/debug"
+	"strings"
 	"sync"
 
 	"github.com/quaadgras/velopack-go/velopack"
@@ -118,8 +120,25 @@ func (s *UpdaterService) CheckGitHubReleases() (*GitHubReleaseInfo, error) {
 	}, nil
 }
 
-// OpenReleasePage 在浏览器中打开 Release 页面
+// OpenReleasePage 在浏览器中打开 Release 页面。
+//
+// url 来自前端，交给系统协议处理器前必须校验：Windows 的
+// rundll32 url.dll,FileProtocolHandler 会打开 file:// 甚至直接执行本地可执行
+// 文件，若不校验 scheme/host，受损的渲染进程即可借此启动任意本地程序或协议。
+// 这里仅允许 http(s) 且限定 GitHub 主机，堵住这条通用启动通道。
 func (s *UpdaterService) OpenReleasePage(url string) error {
+	u, err := neturl.Parse(url)
+	if err != nil {
+		return fmt.Errorf("非法的 Release 链接: %w", err)
+	}
+	if u.Scheme != "https" && u.Scheme != "http" {
+		return fmt.Errorf("拒绝打开非 http(s) 链接: %q", u.Scheme)
+	}
+	host := strings.ToLower(u.Hostname())
+	if host != "github.com" && !strings.HasSuffix(host, ".github.com") {
+		return fmt.Errorf("拒绝打开非 GitHub 链接: %q", host)
+	}
+
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "windows":
@@ -148,10 +167,13 @@ func normalizeVersion(v string) string {
 // compareVersions 比较 semver 版本号 a 和 b
 // 返回: 1 if a > b, -1 if a < b, 0 if a == b
 func compareVersions(a, b string) int {
-	var aMajor, aMinor, aPatch int
-	var bMajor, bMinor, bPatch int
-	fmt.Sscanf(a, "%d.%d.%d", &aMajor, &aMinor, &aPatch)
-	fmt.Sscanf(b, "%d.%d.%d", &bMajor, &bMinor, &bPatch)
+	aMajor, aMinor, aPatch, aOK := parseSemverParts(a)
+	bMajor, bMinor, bPatch, bOK := parseSemverParts(b)
+	if !aOK || !bOK {
+		// 任一侧不是形如 X.Y.Z 的纯数字版本（如 release-2024）时，逐段比较会把
+		// 两侧都读成 0 而误判为"相等/无更新"。退化为字符串比较，至少不会漏报。
+		return strings.Compare(a, b)
+	}
 	if aMajor != bMajor {
 		if aMajor > bMajor {
 			return 1
@@ -171,6 +193,16 @@ func compareVersions(a, b string) int {
 		return -1
 	}
 	return 0
+}
+
+// parseSemverParts 解析形如 X.Y.Z 的版本号，要求三段均为整数。
+// 解析失败时 ok 为 false，避免把无法识别的标签静默当作 0.0.0。
+func parseSemverParts(v string) (major, minor, patch int, ok bool) {
+	n, err := fmt.Sscanf(strings.TrimSpace(v), "%d.%d.%d", &major, &minor, &patch)
+	if err != nil || n < 3 {
+		return 0, 0, 0, false
+	}
+	return major, minor, patch, true
 }
 
 // getManager 懒加载并复用 UpdateManager，避免每次 Check 都新建实例

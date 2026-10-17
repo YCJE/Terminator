@@ -34,9 +34,10 @@ export interface CreateSessionParams {
     agentForwarding?: boolean;
 }
 
-// 判断已有会话与新建参数是否使用完全相同的连接路由（跳板机链 + 代理）。
-// 仅比较 host/port/username 会把"经不同跳板机/代理到达同一目标"的连接误判为
-// 重复会话，导致第二次连接静默复用错误的链路。比较维度与后端连接池键一致。
+// 判断已有会话与新建参数是否使用完全相同的连接路由（跳板机链 + 代理）与凭据。
+// 仅比较 host/port/username 会把"经不同跳板机/代理到达同一目标"或"同一目标但
+// 使用不同密码/私钥/Agent 转发设置"的连接误判为重复会话，导致第二次连接静默
+// 复用错误链路或错误凭据，用户以为连上了新会话实际用的是旧会话的认证信息。
 function sameRoute(config: SSHConnectionConfig, params: CreateSessionParams): boolean {
     let a = config.jumpHost ?? null;
     let b = params.jumpHost ?? null;
@@ -51,7 +52,12 @@ function sameRoute(config: SSHConnectionConfig, params: CreateSessionParams): bo
     return (
         str(config.proxyType) === str(params.proxyType) &&
         str(config.proxyHost) === str(params.proxyHost) &&
-        port(config.proxyPort) === port(params.proxyPort)
+        port(config.proxyPort) === port(params.proxyPort) &&
+        str(config.proxyUsername) === str(params.proxyUsername) &&
+        str(config.proxyPassword) === str(params.proxyPassword) &&
+        str(config.password) === str(params.password) &&
+        str(config.privateKey) === str(params.privateKey) &&
+        (config.agentForwarding ?? false) === (params.agentForwarding ?? false)
     );
 }
 
@@ -136,6 +142,9 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         SshService.Disconnect(id).catch(console.error);
         // 清理关联的传输任务，避免孤儿数据
         useTransferStore.getState().removeTransfersBySession(id);
+        // 一并清理该会话的端口转发条目：后端 Disconnect 已关闭其监听器，
+        // 若只把条目留在 store，端口转发页会长期残留"已停止"的孤儿行、计数虚高
+        usePortForwardStore.getState().removeBySession(id);
 
         let shouldGoToHosts = false;
 

@@ -156,14 +156,16 @@ func (s *SftpService) ListDir(sessionID string, path string) ([]FileEntry, error
 			strings.Contains(lowerErr, "does not exist") {
 			return nil, fmt.Errorf("读取目录 %q 失败: %w", path, err)
 		}
-		// 其他 SFTP 错误（如通道临时失效），重置后重试一次
-		s.sshSvc.ResetSFTPClient(sessionID)
-		client, err2 := s.sshSvc.GetSFTPClient(sessionID)
+		// 其他 SFTP 错误（如通道临时失效）：用独立的新客户端重试一次。
+		// 不能 Reset 会话共享的客户端——它上面可能正有并发的上传/下载在跑，
+		// 关掉它会把那些传输一并打断（报 EOF）。新建独立客户端可隔离影响。
+		retryClient, err2 := s.sshSvc.NewSFTPClient(sessionID)
 		if err2 != nil {
 			// 会话已不存在，返回原始错误
 			return nil, fmt.Errorf("读取目录 %q 失败: %w", path, err)
 		}
-		infos, err = client.ReadDir(path)
+		defer retryClient.Close()
+		infos, err = retryClient.ReadDir(path)
 		if err != nil {
 			return nil, fmt.Errorf("读取目录 %q 失败(重试后): %w", path, err)
 		}

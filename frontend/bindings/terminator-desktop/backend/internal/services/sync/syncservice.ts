@@ -30,16 +30,6 @@ export function ListConflicts(): $CancellablePromise<$models.ConflictInfo[]> {
 }
 
 /**
- * PauseSync 暂停同步并等待在途同步结束，返回恢复函数（应 defer 调用）。
- * 
- * 备份导入、数据擦除等会整体替换本地数据的操作必须先调用它，否则在途同步
- * 可能读到替换前的旧副本并推送到服务器，把刚恢复/擦除的数据覆盖回去。
- */
-export function PauseSync(): $CancellablePromise<any> {
-    return $Call.ByID(2139113856);
-}
-
-/**
  * ResolveConflict 按用户选择保留冲突中的一端：keepLocal 为 true 保留本地副本，
  * 否则保留远端副本。
  * 

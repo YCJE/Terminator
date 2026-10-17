@@ -43,7 +43,12 @@ export function DownloadUpdate(): $CancellablePromise<void> {
 }
 
 /**
- * OpenReleasePage 在浏览器中打开 Release 页面
+ * OpenReleasePage 在浏览器中打开 Release 页面。
+ * 
+ * url 来自前端，交给系统协议处理器前必须校验：Windows 的
+ * rundll32 url.dll,FileProtocolHandler 会打开 file:// 甚至直接执行本地可执行
+ * 文件，若不校验 scheme/host，受损的渲染进程即可借此启动任意本地程序或协议。
+ * 这里仅允许 http(s) 且限定 GitHub 主机，堵住这条通用启动通道。
  */
 export function OpenReleasePage(url: string): $CancellablePromise<void> {
     return $Call.ByID(2057714281, url);

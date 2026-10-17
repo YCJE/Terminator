@@ -30,47 +30,57 @@ func setBasicAuth(req *http.Request, username, password string) {
 	}
 }
 
-// GetFile 通过 GET 请求下载文件，返回文件内容和 ETag
-func GetFile(ctx context.Context, url, username, password string) (data []byte, etag string, err error) {
+// GetFile 通过 GET 请求下载文件，返回文件内容、ETag 与 Last-Modified。
+//
+// ETag 可能为空（部分 WebDAV 服务端不返回），此时调用方可用 Last-Modified
+// 做条件请求，避免在无法做并发保护的情况下无条件覆盖远端文件。
+func GetFile(ctx context.Context, url, username, password string) (data []byte, etag string, lastModified string, err error) {
 	client := newClient()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return nil, "", fmt.Errorf("创建 GET 请求失败: %w", err)
+		return nil, "", "", fmt.Errorf("创建 GET 请求失败: %w", err)
 	}
 	setBasicAuth(req, username, password)
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, "", fmt.Errorf("WebDAV GET 请求失败: %w", err)
+		return nil, "", "", fmt.Errorf("WebDAV GET 请求失败: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	// 404 表示远端文件还不存在，属于正常情况，用空 etag 表示
 	if resp.StatusCode == http.StatusNotFound {
 		_, _ = io.Copy(io.Discard, resp.Body)
-		return nil, "", nil
+		return nil, "", "", nil
 	}
 
 	if resp.StatusCode >= 400 {
 		_, _ = io.Copy(io.Discard, resp.Body)
-		return nil, "", fmt.Errorf("WebDAV GET 返回错误状态码: %d", resp.StatusCode)
+		return nil, "", "", fmt.Errorf("WebDAV GET 返回错误状态码: %d", resp.StatusCode)
 	}
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBody))
+	// 限制读取上限，并区分"文件恰好等于上限"与"被截断"。多读 1 字节：若仍有
+	// 数据说明超出上限，此时必须报错而非静默返回截断内容——截断后的密文必然
+	// 解密/解析失败，会导致每一轮同步都失败、本地改动永远无法上传。
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBody+1))
 	if err != nil {
-		return nil, "", fmt.Errorf("读取 WebDAV 响应体失败: %w", err)
+		return nil, "", "", fmt.Errorf("读取 WebDAV 响应体失败: %w", err)
+	}
+	if len(body) > maxResponseBody {
+		return nil, "", "", fmt.Errorf("WebDAV 远端文件超过大小上限 %d 字节，请检查远端同步文件是否异常", maxResponseBody)
 	}
 
-	etag = resp.Header.Get("ETag")
-	return body, etag, nil
+	return body, resp.Header.Get("ETag"), resp.Header.Get("Last-Modified"), nil
 }
 
 // PutFile 通过 PUT 上传文件，支持 If-Match 乐观锁。
-// ifMatchETag 为空时表示新建文件（不带 If-Match 头）；
-// 非空时表示更新已有文件，若服务端 ETag 不匹配会返回 412 Precondition Failed。
+// ifMatchETag 非空时带上 If-Match（服务端 ETag 不匹配会返回 412）；
+// 当 ETag 为空但 ifUnmodifiedSince 非空时，退化为 If-Unmodified-Since 条件请求，
+// 避免在服务端不提供 ETag 时无条件覆盖远端、造成多端并发写互相丢失。
+// 两者均为空表示新建文件（不带条件头）。
 // 返回上传成功后的新 ETag。
-func PutFile(ctx context.Context, url, username, password string, data []byte, ifMatchETag string) (newETag string, err error) {
+func PutFile(ctx context.Context, url, username, password string, data []byte, ifMatchETag, ifUnmodifiedSince string) (newETag string, err error) {
 	client := newClient()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPut, url, bytes.NewReader(data))
@@ -82,6 +92,8 @@ func PutFile(ctx context.Context, url, username, password string, data []byte, i
 	req.Header.Set("Content-Type", "application/octet-stream")
 	if ifMatchETag != "" {
 		req.Header.Set("If-Match", ifMatchETag)
+	} else if ifUnmodifiedSince != "" {
+		req.Header.Set("If-Unmodified-Since", ifUnmodifiedSince)
 	}
 
 	resp, err := client.Do(req)

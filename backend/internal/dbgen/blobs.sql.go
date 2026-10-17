@@ -74,6 +74,25 @@ func (q *Queries) GetAllBlobs(ctx context.Context) ([]EncryptedBlob, error) {
 	return items, nil
 }
 
+const getBlobByID = `-- name: GetBlobByID :one
+SELECT id, blob, updated_at, is_deleted FROM encrypted_blobs
+WHERE id = ?
+`
+
+// GetBlobByID 返回指定 id 的行（含已软删除的墓碑），不存在时返回 sql.ErrNoRows。
+// 用于冲突解决前校验本地副本是否仍与冲突快照一致。
+func (q *Queries) GetBlobByID(ctx context.Context, id string) (EncryptedBlob, error) {
+	row := q.db.QueryRowContext(ctx, getBlobByID, id)
+	var i EncryptedBlob
+	err := row.Scan(
+		&i.ID,
+		&i.Blob,
+		&i.UpdatedAt,
+		&i.IsDeleted,
+	)
+	return i, err
+}
+
 const getBlobsSince = `-- name: GetBlobsSince :many
 SELECT id, blob, updated_at, is_deleted FROM encrypted_blobs
 WHERE updated_at > ?

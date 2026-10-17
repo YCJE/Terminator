@@ -21,9 +21,13 @@ func (s *SyncService) StartAutoSync() {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	s.cancelSync = cancel
+	done := make(chan struct{})
+	s.syncDone = done
 	s.mutex.Unlock()
 
 	go func() {
+		// 退出时关闭 done，令 StopAutoSync 能等到在途同步真正结束
+		defer close(done)
 		// 指数退避：连续失败时增大间隔，成功后重置
 		backoff := s.currentInterval()
 		consecutiveFailures := 0
@@ -107,9 +111,20 @@ func (s *SyncService) isWebDAVSync() bool {
 
 func (s *SyncService) StopAutoSync() {
 	s.mutex.Lock()
-	defer s.mutex.Unlock()
-	if s.cancelSync != nil {
-		s.cancelSync()
-		s.cancelSync = nil
+	cancel := s.cancelSync
+	done := s.syncDone
+	s.cancelSync = nil
+	s.syncDone = nil
+	s.mutex.Unlock()
+
+	if cancel != nil {
+		cancel()
+	}
+	// 等待在途同步 goroutine 真正退出后再返回。
+	// 否则它可能在调用方（如「断开云」）清空 ServerUrl/LastSyncTime 之后
+	// 写回 LastSyncTime，或继续向旧服务器推送数据，覆盖刚完成的断开状态。
+	// 注意必须在 s.mutex 之外等待：同步体自身也要获取 s.mutex。
+	if done != nil {
+		<-done
 	}
 }

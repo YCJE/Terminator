@@ -206,6 +206,16 @@ func (s *UpdaterService) DownloadAndVerifyUpdate() (string, error) {
 		return "", fmt.Errorf("发布中未找到适用于当前平台的安装包")
 	}
 
+	// 资产名来自远端 Release，不能直接拼进本地路径：Windows 上合法的 `\` 与 `..`
+	// 会让 filepath.Join 归一化后逃出缓存目录（如 "..\\..\\AppData\\..\\xSetup.exe"
+	// 既满足 "Setup.exe" 后缀匹配，又能覆盖任意本地文件）。校验和同样取自该
+	// Release，无法提供额外保护，因此必须在此拒绝可疑名称。
+	installerName := filepath.Base(installer.Name)
+	if installerName != installer.Name || installerName == "." || installerName == ".." ||
+		strings.ContainsAny(installerName, "/\\") {
+		return "", fmt.Errorf("发布资产名不合法，拒绝下载: %q", installer.Name)
+	}
+
 	checksumAsset := findAsset(release.Assets, checksumAssetName())
 	if checksumAsset == nil {
 		return "", fmt.Errorf("发布中缺少校验和文件 %s，无法验证安装包完整性", checksumAssetName())
@@ -229,7 +239,7 @@ func (s *UpdaterService) DownloadAndVerifyUpdate() (string, error) {
 		return "", err
 	}
 
-	dst := filepath.Join(dir, installer.Name)
+	dst := filepath.Join(dir, installerName)
 	// 先写 .part，校验通过后再改名，避免半成品被误当作可用安装包
 	tmp := dst + ".part"
 

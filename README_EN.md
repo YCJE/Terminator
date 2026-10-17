@@ -35,8 +35,9 @@ Terminator is a cross-platform SSH client built with [Wails v3](https://v3.wails
 
 - SSH connection multiplexing — multiple sessions share one TCP connection
 - Multi-level Jump Host — chained hops (A → B → C); the connection pool key includes the full chain, so different chains never share a connection
-- Port Forwarding — Local and Remote forward with visual UI management
-- Connection pool health check, refCount prevents closing in-use connections
+- Port Forwarding — Local and Remote forward with visual UI management; tunnel connections are reclaimed when a forward is removed or the session closes, so no handle leaks over long runs
+- Connection pool health check, refCount prevents closing in-use connections; retired in-flight connections are decremented by reference and only closed at zero, avoiding leaks when a pooled entry is replaced
+- Keepalive probe dedup — at most one in-flight probe per connection, others reuse its result, so concurrent keepalives can't grow goroutines unbounded
 - **SSH Agent Forwarding** — per-host Agent Forwarding config, allows remote server auth via local SSH Agent
 - **HTTP/SOCKS5 Proxy** — per-host proxy config for SSH connections via HTTP CONNECT or SOCKS5, with proxy auth
 - **known_hosts management** — view and remove pinned host keys in settings; atomic writes, and a failed write rejects the connection (fail-closed)
@@ -86,7 +87,9 @@ Sync consistency and conflict handling:
 - **Conflict detection** — concurrent edits to the same entry are recorded as conflicts, surfaced via a sidebar badge and a global banner
 - **Resolution panel** — pick local or remote per conflict, no manual diffing
 - **Fixed-width timestamps** — prevents missed syncs within the same second and redundant uploads when nothing changed
-- **Replacement guard** — background sync pauses while data is wholesale replaced (e.g. backup import), preventing stale data from flowing back
+- **Replacement guard** — background sync pauses while data is wholesale replaced (e.g. backup import or data wipe), preventing stale data from flowing back
+- **Overwrite guard** — WebDAV uploads are gated on ETag / Last-Modified conditions and refuse to overwrite the remote when no concurrency protection is available, preventing silent multi-device overwrites
+- **Seamless windows** — the local-time lower bound adds one polling interval, fixing local changes that would be permanently missed when the server clock runs ahead
 
 ### Backup & Restore
 
@@ -99,12 +102,14 @@ Sync consistency and conflict handling:
 - **TOFU host key verification** — fingerprints are pinned on first connect and alerted on change; known_hosts is written atomically and a failed write rejects the connection
 - **Brute-force protection** — exponential backoff on failed logins, confirmation required when creating the master password
 - **Vault state check** — empty keys normalize to nil, fixing unlock-state misjudgement
+- **Update channel checks** — release-page opens are restricted to github.com (and subdomains); installer file names are validated before download, blocking path traversal and phishing redirects
 - **Update verification** — SHA256 integrity check on downloaded update packages
-- **Encrypted backups** — backups are encrypted end to end; import always requires the password
-- **Sync data protection** — background sync pauses during wholesale data replacement
+- **Encrypted backups** — backups are encrypted end to end; import always requires the password; exports are fsync'd to disk and temp files cleaned up on failure
+- **Sync data protection** — background sync pauses during wholesale data replacement; WebDAV refuses to overwrite the remote without concurrency protection
+- **Settings overwrite guard** — a failed settings deserialization rejects the save instead of overwriting settings with an empty config
 - **Local port forwarding** — an empty LocalHost binds to 127.0.0.1 to avoid LAN exposure
 - **SFTP safety** — ReadFile rejects non-regular files; resumable transfers scope temp files by total size
-- **Continuous review** — multiple audit rounds fixing races, nil dereferences, out-of-bounds access and missing error handling
+- **Continuous review** — multiple module-level audit rounds fixing races, nil dereferences, out-of-bounds access, missing error handling, and connection/goroutine leaks
 
 ### Other
 

@@ -78,7 +78,7 @@ func (s *SyncService) syncWebDAV(ctx context.Context, cfg WebDAVConfig) error {
 	}
 
 	// 2. GET 远端文件
-	remoteCiphertext, remoteETag, err := webdav.GetFile(ctx, syncFileURL, cfg.Username, cfg.Password)
+	remoteCiphertext, remoteETag, remoteLastModified, err := webdav.GetFile(ctx, syncFileURL, cfg.Username, cfg.Password)
 	if err != nil {
 		return fmt.Errorf("获取远端同步文件失败: %w", err)
 	}
@@ -218,7 +218,14 @@ func (s *SyncService) syncWebDAV(ctx context.Context, cfg WebDAVConfig) error {
 		return fmt.Errorf("加密同步数据失败: %w", err)
 	}
 
-	_, err = webdav.PutFile(ctx, syncFileURL, cfg.Username, cfg.Password, []byte(packedBase64), remoteETag)
+	// 远端文件已存在，但服务端既未返回 ETag 也未返回 Last-Modified：无法做任何
+	// 并发保护，无条件 PUT 会在多端并发同步时静默互相覆盖。宁可报错中止，
+	// 也不要在无保护的情况下覆盖远端数据。
+	if len(remoteCiphertext) > 0 && remoteETag == "" && remoteLastModified == "" {
+		return fmt.Errorf("WebDAV 服务端未返回 ETag 或 Last-Modified，无法安全地覆盖远端同步文件，已中止以避免多端并发覆盖")
+	}
+
+	_, err = webdav.PutFile(ctx, syncFileURL, cfg.Username, cfg.Password, []byte(packedBase64), remoteETag, remoteLastModified)
 	if err != nil {
 		var pfErr *webdav.PreconditionFailedError
 		if errors.As(err, &pfErr) {

@@ -2,7 +2,10 @@
 SELECT COUNT(*) FROM users;
 
 -- name: GetUser :one
-SELECT * FROM users LIMIT 1;
+-- ORDER BY rowid：确保返回确定的一行（最早创建的账户）。
+-- 原先无 ORDER BY 的 LIMIT 1 返回哪一行不确定，配合重复用户会随机取到
+-- 密钥不匹配的行，导致解锁失败。
+SELECT * FROM users ORDER BY rowid LIMIT 1;
 
 -- name: CreateUser :exec
 INSERT INTO users (

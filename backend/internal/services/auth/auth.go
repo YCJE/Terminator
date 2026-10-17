@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"runtime/debug"
+	"strings"
 	"sync"
 	"time"
 	"unicode/utf8"
@@ -195,11 +196,23 @@ func (s *AuthService) RegisterLocal(ctx context.Context, username, password stri
 		LastSyncTime:       sql.NullString{Valid: false},
 	})
 	if err != nil {
+		// 唯一索引兜底：并发注册时第二个 INSERT 会因 username 唯一约束失败，
+		// 统一返回与前置检查一致的提示，避免暴露底层错误
+		if isUniqueViolation(err) {
+			return apperror.Validation("user already exists")
+		}
 		return err
 	}
 
 	s.vault.Unlock(masterKey, loginKey)
 	return nil
+}
+
+// isUniqueViolation 判断错误是否为唯一约束冲突。
+// 用于并发注册/登录时 username 唯一索引触发的情形，统一返回友好提示。
+// modernc.org/sqlite 的错误文本包含 "UNIQUE constraint failed: users.username"。
+func isUniqueViolation(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed")
 }
 
 // loginThrottleRemaining 返回距离下次允许尝试的剩余时间；未处于锁定期时返回 0。
@@ -213,9 +226,12 @@ func (s *AuthService) loginThrottleRemaining() time.Duration {
 	if remaining := time.Until(s.loginLockedTill); remaining > 0 {
 		return remaining
 	}
-	// 锁定期已结束：清零计数，重新开始计数
+	// 锁定期已结束：仅清除锁定时间，保留失败计数。
+	//
+	// 若在此处把 loginFailures 归零，下一次失败又只会落在首个档位，
+	// 退避永远停在 2s、指数增长被架空，攻击者每次等 2 秒即可无限重试。
+	// 计数只在成功登录（resetLoginFailures）时清零，使间隔按 2s/4s/8s… 递增。
 	s.loginLockedTill = time.Time{}
-	s.loginFailures = 0
 	return 0
 }
 
@@ -415,6 +431,10 @@ func (s *AuthService) LoginFromSync(ctx context.Context, serverUrl, username, pa
 		LastSyncTime:       sql.NullString{String: epochZero, Valid: true},
 	})
 	if err != nil {
+		// 唯一索引兜底：并发登录/注册时第二个 INSERT 会因 username 唯一约束失败
+		if isUniqueViolation(err) {
+			return apperror.Validation("user already exists")
+		}
 		return err
 	}
 
@@ -534,6 +554,14 @@ func (s *AuthService) LockVault() {
 // cleared and the auth token discarded. Auto-sync should be stopped by the
 // caller (SyncService.StopAutoSync) before invoking this.
 func (s *AuthService) DisconnectCloud(ctx context.Context) error {
+	// 断开云端前暂停后台同步：否则在途同步可能在本函数清空 ServerUrl /
+	// LastSyncTime 之后写回 LastSyncTime，或继续向旧服务器推送数据，
+	// 覆盖用户刚完成的"断开云"状态。
+	if s.syncPauser != nil {
+		resume := s.syncPauser.PauseSync()
+		defer resume()
+	}
+
 	user, err := s.q.GetUser(ctx)
 	if err != nil {
 		return err

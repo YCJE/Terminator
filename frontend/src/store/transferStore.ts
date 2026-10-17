@@ -104,9 +104,17 @@ export const useTransferStore = create<TransferState>((set, get) => ({
         }));
     },
 
-    clearCompleted: () => set((state) => ({
-        transfers: state.transfers.filter((t) => t.status === "active"),
-    })),
+    clearCompleted: () => set((state) => {
+        // 一并清理被移除任务的节流表项：否则这两个模块级 Map 会随反复
+        // "清空已完成"无限增长（其余移除路径都做了清理）。
+        for (const t of state.transfers) {
+            if (t.status !== "active") {
+                progressThrottle.delete(t.id);
+                pendingUpdates.delete(t.id);
+            }
+        }
+        return {transfers: state.transfers.filter((t) => t.status === "active")};
+    }),
 
     // 清理指定会话的所有传输任务（会话断开/移除时调用）
     removeTransfersBySession: (sessionId) => {

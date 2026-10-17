@@ -101,11 +101,32 @@ func (s *SyncService) ResolveConflict(ctx context.Context, blobID string, keepLo
 		return apperror.VaultLocked()
 	}
 
+	// 纳入 syncGate：与在途同步互斥，避免与 Sync 并发写同一行 blob / 游标
+	s.syncGate.Lock()
+	defer s.syncGate.Unlock()
+
 	conflict, err := s.q.GetConflict(ctx, blobID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return apperror.NotFound("conflict not found", err)
 		}
+		return err
+	}
+
+	// 校验当前本地副本仍与冲突快照一致：冲突产生后用户可能又编辑过该条目
+	// （或对端已有第三个版本）。若不一致，用旧快照写回会静默丢弃较新的修改，
+	// 因此拒绝并要求用户重新查看冲突后再选择。
+	current, err := s.q.GetBlobByID(ctx, blobID)
+	switch {
+	case err == nil:
+		if current.Blob != conflict.LocalBlob ||
+			current.UpdatedAt != conflict.LocalUpdatedAt ||
+			current.IsDeleted != conflict.LocalDeleted {
+			return apperror.Validation("本地副本在冲突产生后已被修改，请重新查看冲突后再选择")
+		}
+	case errors.Is(err, sql.ErrNoRows):
+		return apperror.Validation("本地副本已不存在，无法按冲突快照写回")
+	default:
 		return err
 	}
 

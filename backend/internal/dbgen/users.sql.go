@@ -43,7 +43,7 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) error {
 }
 
 const getUser = `-- name: GetUser :one
-SELECT id, username, key_salt, auth_salt, encrypted_master_key, server_url, last_sync_time FROM users LIMIT 1
+SELECT id, username, key_salt, auth_salt, encrypted_master_key, server_url, last_sync_time FROM users ORDER BY rowid LIMIT 1
 `
 
 func (q *Queries) GetUser(ctx context.Context) (User, error) {
