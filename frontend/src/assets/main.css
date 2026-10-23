@@ -1201,7 +1201,8 @@ html[data-skin="editorial"] .font-heading {
 
 .terminal-tab-bar {
     background: var(--tab-bar-bg);
-    border-bottom: 1px solid var(--tab-bar-border);
+    /* 底部边框由外层 .titlebar 统一绘制：标签栏铺满标题栏高度，
+       若此处再声明 border-bottom，会与标题栏的边框贴成两条错色的线。 */
 }
 
 .terminal-tab {
