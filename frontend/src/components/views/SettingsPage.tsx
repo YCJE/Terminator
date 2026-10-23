@@ -67,6 +67,9 @@ export function SettingsPage() {
     const queryClient = useQueryClient();
 
     const {settingsCategory: activeCategory, setSettingsCategory: setActiveCategory} = useUIStore();
+    // 皮肤对明暗有强制语义（HUD 恒暗、编辑纸感恒亮），色板预览必须与 App 的
+    // effectiveDark 保持一致，否则在「浅色主题 + HUD」下会显示浅色版色块。
+    const effectiveDark = skin === "hud" ? true : skin === "editorial" ? false : theme === "dark";
     const [isServerModalOpen, setIsServerModalOpen] = useState(false);
     const [isWipeModalOpen, setIsWipeModalOpen] = useState(false);
     const [isDisconnectModalOpen, setIsDisconnectModalOpen] = useState(false);
@@ -416,8 +419,9 @@ export function SettingsPage() {
                             <SettingsRow title={t("accent_color_label")} desc={t("accent_color_desc")}>
                                 <div className="flex items-center gap-2">
                                     {ACCENT_PRESETS.map((preset) => {
-                                        // 使用 theme 变量而非 DOM 读取，确保主题切换时同步更新
-                                        const isDark = theme === "dark";
+                                        // 使用有效的明暗状态（皮肤优先）而非原始 theme，
+                                        // 确保强调色预设的深浅变体与当前皮肤匹配
+                                        const isDark = effectiveDark;
                                         const bgColor = preset.colorDark && isDark ? preset.colorDark : preset.color;
                                         return (
                                             <button

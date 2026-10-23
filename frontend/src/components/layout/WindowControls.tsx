@@ -33,12 +33,17 @@ export function WindowControls({className = ""}) {
     }, []);
 
     const handleToggleMaximise = async () => {
-        if (isMaximised) {
-            await Window.Restore();
-        } else {
-            await Window.Maximise();
+        // 动作可能被窗口管理器忽略或因平台限制失败；不盲目取反本地状态，
+        // 而是以窗口的真实状态为准，避免按钮图标与实际窗口状态长期不一致。
+        try {
+            if (isMaximised) {
+                await Window.Restore();
+            } else {
+                await Window.Maximise();
+            }
+        } finally {
+            setIsMaximised(await Window.IsMaximised());
         }
-        setIsMaximised(!isMaximised);
     };
 
     if (!isWindows) return null;

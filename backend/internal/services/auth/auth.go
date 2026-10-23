@@ -477,6 +477,15 @@ func (s *AuthService) RegisterOnServer(ctx context.Context, serverURL string) er
 
 	s.client.SetToken(authRes.AccessToken)
 
+	// 切换服务器前暂停后台同步，并等待在途同步结束：
+	// 若此时仍有针对旧服务器的同步在跑，它会在下方把 LastSyncTime 写成旧服务器的
+	// 游标（晚于 epoch），导致新服务器上的全量同步被跳过，本地既有数据永不上传。
+	// 注册已完成后再暂停，避免把网络请求的耗时计入同步阻塞时间。
+	if s.syncPauser != nil {
+		resume := s.syncPauser.PauseSync()
+		defer resume()
+	}
+
 	epochZero := timeutil.Epoch()
 	err = s.q.UpdateUserServerUrl(ctx, dbgen.UpdateUserServerUrlParams{
 		ServerUrl:    sql.NullString{String: serverURL, Valid: true},

@@ -161,8 +161,12 @@ export function KeyForm({initialData, isSaving, onSave, onCancel}: KeyFormProps)
                                 type="file"
                                 ref={fileInputRef}
                                 className="hidden"
-                                onChange={(e) =>
-                                    e.target.files && handleFileRead(e.target.files[0])}
+                                onChange={(e) => {
+                                    // 某些 WebView 在用户取消选择时仍会触发 change（FileList 为空），
+                                    // 直接取 files[0] 会得到 undefined 并在 readAsText 处抛错
+                                    const file = e.target.files?.[0];
+                                    if (file) handleFileRead(file);
+                                }}
                             />
                         </div>
                     </div>

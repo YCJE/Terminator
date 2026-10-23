@@ -1,8 +1,10 @@
 package settings
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -296,16 +298,54 @@ func (s *SettingsService) SaveSettings(settings AppSettings) error {
 	return nil
 }
 
+// maxLogReadBytes 单次读取日志文件的字节上限。
+//
+// 日志文件没有轮转，长期运行后可达成百 MB。只为返回最后几百行而把整个文件
+// 读进内存属于无谓的内存放大（可致界面卡死或 OOM），因此只从尾部读取有限窗口。
+const maxLogReadBytes = 4 << 20
+
 // GetLogs 读取日志文件内容，返回最后 maxLines 行
 func (s *SettingsService) GetLogs(maxLines int) (string, error) {
 	if maxLines <= 0 {
 		maxLines = 500
 	}
-	content, err := os.ReadFile(s.logPath)
+
+	f, err := os.Open(s.logPath)
 	if err != nil {
 		return "", fmt.Errorf("读取日志失败: %w", err)
 	}
-	lines := strings.Split(string(content), "\n")
+	defer func() { _ = f.Close() }()
+
+	info, err := f.Stat()
+	if err != nil {
+		return "", fmt.Errorf("读取日志失败: %w", err)
+	}
+
+	// 仅当文件超过读取上限时，从尾部窗口开始读
+	var offset int64
+	if size := info.Size(); size > maxLogReadBytes {
+		offset = size - maxLogReadBytes
+	}
+	if _, err := f.Seek(offset, io.SeekStart); err != nil {
+		return "", fmt.Errorf("读取日志失败: %w", err)
+	}
+
+	data, err := io.ReadAll(f)
+	if err != nil {
+		return "", fmt.Errorf("读取日志失败: %w", err)
+	}
+	if offset > 0 {
+		// 窗口起点很可能落在某行的中间：丢弃首个不完整行，
+		// 避免向用户展示一条被截断的日志。
+		idx := bytes.IndexByte(data, '\n')
+		if idx < 0 {
+			data = nil
+		} else {
+			data = data[idx+1:]
+		}
+	}
+
+	lines := strings.Split(string(data), "\n")
 	if len(lines) > maxLines {
 		lines = lines[len(lines)-maxLines:]
 	}

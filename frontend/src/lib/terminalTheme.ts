@@ -144,7 +144,10 @@ const ACCENT_TERMINAL_COLORS: Partial<Record<AccentColorName, { dark: { blue: st
 
 /** 根据主题名称获取终端配置 */
 export function getTerminalTheme(theme: TerminalThemeName, accentColor?: AccentColorName, skin?: TerminalSkinName) {
-    const isDark = theme !== "light";
+    // 皮肤对明暗有强制语义（HUD 恒暗、编辑纸感恒亮），与 App 中 effectiveDark 的
+    // 判定保持一致。若这里仍只看 theme，在「浅色主题 + HUD」这类组合下会得到
+    // 深色画布配浅色主题的 ANSI 色（深色字压深色底），对比度严重不足。
+    const isDark = skin === "hud" ? true : skin === "editorial" ? false : theme !== "light";
     let baseTheme: ITheme = isDark ? DARK_THEME : LIGHT_THEME;
 
     // 皮肤底色覆盖：终端画布与外壳表面同色

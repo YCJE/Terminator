@@ -44,11 +44,13 @@ function resolveJumpHostChain(
     if (!host.jumpHostId || visited.has(host.id)) return undefined;
 
     const jh = hosts.find((h) => h.id === host.jumpHostId);
-    // 自引用或链上已出现过该主机时终止，避免死循环
-    if (!jh || visited.has(jh.id)) return undefined;
+    // 找不到、自引用或链上已出现过该跳板机时终止，避免死循环
+    if (!jh || jh.id === host.id || visited.has(jh.id)) return undefined;
 
+    // 只标记「当前主机」已访问，不能把 jh 一并标记：递归时 jh 会成为当前主机，
+    // 提前标记会让它在下一层被当作"已访问"直接返回 undefined，
+    // 从而把多级跳板链截断为仅第一层（配置了 A→B→C 实际只走 A→B）。
     visited.add(host.id);
-    visited.add(jh.id);
 
     let jhKey: string | undefined = undefined;
     if (jh.keyId && keys) {

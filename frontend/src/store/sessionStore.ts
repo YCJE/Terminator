@@ -205,6 +205,15 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
     reorderSessions: (fromIndex, toIndex) => {
         set((state) => {
+            // 拖拽索引来自渲染时的数组下标；拖拽期间若有会话被关闭，索引可能越界。
+            // splice 越界不会报错，而是取出 undefined 写回数组，后续渲染读取
+            // session.id 时才会崩溃，且状态已无法自愈，因此这里先做边界校验。
+            const length = state.sessions.length;
+            if (fromIndex === toIndex ||
+                fromIndex < 0 || fromIndex >= length ||
+                toIndex < 0 || toIndex >= length) {
+                return {};
+            }
             const sessions = [...state.sessions];
             const [moved] = sessions.splice(fromIndex, 1);
             sessions.splice(toIndex, 0, moved);

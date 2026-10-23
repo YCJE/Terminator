@@ -252,11 +252,40 @@ func cleanupSessionLogsBefore(dir string, retentionDays int, now time.Time) (int
 	return removed, nil
 }
 
+// sessionLogFilename 把会话 ID 规整为安全的日志文件名。
+//
+// 会话 ID 由前端传入，若直接拼进 filepath.Join，Windows 上带 `\` 或 `..` 的 ID
+// 会使日志写入逃出 logDir、覆盖任意可写文件。这里只保留 [A-Za-z0-9._-]，
+// 其余字符替换为下划线；规整后为空、"." 或 ".." 时返回空串，调用方跳过记录。
+// 正常的 UUID 会话 ID 会原样通过，行为与之前一致。
+func sessionLogFilename(id string) string {
+	var b strings.Builder
+	for _, r := range id {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9',
+			r == '-', r == '_', r == '.':
+			b.WriteRune(r)
+		default:
+			b.WriteByte('_')
+		}
+	}
+	name := b.String()
+	if name == "" || name == "." || name == ".." {
+		return ""
+	}
+	return name + ".log"
+}
+
 // Connect establishes an SSH session with connection pooling and optional Jump Host support.
 //
 // 连接复用：同一 host:port:user 的多个 session 共享 *ssh.Client（引用计数）
 // Jump Host：通过跳板机建立 TCP 隧道，再在隧道上建立到目标的 SSH 连接
 func (s *SshService) Connect(config *SSHConnectionConfig) error {
+	// 绑定层允许前端直接传 null：若不校验，下方 config.Host 会触发空指针 panic。
+	if config == nil {
+		return apperror.Validation("connection config is required")
+	}
+
 	client, err := s.acquireClient(config)
 	if err != nil {
 		return err
@@ -318,6 +347,11 @@ func (s *SshService) Connect(config *SSHConnectionConfig) error {
 		_ = pw.Close()
 		_ = pr.Close()
 		_ = session.Close()
+		// agentCloser 已在 Shell() 之前建立：忽略此分支会让 agent 转发连接
+		// （Windows 上为命名管道句柄）随每次失败连接累积泄漏。
+		if agentCloser != nil {
+			_ = agentCloser.Close()
+		}
 		s.releaseClient(config, client)
 		return apperror.SSHConnectionFailed("failed to start shell", err)
 	}
@@ -326,11 +360,14 @@ func (s *SshService) Connect(config *SSHConnectionConfig) error {
 	// 日志内容为完整终端输出，可能含口令与令牌，默认不落盘。
 	var logFile *os.File
 	if s.logDir != "" && s.sessionLogEnabled() {
-		logPath := filepath.Join(s.logDir, fmt.Sprintf("%s.log", config.ID))
-		logFile, err = os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
-		if err != nil {
-			slog.Warn("failed to create session log file, continuing without logging", "path", logPath, "error", err)
-			logFile = nil
+		// 会话 ID 来自前端，不能直接拼进路径：含分隔符的 ID 会逃出日志目录。
+		if name := sessionLogFilename(config.ID); name != "" {
+			logPath := filepath.Join(s.logDir, name)
+			logFile, err = os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+			if err != nil {
+				slog.Warn("failed to create session log file, continuing without logging", "path", logPath, "error", err)
+				logFile = nil
+			}
 		}
 	}
 
@@ -1269,6 +1306,11 @@ func (s *SshService) ExecCommand(sessionID string, command string, timeout time.
 
 // AddPortForward 添加端口转发
 func (s *SshService) AddPortForward(spec *PortForwardSpec) error {
+	// 同 Connect：spec 为 nil 时下方读取 spec.SessionID 会触发空指针 panic。
+	if spec == nil {
+		return apperror.Validation("port forward spec is required")
+	}
+
 	s.mu.RLock()
 	active, exists := s.sessions[spec.SessionID]
 	s.mu.RUnlock()

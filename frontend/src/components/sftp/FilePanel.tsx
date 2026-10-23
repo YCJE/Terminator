@@ -156,9 +156,11 @@ export function FilePanel({ sessionId }: FilePanelProps) {
     // 右键菜单状态（fullPath 用于搜索结果中的绝对路径操作）
     const [contextMenu, setContextMenu] = useState<{ entry: FileEntry; x: number; y: number; fullPath?: string } | null>(null);
 
-    // 解析右键菜单操作的文件路径：搜索结果用 fullPath，普通列表用 joinPath
-    const resolveEntryPath = (entry: FileEntry) => {
-        return contextMenu?.fullPath ?? joinPath(currentPath, entry.name);
+    // 解析文件路径：优先使用调用方显式给出的绝对路径（搜索结果），
+    // 否则按当前目录拼接。不能隐式读取 contextMenu 状态——右键菜单可能与本次
+    // 双击操作并非同一文件（菜单关闭与双击事件存在时序差），会把预览/保存指向错误文件。
+    const resolveEntryPath = (entry: FileEntry, fullPath?: string) => {
+        return fullPath ?? joinPath(currentPath, entry.name);
     };
     // 存储右键菜单的完整路径（用于 rename/chmod/delete 等对话框操作）
     const contextMenuPathRef = useRef<string | null>(null);
@@ -307,7 +309,13 @@ export function FilePanel({ sessionId }: FilePanelProps) {
     // 初始化：sessionId 变化或会话状态变为 connected 时加载文件
     useEffect(() => {
         // 会话未连接时不加载，避免 SSH 连接建立前调用 SFTP 导致 "session not found"
-        if (sessionStatus !== "connected") return;
+        if (sessionStatus !== "connected") {
+            // 已断开（或连接失败）时必须结束加载态：切换会话时本面板会把 loading
+            // 置为 true，若就此返回，面板会永远停在转圈状态。
+            // 仍在连接中则保留加载态，连接成功后本 effect 会再次触发。
+            if (sessionStatus === "disconnected") setLoading(false);
+            return;
+        }
         let cancelled = false;
         // 递增 loadIdRef 使旧会话的在途 loadDir 请求失效
         const initId = ++loadIdRef.current;
@@ -425,7 +433,7 @@ export function FilePanel({ sessionId }: FilePanelProps) {
     };
 
     // 预览文件内容（限制 1MB）
-    const handlePreview = async (entry: FileEntry) => {
+    const handlePreview = async (entry: FileEntry, fullPath?: string) => {
         // 显式检查 size 是否为有效数字，undefined/null 时拒绝预览
         if (typeof entry.size !== "number" || entry.size > PREVIEW_LIMIT) {
             toast.error(t("file_too_large"));
@@ -433,7 +441,7 @@ export function FilePanel({ sessionId }: FilePanelProps) {
         }
         const myId = ++previewIdRef.current;
         try {
-            const path = resolveEntryPath(entry);
+            const path = resolveEntryPath(entry, fullPath);
             const content = await SftpService.ReadFile(sessionId, path);
             // 切换会话后旧请求的返回必须丢弃：否则会把上一个主机的文件内容
             // 回填到新会话面板，且此时"保存"会用新 sessionId 写入旧主机的路径
@@ -517,8 +525,8 @@ export function FilePanel({ sessionId }: FilePanelProps) {
     };
 
     // 下载文件：弹出系统保存框
-    const handleDownload = async (entry: FileEntry) => {
-        const remotePath = resolveEntryPath(entry);
+    const handleDownload = async (entry: FileEntry, fullPath?: string) => {
+        const remotePath = resolveEntryPath(entry, fullPath);
         try {
             const localPath = await Dialogs.SaveFile({ Title: t("download"), Filename: entry.name });
             if (!localPath) return;
@@ -1042,12 +1050,12 @@ export function FilePanel({ sessionId }: FilePanelProps) {
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="start" sideOffset={2} className="min-w-40">
                         {!contextMenu.entry.isDir && (
-                            <DropdownMenuItem onClick={() => { handlePreview(contextMenu.entry); setContextMenu(null); }}>
+                            <DropdownMenuItem onClick={() => { handlePreview(contextMenu.entry, contextMenu.fullPath); setContextMenu(null); }}>
                                 <FileText className="size-4" /> {t("preview")}
                             </DropdownMenuItem>
                         )}
                         {!contextMenu.entry.isDir && (
-                            <DropdownMenuItem onClick={() => { handleDownload(contextMenu.entry); setContextMenu(null); }}>
+                            <DropdownMenuItem onClick={() => { handleDownload(contextMenu.entry, contextMenu.fullPath); setContextMenu(null); }}>
                                 <Download className="size-4" /> {t("download")}
                             </DropdownMenuItem>
                         )}

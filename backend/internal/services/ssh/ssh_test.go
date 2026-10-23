@@ -367,3 +367,27 @@ func TestForwardReverseIndexMaintenance(t *testing.T) {
 		t.Error("cleanupForwards 应删除该会话的反向索引")
 	}
 }
+
+// 会话日志文件名必须剔除路径分隔符：会话 ID 来自前端，
+// 带 `..\` 的 ID 会让日志写入逃出日志目录、覆盖任意可写文件。
+func TestSessionLogFilename(t *testing.T) {
+	cases := []struct {
+		id   string
+		want string
+	}{
+		{id: "7f3d2c1a-0000-4000-8000-000000000000", want: "7f3d2c1a-0000-4000-8000-000000000000.log"},
+		{id: `..\..\evil`, want: ".._.._evil.log"},
+		{id: "../../etc/passwd", want: ".._.._etc_passwd.log"},
+		{id: "", want: ""},
+	}
+
+	for _, c := range cases {
+		got := sessionLogFilename(c.id)
+		if got != c.want {
+			t.Errorf("sessionLogFilename(%q) = %q，期望 %q", c.id, got, c.want)
+		}
+		if strings.ContainsAny(got, `/\`) {
+			t.Errorf("sessionLogFilename(%q) = %q，结果不能包含路径分隔符", c.id, got)
+		}
+	}
+}

@@ -254,16 +254,30 @@ func (s *SftpService) WriteFile(sessionID string, path string, content string) e
 		return fmt.Errorf("创建临时文件 %q 失败: %w", tmpPath, err)
 	}
 
-	_, writeErr := file.Write([]byte(content))
-	_ = file.Close()
+	written, writeErr := file.Write([]byte(content))
+	if writeErr == nil && written != len(content) {
+		writeErr = io.ErrShortWrite
+	}
+	// SFTP 的写入失败可能在 Close 时才由服务端返回（如磁盘配额不足、连接中断）。
+	// 只检查 Write 会漏掉这类错误，进而把截断的临时文件重命名成目标文件，
+	// 静默覆盖掉原本完好的远程文件。
+	if closeErr := file.Close(); writeErr == nil {
+		writeErr = closeErr
+	}
 	if writeErr != nil {
 		_ = client.Remove(tmpPath) // 清理临时文件
 		return fmt.Errorf("写入文件 %q 失败: %w", path, writeErr)
 	}
 
-	// 恢复原文件权限（如有）
+	// 恢复原文件权限（如有）。
+	// Create 创建的临时文件权限由服务端 umask 决定（通常 0644），若原文件是 0600
+	// 等受限权限，Chmod 失败后继续重命名会让文件变成更宽松的权限。故此处必须
+	// 视为写入失败：保留原文件不动，避免悄悄放宽敏感文件的访问权限。
 	if origMode != 0 {
-		_ = client.Chmod(tmpPath, origMode)
+		if err := client.Chmod(tmpPath, origMode); err != nil {
+			_ = client.Remove(tmpPath)
+			return fmt.Errorf("恢复文件 %q 权限失败: %w", path, err)
+		}
 	}
 
 	// 原子重命名（PosixRename 优先，回退到普通 Rename）
@@ -369,8 +383,15 @@ type SearchResultEntry struct {
 // maxResults 限制返回结果数量，0 表示使用默认值 200。
 // 使用 find 命令实现，比递归 SFTP ListDir 快数十倍。
 func (s *SftpService) SearchFiles(sessionID string, searchPath string, query string, maxResults int) ([]SearchResultEntry, error) {
+	// 搜索结果上限：maxResults 来自前端绑定调用，不设上限时传入超大值会让
+	// find 遍历整个文件系统并把全部结果留在内存与服务端输出缓冲中，
+	// 造成长时间占用与内存膨胀。界面固定使用 200，此上限不影响正常使用。
+	const maxSearchResults = 1000
 	if maxResults <= 0 {
 		maxResults = 200
+	}
+	if maxResults > maxSearchResults {
+		maxResults = maxSearchResults
 	}
 
 	// 过滤换行符（防止 find -iname 模式包含换行导致静默无结果）

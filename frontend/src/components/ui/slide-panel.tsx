@@ -75,6 +75,13 @@ export function SlidePanel({
         return () => {
             window.removeEventListener("mousemove", handleMouseMove);
             window.removeEventListener("mouseup", handleMouseUp);
+            // 拖拽途中面板被关闭/卸载时 mouseup 不会再触发，
+            // 必须在此复位全局光标与文本选中禁用状态，否则整个应用会失去文本选择能力。
+            if (draggingRef.current) {
+                draggingRef.current = false;
+                document.body.style.cursor = "";
+                document.body.style.userSelect = "";
+            }
         };
     }, [open]); // 仅依赖 open，拖拽期间不重建监听器
 
