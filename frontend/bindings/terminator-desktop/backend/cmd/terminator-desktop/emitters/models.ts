@@ -6,6 +6,55 @@
 import { Create as $Create } from "@wailsio/runtime";
 
 /**
+ * FileDropPayload 描述一次来自系统的外部文件拖放。
+ * Wails 在 Windows 上通过 chrome.webview 传递文件路径，
+ * 前端无法从 HTML5 DataTransfer 中拿到本地绝对路径，因此统一由后端转发。
+ */
+export class FileDropPayload {
+    /**
+     * Files 为拖入的本地文件绝对路径
+     */
+    "files": string[];
+
+    /**
+     * SessionID 取自拖放目标元素上的 data-session-id
+     */
+    "sessionId": string;
+
+    /**
+     * Kind 取自拖放目标元素上的 data-drop-kind（terminal / sftp）
+     */
+    "kind": string;
+
+    /** Creates a new FileDropPayload instance. */
+    constructor($$source: Partial<FileDropPayload> = {}) {
+        if (!("files" in $$source)) {
+            this["files"] = [];
+        }
+        if (!("sessionId" in $$source)) {
+            this["sessionId"] = "";
+        }
+        if (!("kind" in $$source)) {
+            this["kind"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new FileDropPayload instance from a string or object.
+     */
+    static createFrom($$source: any = {}): FileDropPayload {
+        const $$createField0_0 = $$createType0;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("files" in $$parsedSource) {
+            $$parsedSource["files"] = $$createField0_0($$parsedSource["files"]);
+        }
+        return new FileDropPayload($$parsedSource as Partial<FileDropPayload>);
+    }
+}
+
+/**
  * SFTPTransferCompletePayload 传输完成事件的载荷。
  */
 export class SFTPTransferCompletePayload {
@@ -181,3 +230,6 @@ export class SyncErrorPayload {
         return new SyncErrorPayload($$parsedSource as Partial<SyncErrorPayload>);
     }
 }
+
+// Private type creation functions
+const $$createType0 = $Create.Array($Create.Any);

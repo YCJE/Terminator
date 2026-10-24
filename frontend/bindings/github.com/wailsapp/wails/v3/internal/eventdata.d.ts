@@ -15,6 +15,7 @@ import type * as sync$0 from "../../../../../terminator-desktop/backend/internal
 declare module "@wailsio/runtime" {
     namespace Events {
         interface CustomEvents {
+            "app:file-drop": emitters$0.FileDropPayload;
             "sftp:complete": emitters$0.SFTPTransferCompletePayload;
             "sftp:progress": emitters$0.SFTPTransferProgressPayload;
             "ssh:closed": emitters$0.SSHClosedPayload;
