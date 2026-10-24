@@ -193,6 +193,151 @@ export class SSHConnectionConfig {
     }
 }
 
+/**
+ * SessionLogFile 描述一个会话日志文件。
+ */
+export class SessionLogFile {
+    "name": string;
+    "size": number;
+    "modTime": string;
+
+    /** Creates a new SessionLogFile instance. */
+    constructor($$source: Partial<SessionLogFile> = {}) {
+        if (!("name" in $$source)) {
+            this["name"] = "";
+        }
+        if (!("size" in $$source)) {
+            this["size"] = 0;
+        }
+        if (!("modTime" in $$source)) {
+            this["modTime"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new SessionLogFile instance from a string or object.
+     */
+    static createFrom($$source: any = {}): SessionLogFile {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new SessionLogFile($$parsedSource as Partial<SessionLogFile>);
+    }
+}
+
+/**
+ * SessionLogMatch 描述一次会话日志检索命中。
+ */
+export class SessionLogMatch {
+    "file": string;
+    "line": number;
+    "text": string;
+
+    /** Creates a new SessionLogMatch instance. */
+    constructor($$source: Partial<SessionLogMatch> = {}) {
+        if (!("file" in $$source)) {
+            this["file"] = "";
+        }
+        if (!("line" in $$source)) {
+            this["line"] = 0;
+        }
+        if (!("text" in $$source)) {
+            this["text"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new SessionLogMatch instance from a string or object.
+     */
+    static createFrom($$source: any = {}): SessionLogMatch {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new SessionLogMatch($$parsedSource as Partial<SessionLogMatch>);
+    }
+}
+
+/**
+ * SystemStats 是远端主机的一条轻量资源采样结果。
+ * 仅支持 Linux（依赖 /proc 与 df），其他系统返回 Supported=false。
+ */
+export class SystemStats {
+    "supported": boolean;
+    "os": string;
+    "load1": number;
+    "load5": number;
+    "load15": number;
+    "cpuCount": number;
+
+    /**
+     * 字节
+     */
+    "memUsed": number;
+
+    /**
+     * 字节
+     */
+    "memTotal": number;
+    "swapUsed": number;
+    "swapTotal": number;
+    "diskUsed": number;
+    "diskTotal": number;
+    "uptimeSeconds": number;
+
+    /** Creates a new SystemStats instance. */
+    constructor($$source: Partial<SystemStats> = {}) {
+        if (!("supported" in $$source)) {
+            this["supported"] = false;
+        }
+        if (!("os" in $$source)) {
+            this["os"] = "";
+        }
+        if (!("load1" in $$source)) {
+            this["load1"] = 0;
+        }
+        if (!("load5" in $$source)) {
+            this["load5"] = 0;
+        }
+        if (!("load15" in $$source)) {
+            this["load15"] = 0;
+        }
+        if (!("cpuCount" in $$source)) {
+            this["cpuCount"] = 0;
+        }
+        if (!("memUsed" in $$source)) {
+            this["memUsed"] = 0;
+        }
+        if (!("memTotal" in $$source)) {
+            this["memTotal"] = 0;
+        }
+        if (!("swapUsed" in $$source)) {
+            this["swapUsed"] = 0;
+        }
+        if (!("swapTotal" in $$source)) {
+            this["swapTotal"] = 0;
+        }
+        if (!("diskUsed" in $$source)) {
+            this["diskUsed"] = 0;
+        }
+        if (!("diskTotal" in $$source)) {
+            this["diskTotal"] = 0;
+        }
+        if (!("uptimeSeconds" in $$source)) {
+            this["uptimeSeconds"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new SystemStats instance from a string or object.
+     */
+    static createFrom($$source: any = {}): SystemStats {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new SystemStats($$parsedSource as Partial<SystemStats>);
+    }
+}
+
 // Private type creation functions
 const $$createType0 = JumpHostConfig.createFrom;
 const $$createType1 = $Create.Nullable($$createType0);

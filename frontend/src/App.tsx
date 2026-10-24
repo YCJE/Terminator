@@ -1,5 +1,7 @@
 import { Sidebar } from "@/components/layout/Sidebar";
 import { TitleBar } from "@/components/layout/TitleBar";
+import { CommandPalette } from "@/components/layout/CommandPalette";
+import { WorkspaceManager } from "@/components/layout/WorkspaceManager";
 import { ContentView } from "@/components/layout/ContentView";
 import { SyncConflictBanner } from "@/components/layout/SyncConflictBanner";
 import { LockScreen } from "@/components/views/LockScreen";
@@ -200,6 +202,8 @@ export default function App() {
                         <>
                             <Sidebar/>
                             <ContentView/>
+                            <CommandPalette/>
+                            <WorkspaceManager/>
                         </>
                     )}
 

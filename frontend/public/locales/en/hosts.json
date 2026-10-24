@@ -58,5 +58,16 @@
   "export_failed": "Export failed",
   "import_success": "Imported {{count}} hosts",
   "import_failed": "Import failed, please check file format",
-  "keys_not_loaded": "Keys are still loading, please try again"
+  "keys_not_loaded": "Keys are still loading, please try again",
+  "ssh_config_import": "Import from ~/.ssh/config",
+  "ssh_config_empty": "No importable hosts found in ~/.ssh/config",
+  "ssh_config_parse_failed": "Failed to parse ~/.ssh/config",
+  "ssh_config_import_title": "Import from SSH Config",
+  "ssh_config_import_desc": "Import {{count}} host(s) from ~/.ssh/config: {{names}}. Hosts whose name or address already exists will be skipped.",
+  "ssh_config_importing": "Importing…",
+  "ssh_config_import_success": "Imported {{count}} host(s), skipped {{skipped}}",
+  "ssh_config_import_failed": "Import failed",
+  "on_connect_label": "Run on connect",
+  "on_connect_placeholder": "e.g. cd /var/log && tail -f app.log",
+  "on_connect_desc": "Sent to the terminal automatically after login; leave empty to skip."
 }

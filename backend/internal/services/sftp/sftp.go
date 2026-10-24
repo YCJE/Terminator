@@ -164,10 +164,16 @@ func (s *SftpService) ListDir(sessionID string, path string) ([]FileEntry, error
 			// 会话已不存在，返回原始错误
 			return nil, fmt.Errorf("读取目录 %q 失败: %w", path, err)
 		}
-		defer retryClient.Close()
 		infos, err = retryClient.ReadDir(path)
 		if err != nil {
+			_ = retryClient.Close()
 			return nil, fmt.Errorf("读取目录 %q 失败(重试后): %w", path, err)
+		}
+		// 重试客户端已证明可用：替换会话中的缓存客户端，使后续 ReadFile/WriteFile/
+		// Rename 等操作不再反复命中已失效的旧客户端（原先只有重连会话才能恢复）。
+		// 旧客户端可能有并发传输在跑，不在此关闭；未能替换时才关闭临时客户端。
+		if !s.sshSvc.AdoptSFTPClient(sessionID, client, retryClient) {
+			_ = retryClient.Close()
 		}
 	}
 
@@ -234,18 +240,19 @@ func (s *SftpService) WriteFile(sessionID string, path string, content string) e
 		return err
 	}
 
-	// 检查文件类型，拒绝目录和非常规文件
-	var origMode os.FileMode
+	// 只允许覆盖已存在的常规文件：Stat 失败不能简单视为“新文件”而继续，
+	// 否则权限/连接错误、悬空符号链接等异常都会退化为静默覆盖或丢失原权限。
 	info, err := client.Stat(path)
-	if err == nil { // 文件已存在时检查类型并记录权限
-		if info.IsDir() {
-			return fmt.Errorf("%q 是目录，无法写入", path)
-		}
-		if !info.Mode().IsRegular() {
-			return fmt.Errorf("%q 不是常规文件，无法写入", path)
-		}
-		origMode = info.Mode().Perm()
+	if err != nil {
+		return fmt.Errorf("获取文件信息 %q 失败: %w", path, err)
 	}
+	if info.IsDir() {
+		return fmt.Errorf("%q 是目录，无法写入", path)
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("%q 不是常规文件，无法写入", path)
+	}
+	origMode := info.Mode().Perm()
 
 	// 写入临时文件再重命名，确保写入失败时原文件内容不丢失
 	tmpPath := path + ".terminator-tmp"
@@ -269,15 +276,12 @@ func (s *SftpService) WriteFile(sessionID string, path string, content string) e
 		return fmt.Errorf("写入文件 %q 失败: %w", path, writeErr)
 	}
 
-	// 恢复原文件权限（如有）。
-	// Create 创建的临时文件权限由服务端 umask 决定（通常 0644），若原文件是 0600
-	// 等受限权限，Chmod 失败后继续重命名会让文件变成更宽松的权限。故此处必须
-	// 视为写入失败：保留原文件不动，避免悄悄放宽敏感文件的访问权限。
-	if origMode != 0 {
-		if err := client.Chmod(tmpPath, origMode); err != nil {
-			_ = client.Remove(tmpPath)
-			return fmt.Errorf("恢复文件 %q 权限失败: %w", path, err)
-		}
+	// 恢复原文件权限。Create 创建的临时文件权限由服务端 umask 决定（通常 0644），
+	// 若原文件是 0600 等受限权限，Chmod 失败后继续重命名会让文件变成更宽松的权限。
+	// 故此处必须视为写入失败：保留原文件不动，避免悄悄放宽敏感文件的访问权限。
+	if err := client.Chmod(tmpPath, origMode); err != nil {
+		_ = client.Remove(tmpPath)
+		return fmt.Errorf("恢复文件 %q 权限失败: %w", path, err)
 	}
 
 	// 原子重命名（PosixRename 优先，回退到普通 Rename）

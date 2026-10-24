@@ -23,6 +23,14 @@ func (s *WebDAVService) TestWebDAVConnection(url, username, password string) err
 	if url == "" {
 		return errors.New("WebDAV URL 不能为空")
 	}
+	// 密码字段留空表示"沿用已保存的密码"，与 SaveWebDAVConfig 语义一致。
+	// 若此处直接拿空密码去请求，编辑既有配置时点"测试连接"会必然 401，
+	// 让用户误以为已保存的凭据失效。
+	if password == "" {
+		if current, err := s.settingsSvc.GetSettings(); err == nil {
+			password = current.WebDAVPassword
+		}
+	}
 	return webdav.TestConnection(context.Background(), url, username, password)
 }
 

@@ -285,6 +285,11 @@ func (s *SshService) Connect(config *SSHConnectionConfig) error {
 	if config == nil {
 		return apperror.Validation("connection config is required")
 	}
+	// 会话 ID 是前端生成并用于后续 Input/Resize/Disconnect 的唯一索引：
+	// 空 ID 会让多个会话落到同一个 map key，输入被写到错误的会话上。
+	if strings.TrimSpace(config.ID) == "" {
+		return apperror.Validation("session id is required")
+	}
 
 	client, err := s.acquireClient(config)
 	if err != nil {
@@ -463,7 +468,52 @@ func connKey(config *SSHConnectionConfig) string {
 	if config.ProxyType != "" {
 		base += fmt.Sprintf("@proxy:%s:%s:%d", config.ProxyType, config.ProxyHost, config.ProxyPort)
 	}
+	// 复用的是「已完成认证」的 *ssh.Client：若只按路由组键，使用不同密码/私钥/
+	// 代理凭据的连接会直接复用第一条连接的认证结果——第二条凭据即使错误也会
+	// "连接成功"，代理账号也可能越权。把凭据与 Agent 转发配置折叠进键，
+	// 保证不同认证信息各自独立建连。无任何凭据时保持原有键格式。
+	if fp := credentialFingerprint(config); fp != "" {
+		base += "#cred:" + fp
+	}
 	return base
+}
+
+// credentialFingerprint 生成认证相关字段的短指纹（仅用于内存中的连接池键）。
+//
+// 字段按长度前缀拼接，避免 "ab"+"c" 与 "a"+"bc" 产生相同输入。
+// 无任何认证信息时返回空串，使仅按路由区分的旧键格式保持不变。
+func credentialFingerprint(config *SSHConnectionConfig) string {
+	var b strings.Builder
+	hasCredential := false
+	write := func(value string) {
+		if value != "" {
+			hasCredential = true
+		}
+		b.WriteString(strconv.Itoa(len(value)))
+		b.WriteByte(':')
+		b.WriteString(value)
+		b.WriteByte('|')
+	}
+
+	write(config.Password)
+	write(config.PrivateKey)
+	write(config.ProxyUsername)
+	write(config.ProxyPassword)
+	for jh := config.JumpHost; jh != nil; jh = jh.JumpHost {
+		write(jh.Password)
+		write(jh.PrivateKey)
+	}
+	if config.AgentForwarding {
+		hasCredential = true
+		b.WriteString("agent|")
+	}
+
+	if !hasCredential {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(b.String()))
+	// 截取 12 字节：碰撞概率可忽略，同时避免键过长
+	return fmt.Sprintf("%x", sum[:12])
 }
 
 // probeTimeout keepalive 探测超时时间。
@@ -542,8 +592,11 @@ func (s *SshService) acquireClient(config *SSHConnectionConfig) (*ssh.Client, er
 
 		if s.isConnectionAlive(client) {
 			s.connPoolMu.Lock()
-			// 二次确认池中条目未被其他 goroutine 移除
-			if pc2, ok := s.connPool[key]; ok && pc2.client == client {
+			// 二次确认池中条目未被其他 goroutine 移除，且期间没有被标记为
+			// poisoned（并发 acquire 的探测可能已判定该连接失效）。若仍按
+			// 成功复用，后续 NewSession 会在死连接上失败，用户侧表现为
+			// 无缘无故连接失败。
+			if pc2, ok := s.connPool[key]; ok && pc2.client == client && !pc2.poisoned {
 				pc2.refCount++
 				s.connPoolMu.Unlock()
 				return client, nil
@@ -1104,6 +1157,49 @@ func fingerprintFromBase64(encoded string) string {
 	return "SHA256:" + base64.RawStdEncoding.EncodeToString(sum[:])
 }
 
+// GetLatency 测量当前会话到服务器的往返时延（毫秒）。
+// 复用 SSH 的 keepalive 请求：不额外开辟通道，也不会在远端留下命令痕迹。
+func (s *SshService) GetLatency(sessionID string) (int64, error) {
+	s.mu.RLock()
+	active, exists := s.sessions[sessionID]
+	var client *ssh.Client
+	if exists {
+		client = active.client
+	}
+	s.mu.RUnlock()
+
+	if !exists || client == nil {
+		return 0, apperror.SSHSessionNotFound()
+	}
+
+	start := time.Now()
+	// SendRequest 在连接黑洞（半开连接、网络静默丢包）时会一直阻塞在读取
+	// 服务器应答上。前端每 10 秒轮询一次，若此处无超时，Wails 调用将永久挂起，
+	// 且每次轮询都会再叠加一个阻塞 goroutine。这里等待有限时间后返回超时错误，
+	// 连接真正被 keepalive 判定死亡并关闭后，在途 goroutine 会自然退出。
+	done := make(chan error, 1)
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				done <- fmt.Errorf("延迟探测 panic: %v", r)
+			}
+		}()
+		_, _, err := client.SendRequest("keepalive@openssh.com", true, nil)
+		done <- err
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			return 0, fmt.Errorf("延迟探测失败: %w", err)
+		}
+		return time.Since(start).Milliseconds(), nil
+	case <-time.After(probeTimeout):
+		return 0, fmt.Errorf("延迟探测超时（%s）", probeTimeout)
+	}
+}
+
+// Input 向指定会话的终端写入数据
 func (s *SshService) Input(sessionID string, data string) error {
 	s.mu.RLock()
 	active, exists := s.sessions[sessionID]
@@ -1234,6 +1330,25 @@ func (s *SshService) ResetSFTPClient(sessionID string) {
 	if stale != nil {
 		_ = stale.Close()
 	}
+}
+
+// AdoptSFTPClient 用新的 SFTP 客户端替换会话中已失效的缓存客户端。
+//
+// stale 必须仍是当前缓存才会替换（并发下可能已被其他调用更新）。
+// 旧客户端不在此关闭：它上面可能仍有并发传输在用，直接关闭会把这些传输
+// 一并打断；其通道随 SSH 连接关闭而回收。返回 false 时调用方应关闭 fresh。
+//
+//wails:ignore 仅由后端 sftp 服务调用，参数无法 JSON 序列化，不暴露给前端
+func (s *SshService) AdoptSFTPClient(sessionID string, stale *sftp.Client, fresh *sftp.Client) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	active, exists := s.sessions[sessionID]
+	if !exists || active.sftpClient != stale {
+		return false
+	}
+	active.sftpClient = fresh
+	return true
 }
 
 // NewSFTPClient 基于会话的 SSH 连接新建一个独立的 SFTP 客户端（不缓存、不共享）。
@@ -1392,8 +1507,11 @@ func (s *SshService) startLocalForward(spec *PortForwardSpec, client *ssh.Client
 				}
 				defer remoteConn.Close()
 
-				// 登记双端连接：移除转发时统一关闭，避免隧道与 io.Copy goroutine 泄漏
-				s.trackForwardConn(spec.ID, conn, remoteConn)
+				// 登记双端连接：移除转发时统一关闭，避免隧道与 io.Copy goroutine 泄漏。
+				// 若转发已被移除（登记失败），直接返回，defer 会关闭两端连接。
+				if !s.trackForwardConn(spec.ID, conn, remoteConn) {
+					return
+				}
 				defer s.untrackForwardConn(spec.ID, conn, remoteConn)
 
 				// 任意方向的 io.Copy 结束时关闭双端，避免单向阻塞泄漏
@@ -1466,8 +1584,11 @@ func (s *SshService) startRemoteForward(spec *PortForwardSpec, client *ssh.Clien
 				}
 				defer localConn.Close()
 
-				// 登记双端连接：移除转发时统一关闭，避免隧道与 io.Copy goroutine 泄漏
-				s.trackForwardConn(spec.ID, conn, localConn)
+				// 登记双端连接：移除转发时统一关闭，避免隧道与 io.Copy goroutine 泄漏。
+				// 若转发已被移除（登记失败），直接返回，defer 会关闭两端连接。
+				if !s.trackForwardConn(spec.ID, conn, localConn) {
+					return
+				}
 				defer s.untrackForwardConn(spec.ID, conn, localConn)
 
 				// 任意方向的 io.Copy 结束时关闭双端，避免单向阻塞泄漏
@@ -1550,16 +1671,23 @@ func (s *SshService) cleanupForwards(sessionID string) {
 }
 
 // trackForwardConn 登记某个转发当前活跃的隧道连接。
-// 连接建立后登记，确保移除转发时能一并关闭它们。
-func (s *SshService) trackForwardConn(forwardID string, conns ...net.Conn) {
+//
+// 返回 false 表示该转发已被移除（cleanupForwards 先删 forwards 条目、
+// closeForwardConns 才清空连接表；这段窗口里刚建立完成的连接若直接登记，
+// 会落在已经清理过的表里，从此无人关闭）。调用方应放弃该连接。
+func (s *SshService) trackForwardConn(forwardID string, conns ...net.Conn) bool {
 	s.forwardsMu.Lock()
+	defer s.forwardsMu.Unlock()
+	if _, exists := s.forwards[forwardID]; !exists {
+		return false
+	}
 	if s.forwardConns[forwardID] == nil {
 		s.forwardConns[forwardID] = make(map[net.Conn]struct{})
 	}
 	for _, c := range conns {
 		s.forwardConns[forwardID][c] = struct{}{}
 	}
-	s.forwardsMu.Unlock()
+	return true
 }
 
 // untrackForwardConn 从登记表中移除已结束的连接

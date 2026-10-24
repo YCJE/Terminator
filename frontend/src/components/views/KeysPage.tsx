@@ -49,7 +49,7 @@ export function KeysPage() {
 
     const filteredKeys = useMemo(() => {
         const query = searchQuery.toLowerCase();
-        return keys?.filter((k) => k.name.toLowerCase().includes(query));
+        return keys?.filter((k) => k.name?.toLowerCase().includes(query) ?? false);
     }, [keys, searchQuery]);
 
     return (

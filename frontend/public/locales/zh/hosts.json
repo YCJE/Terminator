@@ -58,5 +58,16 @@
   "export_failed": "导出失败",
   "import_success": "已导入 {{count}} 台主机",
   "import_failed": "导入失败，请检查文件格式",
-  "keys_not_loaded": "密钥列表尚未加载完成，请稍后重试"
+  "keys_not_loaded": "密钥列表尚未加载完成，请稍后重试",
+  "ssh_config_import": "从 ~/.ssh/config 导入",
+  "ssh_config_empty": "~/.ssh/config 中没有可导入的主机",
+  "ssh_config_parse_failed": "解析 ~/.ssh/config 失败",
+  "ssh_config_import_title": "从 SSH 配置导入",
+  "ssh_config_import_desc": "将从 ~/.ssh/config 导入 {{count}} 台主机：{{names}}。名称或地址已存在的主机将被跳过。",
+  "ssh_config_importing": "导入中…",
+  "ssh_config_import_success": "已导入 {{count}} 台主机，跳过 {{skipped}} 台",
+  "ssh_config_import_failed": "导入失败",
+  "on_connect_label": "连接后执行",
+  "on_connect_placeholder": "例如：cd /var/log && tail -f app.log",
+  "on_connect_desc": "连接成功后自动发送到终端；留空表示不执行。"
 }

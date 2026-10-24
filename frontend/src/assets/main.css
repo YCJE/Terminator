@@ -1359,6 +1359,21 @@ html[data-skin="editorial"] .font-heading {
     color: var(--fg-strong);
 }
 
+/* 命令面板（Ctrl+Shift+P） */
+.palette-kbd {
+    display: inline-flex;
+    align-items: center;
+    height: 20px;
+    padding: 0 6px;
+    border: 1px solid var(--hairline);
+    border-radius: 5px;
+    background: var(--surface-2);
+    color: var(--fg-subtle);
+    font-family: ui-monospace, monospace;
+    font-size: 10.5px;
+    line-height: 1;
+}
+
 /* 搜索浮层 */
 .terminal-search-panel {
     display: flex;

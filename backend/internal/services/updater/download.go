@@ -326,6 +326,12 @@ func (s *UpdaterService) downloadWithProgress(url, dst string) (string, error) {
 	if err := f.Sync(); err != nil {
 		return "", err
 	}
+	// Close 可能返回延迟的写入错误（磁盘配额、远端存储异常）。
+	// 若忽略，调用方会把写不完整的 .part 当作校验通过的文件重命名，
+	// 用户执行安装包时才发现损坏，且已无法重新下载校验。
+	if err := f.Close(); err != nil {
+		return "", err
+	}
 	return hex.EncodeToString(hasher.Sum(nil)), nil
 }
 

@@ -54,6 +54,14 @@ export function ExecCommand(sessionID: string, command: string, timeout: time$0.
 }
 
 /**
+ * GetLatency 测量当前会话到服务器的往返时延（毫秒）。
+ * 复用 SSH 的 keepalive 请求：不额外开辟通道，也不会在远端留下命令痕迹。
+ */
+export function GetLatency(sessionID: string): $CancellablePromise<number> {
+    return $Call.ByID(2449650787, sessionID);
+}
+
+/**
  * GetSFTPClient 懒加载 SFTP 客户端，复用现有 SSH 连接
  */
 export function GetSFTPClient(sessionID: string): $CancellablePromise<sftp$0.Client | null> {
@@ -62,6 +70,19 @@ export function GetSFTPClient(sessionID: string): $CancellablePromise<sftp$0.Cli
     });
 }
 
+/**
+ * GetSystemStats 在指定会话的连接上执行一次轻量采样，返回 CPU 负载、
+ * 内存、根分区占用与运行时长。使用独立 exec 会话，不干扰交互式 shell。
+ */
+export function GetSystemStats(sessionID: string): $CancellablePromise<$models.SystemStats | null> {
+    return $Call.ByID(3182012097, sessionID).then(($result: any) => {
+        return $$createType3($result);
+    });
+}
+
+/**
+ * Input 向指定会话的终端写入数据
+ */
 export function Input(sessionID: string, data: string): $CancellablePromise<void> {
     return $Call.ByID(187872847, sessionID, data);
 }
@@ -71,8 +92,24 @@ export function Input(sessionID: string, data: string): $CancellablePromise<void
  */
 export function ListKnownHosts(): $CancellablePromise<$models.KnownHostEntry[]> {
     return $Call.ByID(1488588359).then(($result: any) => {
-        return $$createType3($result);
+        return $$createType5($result);
     });
+}
+
+/**
+ * ListSessionLogs 列出会话日志文件，按修改时间倒序。
+ */
+export function ListSessionLogs(): $CancellablePromise<$models.SessionLogFile[]> {
+    return $Call.ByID(3934920764).then(($result: any) => {
+        return $$createType7($result);
+    });
+}
+
+/**
+ * ReadSessionLog 读取指定日志文件的末尾 maxLines 行。
+ */
+export function ReadSessionLog(name: string, maxLines: number): $CancellablePromise<string> {
+    return $Call.ByID(557104475, name, maxLines);
 }
 
 /**
@@ -100,8 +137,23 @@ export function Resize(sessionID: string, rows: number, cols: number): $Cancella
     return $Call.ByID(639676773, sessionID, rows, cols);
 }
 
+/**
+ * SearchSessionLogs 在所有会话日志中检索关键字（不区分大小写），返回命中行。
+ */
+export function SearchSessionLogs(query: string, limit: number): $CancellablePromise<$models.SessionLogMatch[]> {
+    return $Call.ByID(241591804, query, limit).then(($result: any) => {
+        return $$createType9($result);
+    });
+}
+
 // Private type creation functions
 const $$createType0 = sftp$0.Client.createFrom;
 const $$createType1 = $Create.Nullable($$createType0);
-const $$createType2 = $models.KnownHostEntry.createFrom;
-const $$createType3 = $Create.Array($$createType2);
+const $$createType2 = $models.SystemStats.createFrom;
+const $$createType3 = $Create.Nullable($$createType2);
+const $$createType4 = $models.KnownHostEntry.createFrom;
+const $$createType5 = $Create.Array($$createType4);
+const $$createType6 = $models.SessionLogFile.createFrom;
+const $$createType7 = $Create.Array($$createType6);
+const $$createType8 = $models.SessionLogMatch.createFrom;
+const $$createType9 = $Create.Array($$createType8);

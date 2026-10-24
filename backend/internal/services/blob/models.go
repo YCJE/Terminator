@@ -33,6 +33,9 @@ type Host struct {
 
 	// SSH Agent 转发（可选）
 	AgentForwarding bool `json:"agentForwarding,omitempty"`
+
+	// 连接成功后自动执行的命令（可选，明文存于加密 blob 内）
+	OnConnect string `json:"onConnect,omitempty"`
 }
 
 type SavedKey struct {

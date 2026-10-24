@@ -114,6 +114,58 @@ func TestConnKeyDistinguishesJumpChains(t *testing.T) {
 	}
 }
 
+// 认证凭据、代理凭据与 Agent 转发配置必须参与池键：
+// 池中复用的是已完成认证的连接，凭据不同却共用同一条连接会让
+// 后一次连接静默沿用前一次的认证结果。
+func TestConnKeyDistinguishesCredentials(t *testing.T) {
+	base := &SSHConnectionConfig{Host: "t", Port: 22, Username: "u"}
+
+	cases := map[string]*SSHConnectionConfig{
+		"base":      base,
+		"passwordA": {Host: "t", Port: 22, Username: "u", Password: "pa"},
+		"passwordB": {Host: "t", Port: 22, Username: "u", Password: "pb"},
+		"keyA":      {Host: "t", Port: 22, Username: "u", PrivateKey: "key-a"},
+		"keyB":      {Host: "t", Port: 22, Username: "u", PrivateKey: "key-b"},
+		"proxyUserA": {
+			Host: "t", Port: 22, Username: "u",
+			ProxyType: "socks5", ProxyHost: "127.0.0.1", ProxyPort: 1080, ProxyUsername: "a",
+		},
+		"proxyUserB": {
+			Host: "t", Port: 22, Username: "u",
+			ProxyType: "socks5", ProxyHost: "127.0.0.1", ProxyPort: 1080, ProxyUsername: "b",
+		},
+		"agentOn": {Host: "t", Port: 22, Username: "u", AgentForwarding: true},
+		"jumpPassA": {
+			Host: "t", Port: 22, Username: "u",
+			JumpHost: &JumpHostConfig{Host: "j", Port: 22, Username: "u", Password: "ja"},
+		},
+		"jumpPassB": {
+			Host: "t", Port: 22, Username: "u",
+			JumpHost: &JumpHostConfig{Host: "j", Port: 22, Username: "u", Password: "jb"},
+		},
+	}
+
+	seen := make(map[string]string, len(cases))
+	for name, cfg := range cases {
+		key := connKey(cfg)
+		if prev, ok := seen[key]; ok {
+			t.Errorf("%s 与 %s 不应共用连接池键 %q", name, prev, key)
+		}
+		seen[key] = name
+	}
+
+	// 相同凭据必须得到相同键，否则每次连接都会新建并丢弃连接
+	if connKey(cases["passwordA"]) != connKey(&SSHConnectionConfig{
+		Host: "t", Port: 22, Username: "u", Password: "pa",
+	}) {
+		t.Error("相同凭据应生成相同池键")
+	}
+	// 无凭据时保持仅按路由组键的旧格式
+	if connKey(base) != "t:22:u" {
+		t.Errorf("无凭据时池键应保持路由格式，实际 %q", connKey(base))
+	}
+}
+
 func TestDefaultKnownHostsPath(t *testing.T) {
 	got := defaultKnownHostsPath()
 	if got == "" {

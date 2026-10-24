@@ -21,13 +21,19 @@ import {
     X,
     FolderSearch,
     Loader2,
+    Crosshair,
+    SquareTerminal,
 } from "lucide-react";
-import { Dialogs } from "@wailsio/runtime";
+import { Dialogs, Events } from "@wailsio/runtime";
 import { toast } from "sonner";
 import { SftpService } from "../../../bindings/terminator-desktop/backend/internal/services/sftp";
 import type { FileEntry, SearchResultEntry } from "../../../bindings/terminator-desktop/backend/internal/services/sftp";
 import { useTransferStore } from "@/store/transferStore";
 import { useSessionStore } from "@/store/sessionStore";
+import { useUIStore } from "@/store/uiStore";
+import { AppEvent } from "@/lib/events";
+import { REMOTE_PATH_MIME, shellQuote } from "@/lib/remotePath";
+import { sendSessionInput } from "@/lib/sessionTransport";
 import { FileTable } from "@/components/sftp/FileTable";
 import { TransferQueue } from "@/components/sftp/TransferQueue";
 import { Button } from "@/components/ui/button";
@@ -126,6 +132,10 @@ export function FilePanel({ sessionId }: FilePanelProps) {
         const sess = s.sessions.find((x) => x.id === sessionId);
         return sess?.status || "connecting";
     });
+    // 终端 shell 上报的当前目录（OSC 7），仅在跟随开关开启时用于自动导航
+    const sessionCwd = useSessionStore((s) => s.sessions.find((x) => x.id === sessionId)?.cwd);
+    const sftpFollowCwd = useUIStore((s) => s.sftpFollowCwd);
+    const setSftpFollowCwd = useUIStore((s) => s.setSftpFollowCwd);
 
     const [currentPath, setCurrentPath] = useState("/");
     const [entries, setEntries] = useState<FileEntry[]>([]);
@@ -333,6 +343,14 @@ export function FilePanel({ sessionId }: FilePanelProps) {
             });
         return () => { cancelled = true; };
     }, [sessionId, sessionStatus, loadDir]);
+
+    // 跟随终端目录：shell 通过 OSC 7 上报 cwd 后自动切换到对应目录。
+    // 只在 cwd 变化时触发（依赖 sessionCwd），用户手动浏览不会被打断。
+    useEffect(() => {
+        if (!sftpFollowCwd || sessionStatus !== "connected" || !sessionCwd) return;
+        if (sessionCwd === currentPathRef.current) return;
+        loadDir(sessionCwd);
+    }, [sessionCwd, sftpFollowCwd, sessionStatus, loadDir]);
 
     // 双面板模式同步：开启时或当前路径变化时，自动展开并加载当前路径的祖先目录
     useEffect(() => {
@@ -674,6 +692,41 @@ export function FilePanel({ sessionId }: FilePanelProps) {
         };
     }, []);
 
+    // 后端转发的本地文件拖放：落在本面板时按当前目录上传
+    const startUploadRef = useRef(startUpload);
+    startUploadRef.current = startUpload;
+    useEffect(() => {
+        const unsubscribe = Events.On(AppEvent.FileDrop, (event) => {
+            const payload = event?.data as { files?: string[]; sessionId?: string; kind?: string } | undefined;
+            if (!payload || payload.kind !== "sftp" || payload.sessionId !== sessionId) return;
+            // 会话未连接时不发起上传：后端会返回 session not found，用户只会看到一串失败提示
+            const session = useSessionStore.getState().sessions.find((s) => s.id === sessionId);
+            if (!session || session.status !== "connected") return;
+            (payload.files ?? []).forEach((path) => startUploadRef.current(path));
+        });
+        return () => unsubscribe();
+    }, [sessionId]);
+
+    // 文件行拖到终端：只传递远端路径，由终端插入带引号的命令行参数
+    const handleEntryDragStart = (entry: FileEntry, e: React.DragEvent, fullPath?: string) => {
+        const path = fullPath ?? joinPath(currentPath, entry.name);
+        e.dataTransfer.effectAllowed = "copy";
+        e.dataTransfer.setData(REMOTE_PATH_MIME, path);
+        e.dataTransfer.setData("text/plain", path);
+    };
+
+    // 右键「插入路径到终端」：写入当前激活的 SSH 会话命令行（不执行）
+    const handleInsertPath = (entry: FileEntry, fullPath?: string) => {
+        const store = useSessionStore.getState();
+        const target = store.sessions.find((s) => s.id === store.activeSessionId);
+        if (!target || target.kind === "local" || target.status !== "connected") {
+            toast.error(t("insert_path_unavailable"));
+            return;
+        }
+        const path = fullPath ?? joinPath(currentPath, entry.name);
+        sendSessionInput(target.id, `${shellQuote(path)} `).catch(handleAppError);
+    };
+
     // 拖拽调整面板宽度
     // 用 ref 存储监听器引用，组件卸载时兜底清理
     const resizeCleanupRef = useRef<(() => void) | null>(null);
@@ -715,8 +768,10 @@ export function FilePanel({ sessionId }: FilePanelProps) {
         };
     }, []);
 
-    // 拖拽本地文件到面板上传
+    // 拖拽本地文件到面板上传（内部路径拖拽不带 files，不显示遮罩）
     const handleDragOver = (e: React.DragEvent) => {
+        const types = Array.from(e.dataTransfer.types).map((type) => type.toLowerCase());
+        if (!types.includes("files")) return;
         e.preventDefault();
         if (!isDragOver) setIsDragOver(true);
     };
@@ -745,6 +800,9 @@ export function FilePanel({ sessionId }: FilePanelProps) {
                 isDragOver && "ring-2 ring-inset ring-primary"
             )}
             style={{ width }}
+            data-file-drop-target
+            data-session-id={sessionId}
+            data-drop-kind="sftp"
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
@@ -758,15 +816,26 @@ export function FilePanel({ sessionId }: FilePanelProps) {
             {/* 头部标题 */}
             <div className="flex items-center justify-between border-b border-[var(--hairline)] px-3 py-2">
                 <span className="text-[12.5px] font-semibold text-[var(--fg-strong)]">{t("file_panel_title")}</span>
-                <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    onClick={() => setDualPanel((d) => !d)}
-                    title={t("toggle_dual_panel")}
-                    className={cn(dualPanel && "bg-[var(--surface-3)] text-[var(--fg-strong)]")}
-                >
-                    <Columns className="size-4" />
-                </Button>
+                <div className="flex items-center gap-0.5">
+                    <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        onClick={() => setSftpFollowCwd(!sftpFollowCwd)}
+                        title={sftpFollowCwd ? t("follow_cwd_on") : t("follow_cwd_off")}
+                        className={cn(sftpFollowCwd && "bg-[var(--surface-3)] text-[var(--fg-strong)]")}
+                    >
+                        <Crosshair className="size-4" />
+                    </Button>
+                    <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        onClick={() => setDualPanel((d) => !d)}
+                        title={t("toggle_dual_panel")}
+                        className={cn(dualPanel && "bg-[var(--surface-3)] text-[var(--fg-strong)]")}
+                    >
+                        <Columns className="size-4" />
+                    </Button>
+                </div>
             </div>
 
             {/* 工具栏：返回上级 + 面包屑 + 操作按钮 */}
@@ -988,6 +1057,12 @@ export function FilePanel({ sessionId }: FilePanelProps) {
                                             className="sftp-row is-search text-sm"
                                             style={{ gridTemplateColumns: "minmax(0,1fr) 60px" }}
                                             title={item.path}
+                                            draggable
+                                            onDragStart={(e) => handleEntryDragStart(
+                                                { name: item.name, size: item.size, mode: "", modTime: "", isDir: item.isDir, isSymlink: false },
+                                                e,
+                                                item.path,
+                                            )}
                                         >
                                             <div className="flex min-w-0 items-center gap-2 overflow-hidden">
                                                 <span className="shrink-0">
@@ -1019,6 +1094,7 @@ export function FilePanel({ sessionId }: FilePanelProps) {
                             loading={loading}
                             onOpen={handleOpen}
                             onContextMenu={(entry, e) => { contextMenuPathRef.current = null; setContextMenu({ entry, x: e.clientX, y: e.clientY }); }}
+                            onEntryDragStart={handleEntryDragStart}
                             filterText={searchText}
                             onScrollChange={(top) => { currentScrollTop.current = top; }}
                             restoreScrollTop={restoreScrollTop}
@@ -1059,6 +1135,10 @@ export function FilePanel({ sessionId }: FilePanelProps) {
                                 <Download className="size-4" /> {t("download")}
                             </DropdownMenuItem>
                         )}
+                        <DropdownMenuItem onClick={() => { handleInsertPath(contextMenu.entry, contextMenu.fullPath); setContextMenu(null); }}>
+                            <SquareTerminal className="size-4" /> {t("insert_path_to_terminal")}
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
                         <DropdownMenuItem onClick={() => { setRenameTarget(contextMenu.entry.name); setRenameValue(contextMenu.entry.name); setRenameOpen(true); contextMenuPathRef.current = contextMenu.fullPath ?? null; setContextMenu(null); }}>
                             <Pencil className="mr-2 size-4" /> {t("rename")}
                         </DropdownMenuItem>

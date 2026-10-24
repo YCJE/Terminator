@@ -57,6 +57,9 @@ export function SyncConflictPanel() {
     }, [refresh]);
 
     const resolve = async (blobId: string, keepLocal: boolean) => {
+        // 一次只处理一条冲突：并发写回会让后端逐条校验快照的语义失效，
+        // 后到的请求还可能把刚解决完的条目再次写回
+        if (resolvingId !== null) return;
         setResolvingId(blobId);
         try {
             await SyncService.ResolveConflict(blobId, keepLocal);
@@ -73,6 +76,10 @@ export function SyncConflictPanel() {
     if (conflicts.length === 0) {
         return null;
     }
+
+    // 任一冲突处理期间禁用全部按钮：只禁用当前行会让用户还能点其他行，
+    // 造成并发写回与"本地副本已被修改"之类的误导性错误
+    const isAnyResolving = resolvingId !== null;
 
     return (
         <SettingsCard title={t("conflict_title")} description={t("conflict_desc")}>
@@ -137,7 +144,7 @@ export function SyncConflictPanel() {
                             <Button
                                 variant="outline"
                                 size="sm"
-                                disabled={isBusy}
+                                disabled={isAnyResolving}
                                 onClick={() => resolve(conflict.blobId, true)}
                             >
                                 {isBusy && <Loader2 className="mr-1.5 size-3 animate-spin"/>}
@@ -146,7 +153,7 @@ export function SyncConflictPanel() {
                             <Button
                                 variant="outline"
                                 size="sm"
-                                disabled={isBusy}
+                                disabled={isAnyResolving}
                                 onClick={() => resolve(conflict.blobId, false)}
                             >
                                 {t("conflict_keep_remote")}

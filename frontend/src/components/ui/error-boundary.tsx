@@ -2,6 +2,7 @@
 // 显示完整错误信息和堆栈，方便排查问题
 
 import { Component, type ErrorInfo, type ReactNode } from "react";
+import i18n from "@/i18n";
 
 interface Props {
     children: ReactNode;
@@ -34,10 +35,12 @@ export class ErrorBoundary extends Component<Props, State> {
         if (this.state.hasError) {
             return this.props.fallback ?? (
                 <div className="flex h-full w-full flex-col items-center justify-center gap-3 p-6">
-                    <p className="text-sm font-medium text-destructive">组件渲染出错</p>
+                    <p className="text-sm font-medium text-destructive">
+                        {i18n.t("common:render_error")}
+                    </p>
                     <div className="max-w-lg w-full rounded-lg border border-[var(--hairline)] bg-[var(--surface-2)] p-3">
                         <p className="text-xs font-mono break-all text-[var(--fg-strong)]">
-                            {this.state.error?.message ?? "未知错误"}
+                            {this.state.error?.message ?? i18n.t("common:unknown_error")}
                         </p>
                         {this.state.error?.stack && (
                             <pre className="mt-2 max-h-48 overflow-auto text-[0.6875rem] font-mono text-[var(--fg-muted)] whitespace-pre-wrap break-all">
@@ -55,7 +58,7 @@ export class ErrorBoundary extends Component<Props, State> {
                         onClick={this.handleRetry}
                         className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
                     >
-                        重试
+                        {i18n.t("common:retry")}
                     </button>
                 </div>
             );

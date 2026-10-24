@@ -3,8 +3,9 @@ import { Events } from "@wailsio/runtime";
 import { AppEvent } from "@/lib/events";
 import { useTranslation } from "react-i18next";
 import { useQueryClient } from "@tanstack/react-query";
-import { User, Server, Lock, Trash2, AlertTriangle, Palette, Moon, Sun, Unplug, ScrollText, Download, ExternalLink, Loader2, CheckCircle2, Info, Keyboard, ShieldCheck, type LucideIcon } from "lucide-react";
+import { User, Server, Lock, Trash2, AlertTriangle, Palette, Moon, Sun, Unplug, ScrollText, Download, ExternalLink, Loader2, CheckCircle2, Info, Keyboard, ShieldCheck, Plus, RotateCw, Camera, Play, type LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { SwitchServerModal } from "@/components/views/SwitchServerModal";
 import { WebDAVModal } from "@/components/views/WebDAVModal";
 import { SyncConflictPanel } from "@/components/views/SyncConflictPanel";
@@ -31,7 +32,26 @@ import {
 } from "@/components/ui/select";
 import { useSyncStore } from "@/store/syncStore.ts";
 import { useUIStore, Theme, ACCENT_PRESETS, SPACINESS_PRESETS, SKIN_PRESETS, type AccentColor, type Spaciness, type Skin, type SettingsCategory } from "@/store/uiStore.ts";
+import { HIGHLIGHT_COLORS } from "@/lib/highlightRules";
+import {
+    comboFromEvent,
+    comboLabel,
+    combosEqual,
+    SHORTCUT_DEFS,
+    DEFAULT_SHORTCUTS,
+    setShortcutRecording,
+    type ShortcutId,
+    type ShortcutCombo,
+} from "@/lib/shortcuts";
 import { applyTerminalColorLink } from "@/lib/terminalTheme";
+import {
+    captureCurrentLayout,
+    loadSessionSnapshots,
+    openSessionSnapshot,
+    saveSessionSnapshots,
+    type SessionSnapshot,
+} from "@/lib/sessionSnapshots";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
 const NAV_ITEMS: { id: SettingsCategory; labelKey: string; icon: LucideIcon }[] = [
@@ -43,9 +63,8 @@ const NAV_ITEMS: { id: SettingsCategory; labelKey: string; icon: LucideIcon }[] 
     { id: "about", labelKey: "nav_about", icon: Download },
 ];
 
-/** 快捷键列表数据 */
+/** 不可自定义的固定快捷键（可自定义项见 SHORTCUT_DEFS） */
 const TERMINAL_SHORTCUTS: { keys: string; labelKey: string }[] = [
-    { keys: "Ctrl+F", labelKey: "shortcut_search" },
     { keys: "Ctrl+Shift+C", labelKey: "shortcut_copy" },
     { keys: "Ctrl+Shift+V", labelKey: "shortcut_paste" },
     { keys: "Esc", labelKey: "shortcut_close_search" },
@@ -57,14 +76,87 @@ const TAB_SHORTCUTS: { keys: string; labelKey: string }[] = [
     { keys: "Right-Click", labelKey: "shortcut_tab_color" },
 ];
 
+/** 终端内硬编码的复制/粘贴组合：不允许被可配置动作占用，否则会互相吞掉按键 */
+const RESERVED_SHORTCUTS: ShortcutCombo[] = [
+    { ctrl: true, alt: false, shift: true, code: "KeyC" },
+    { ctrl: true, alt: false, shift: true, code: "KeyV" },
+];
+
+/** 仅正则规则需要校验；非法表达式在设置页标红并跳过应用 */
+function isInvalidRegex(pattern: string, regex: boolean): boolean {
+    if (!regex || !pattern) return false;
+    try {
+        new RegExp(pattern);
+        return false;
+    } catch {
+        return true;
+    }
+}
+
 export function SettingsPage() {
     const {t, i18n} = useTranslation(["settings", "common", "errors"]);
     const {data: user, refetch} = useCurrentUser();
     const {setUnlocked, setHasUser} = useAuthStore();
     const {clearSessions} = useSessionStore();
     const {lastError} = useSyncStore();
-    const {theme, setTheme, accentColor, setAccentColor, spaciness, setSpaciness, skin, setSkin, terminalColorLink, setTerminalColorLink, keywordHighlight, setKeywordHighlight, broadcastEnabled, toggleBroadcastEnabled, tabColorEnabled, toggleTabColorEnabled} = useUIStore();
+    const {
+        theme, setTheme, accentColor, setAccentColor, spaciness, setSpaciness, skin, setSkin,
+        terminalColorLink, setTerminalColorLink, keywordHighlight, setKeywordHighlight,
+        broadcastEnabled, toggleBroadcastEnabled, tabColorEnabled, toggleTabColorEnabled,
+        pasteProtection, setPasteProtection, autoReconnect, setAutoReconnect,
+        sftpFollowCwd, setSftpFollowCwd,
+        workspaceRestore, setWorkspaceRestore,
+        highlightRules, addHighlightRule, updateHighlightRule, removeHighlightRule,
+        completionNotify, setCompletionNotify,
+        shortcuts, setShortcut, resetShortcut, resetAllShortcuts,
+    } = useUIStore();
     const queryClient = useQueryClient();
+
+    // 快捷键录制：按下组合键后写入 store，冲突或缺少修饰键时给出提示
+    const [recordingShortcut, setRecordingShortcut] = useState<ShortcutId | null>(null);
+    const [shortcutError, setShortcutError] = useState("");
+
+    useEffect(() => {
+        if (!recordingShortcut) return;
+        const handler = (e: KeyboardEvent) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (e.code === "Escape") {
+                setRecordingShortcut(null);
+                setShortcutError("");
+                return;
+            }
+            const combo = comboFromEvent(e);
+            if (!combo) {
+                setShortcutError(t("shortcut_need_modifier"));
+                return;
+            }
+            // 与终端内固定的复制/粘贴冲突：该按键会被固定逻辑先消费，
+            // 录制出来的动作永远不会触发，直接拒绝并提示。
+            if (RESERVED_SHORTCUTS.some((reserved) => combosEqual(reserved, combo))) {
+                setShortcutError(t("shortcut_reserved"));
+                return;
+            }
+            const conflict = SHORTCUT_DEFS.find(
+                (def) => def.id !== recordingShortcut && combosEqual(shortcuts[def.id], combo),
+            );
+            if (conflict) {
+                setShortcutError(t("shortcut_conflict", {name: t(conflict.labelKey)}));
+                return;
+            }
+            setShortcut(recordingShortcut, combo);
+            setRecordingShortcut(null);
+            setShortcutError("");
+        };
+        window.addEventListener("keydown", handler, true);
+        return () => window.removeEventListener("keydown", handler, true);
+    }, [recordingShortcut, shortcuts, setShortcut, t]);
+
+    // 录制期间暂停其他全局快捷键的响应，避免按键被命令面板等动作抢占
+    useEffect(() => {
+        setShortcutRecording(!!recordingShortcut);
+        return () => setShortcutRecording(false);
+    }, [recordingShortcut]);
 
     const {settingsCategory: activeCategory, setSettingsCategory: setActiveCategory} = useUIStore();
     // 皮肤对明暗有强制语义（HUD 恒暗、编辑纸感恒亮），色板预览必须与 App 的
@@ -79,6 +171,72 @@ export function SettingsPage() {
     const [sessionLogEnabled, setSessionLogEnabled] = useState(false);
     const [sessionLogRetentionDays, setSessionLogRetentionDays] = useState(7);
 
+    // 会话快照：命名保存当前标签组与分屏布局
+    const [snapshots, setSnapshots] = useState<SessionSnapshot[]>([]);
+    const [snapshotName, setSnapshotName] = useState("");
+    const [openingSnapshotId, setOpeningSnapshotId] = useState<string | null>(null);
+
+    useEffect(() => {
+        setSnapshots(loadSessionSnapshots());
+    }, []);
+
+    const handleSaveSnapshot = () => {
+        const name = snapshotName.trim();
+        if (!name) {
+            toast.error(t("snapshot_name_required"));
+            return;
+        }
+        const layout = captureCurrentLayout();
+        if (layout.sessions.length === 0) {
+            toast.error(t("snapshot_empty_workspace"));
+            return;
+        }
+        const next = [
+            {id: crypto.randomUUID(), name, ...layout, savedAt: Date.now()},
+            ...snapshots,
+        ];
+        setSnapshots(next);
+        saveSessionSnapshots(next);
+        setSnapshotName("");
+        toast.success(t("snapshot_saved", {name}));
+    };
+
+    const handleOverwriteSnapshot = (snapshot: SessionSnapshot) => {
+        const layout = captureCurrentLayout();
+        if (layout.sessions.length === 0) {
+            toast.error(t("snapshot_empty_workspace"));
+            return;
+        }
+        const next = snapshots.map((item) => item.id === snapshot.id
+            ? {...item, ...layout, savedAt: Date.now()}
+            : item);
+        setSnapshots(next);
+        saveSessionSnapshots(next);
+        toast.success(t("snapshot_overwritten", {name: snapshot.name}));
+    };
+
+    const handleOpenSnapshot = async (snapshot: SessionSnapshot) => {
+        setOpeningSnapshotId(snapshot.id);
+        try {
+            const count = await openSessionSnapshot(snapshot);
+            if (count === 0) {
+                toast.error(t("snapshot_none_available"));
+            } else {
+                toast.success(t("snapshot_opened", {count}));
+            }
+        } catch (error) {
+            handleAppError(error);
+        } finally {
+            setOpeningSnapshotId(null);
+        }
+    };
+
+    const handleDeleteSnapshot = (snapshot: SessionSnapshot) => {
+        const next = snapshots.filter((item) => item.id !== snapshot.id);
+        setSnapshots(next);
+        saveSessionSnapshots(next);
+        toast.success(t("snapshot_deleted", {name: snapshot.name}));
+    };
     // 更新检查状态
     const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
     const [releaseInfo, setReleaseInfo] = useState<GitHubReleaseInfo | null>(null);
@@ -405,7 +563,10 @@ export function SettingsPage() {
                             </SettingsRow>
 
                             <SettingsRow title={t("language_label")}>
-                                <Select value={i18n.resolvedLanguage} onValueChange={changeLanguage}>
+                                <Select
+                                    value={(i18n.resolvedLanguage ?? i18n.language)?.startsWith("zh") ? "zh" : "en"}
+                                    onValueChange={changeLanguage}
+                                >
                                     <SelectTrigger className="settings-control w-40 text-[12.5px]">
                                         <SelectValue placeholder={t("select_language")}/>
                                     </SelectTrigger>
@@ -490,6 +651,203 @@ export function SettingsPage() {
                                     label={t("tab_color_label")}
                                 />
                             </SettingsRow>
+
+                            <SettingsRow title={t("paste_protection_label")} desc={t("paste_protection_desc")}>
+                                <SettingsSwitch
+                                    checked={pasteProtection}
+                                    onChange={setPasteProtection}
+                                    label={t("paste_protection_label")}
+                                />
+                            </SettingsRow>
+
+                            <SettingsRow title={t("auto_reconnect_label")} desc={t("auto_reconnect_desc")}>
+                                <SettingsSwitch
+                                    checked={autoReconnect}
+                                    onChange={setAutoReconnect}
+                                    label={t("auto_reconnect_label")}
+                                />
+                            </SettingsRow>
+
+                            <SettingsRow title={t("sftp_follow_cwd_label")} desc={t("sftp_follow_cwd_desc")}>
+                                <SettingsSwitch
+                                    checked={sftpFollowCwd}
+                                    onChange={setSftpFollowCwd}
+                                    label={t("sftp_follow_cwd_label")}
+                                />
+                            </SettingsRow>
+
+                            <SettingsRow title={t("workspace_restore_label")} desc={t("workspace_restore_desc")}>
+                                <SettingsSwitch
+                                    checked={workspaceRestore}
+                                    onChange={setWorkspaceRestore}
+                                    label={t("workspace_restore_label")}
+                                />
+                            </SettingsRow>
+
+                            <SettingsRow title={t("completion_notify_label")} desc={t("completion_notify_desc")}>
+                                <SettingsSwitch
+                                    checked={completionNotify}
+                                    onChange={setCompletionNotify}
+                                    label={t("completion_notify_label")}
+                                />
+                            </SettingsRow>
+                        </SettingsCard>
+
+                        <SettingsCard title={t("highlight_rules_title")} description={t("highlight_rules_desc")}>
+                            {highlightRules.length === 0 ? (
+                                <div className="px-4 py-3 text-xs text-[var(--fg-muted)]">
+                                    {t("highlight_rules_empty")}
+                                </div>
+                            ) : (
+                                highlightRules.map((rule) => {
+                                    const invalid = isInvalidRegex(rule.pattern, rule.regex);
+                                    return (
+                                        <div
+                                            key={rule.id}
+                                            className="flex flex-wrap items-center gap-2 border-t border-[var(--hairline)] px-4 py-2"
+                                        >
+                                            <Input
+                                                value={rule.pattern}
+                                                onChange={(e) => updateHighlightRule(rule.id, {pattern: e.target.value})}
+                                                placeholder={rule.regex
+                                                    ? t("highlight_pattern_regex")
+                                                    : t("highlight_pattern_literal")}
+                                                title={invalid ? t("highlight_invalid_regex") : undefined}
+                                                className={cn(
+                                                    "h-8 min-w-40 flex-1 font-mono text-xs",
+                                                    invalid && "border-destructive"
+                                                )}
+                                            />
+                                            <button
+                                                type="button"
+                                                onClick={() => updateHighlightRule(rule.id, {regex: !rule.regex})}
+                                                title={t("highlight_regex_hint")}
+                                                className={cn(
+                                                    "shrink-0 rounded-[var(--radius-sm)] border px-2 py-1 text-[10.5px] transition-colors",
+                                                    rule.regex
+                                                        ? "border-[var(--hairline-strong)] bg-[var(--surface-3)] text-[var(--fg-strong)]"
+                                                        : "border-[var(--hairline)] text-[var(--fg-muted)] hover:text-[var(--fg-strong)]"
+                                                )}
+                                            >
+                                                {t("highlight_regex")}
+                                            </button>
+                                            <div className="flex shrink-0 items-center gap-1">
+                                                {HIGHLIGHT_COLORS.map((color) => (
+                                                    <button
+                                                        key={color.value}
+                                                        type="button"
+                                                        onClick={() => updateHighlightRule(rule.id, {color: color.value})}
+                                                        title={t(color.labelKey)}
+                                                        aria-label={t(color.labelKey)}
+                                                        className={cn(
+                                                            "size-4 rounded-full ring-1 ring-[var(--hairline-strong)] transition-transform hover:scale-110",
+                                                            rule.color === color.value && "ring-2 ring-[var(--fg-strong)]"
+                                                        )}
+                                                        style={{backgroundColor: color.hex}}
+                                                    />
+                                                ))}
+                                            </div>
+                                            <SettingsSwitch
+                                                checked={rule.enabled}
+                                                onChange={(enabled) => updateHighlightRule(rule.id, {enabled})}
+                                                label={t("highlight_enabled")}
+                                            />
+                                            <Button
+                                                variant="ghost"
+                                                size="icon-sm"
+                                                onClick={() => removeHighlightRule(rule.id)}
+                                                title={t("highlight_remove")}
+                                            >
+                                                <Trash2 className="size-3.5"/>
+                                            </Button>
+                                        </div>
+                                    );
+                                })
+                            )}
+                            <div className="border-t border-[var(--hairline)] px-4 py-3">
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => addHighlightRule({
+                                        pattern: "",
+                                        regex: false,
+                                        color: "yellow",
+                                        enabled: true,
+                                    })}
+                                >
+                                    <Plus className="mr-1.5 size-3.5"/>
+                                    {t("highlight_add_rule")}
+                                </Button>
+                            </div>
+                        </SettingsCard>
+
+                        <SettingsCard title={t("snapshots_title")} description={t("snapshots_desc")}>
+                            <div className="flex items-center gap-2 border-b border-[var(--hairline)] px-4 py-3">
+                                <Input
+                                    value={snapshotName}
+                                    onChange={(e) => setSnapshotName(e.target.value)}
+                                    placeholder={t("snapshot_name_placeholder")}
+                                    className="h-8 flex-1 text-xs"
+                                    onKeyDown={(e) => {
+                                        if (e.key === "Enter") handleSaveSnapshot();
+                                    }}
+                                />
+                                <Button variant="outline" size="sm" onClick={handleSaveSnapshot}>
+                                    <Camera className="mr-1.5 size-3.5"/>
+                                    {t("snapshot_save")}
+                                </Button>
+                            </div>
+                            {snapshots.length === 0 ? (
+                                <div className="px-4 py-3 text-xs text-[var(--fg-muted)]">
+                                    {t("snapshots_empty")}
+                                </div>
+                            ) : (
+                                snapshots.map((snapshot) => (
+                                    <div
+                                        key={snapshot.id}
+                                        className="flex flex-wrap items-center gap-2 border-t border-[var(--hairline)] px-4 py-2"
+                                    >
+                                        <div className="min-w-0 flex-1">
+                                            <div className="truncate text-[12.5px] font-medium text-[var(--fg-strong)]">
+                                                {snapshot.name}
+                                            </div>
+                                            <div className="text-[10.5px] text-[var(--fg-subtle)]">
+                                                {t("snapshot_meta", {
+                                                    count: snapshot.sessions.length,
+                                                    date: new Date(snapshot.savedAt).toLocaleString(),
+                                                })}
+                                            </div>
+                                        </div>
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={() => handleOpenSnapshot(snapshot)}
+                                            disabled={openingSnapshotId !== null}
+                                        >
+                                            {openingSnapshotId === snapshot.id
+                                                ? <Loader2 className="mr-1.5 size-3.5 animate-spin"/>
+                                                : <Play className="mr-1.5 size-3.5"/>}
+                                            {t("snapshot_open")}
+                                        </Button>
+                                        <Button
+                                            variant="ghost"
+                                            size="icon-sm"
+                                            onClick={() => handleOverwriteSnapshot(snapshot)}
+                                            title={t("snapshot_overwrite")}
+                                        >
+                                            <Camera className="size-3.5"/>
+                                        </Button>
+                                        <Button
+                                            variant="ghost"
+                                            size="icon-sm"
+                                            onClick={() => handleDeleteSnapshot(snapshot)}
+                                            title={t("snapshot_delete")}
+                                        >
+                                            <Trash2 className="size-3.5"/>
+                                        </Button>
+                                    </div>
+                                ))
+                            )}
                         </SettingsCard>
 
                         {/* Agent 转发和代理说明 */}
@@ -648,7 +1006,63 @@ export function SettingsPage() {
                     {/* ============ 快捷键 ============ */}
                     {activeCategory === "shortcuts" && (
                         <SettingsCard title={t("shortcuts_title")} description={t("shortcuts_desc")}>
-                            <div className="settings-group-label">{t("shortcuts_terminal")}</div>
+                            <div className="settings-group-label flex items-center justify-between">
+                                <span>{t("shortcuts_terminal")}</span>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setShortcutError("");
+                                        resetAllShortcuts();
+                                    }}
+                                    className="text-xs text-[var(--fg-muted)] underline-offset-2 hover:text-[var(--fg-strong)] hover:underline"
+                                >
+                                    {t("shortcut_reset_all")}
+                                </button>
+                            </div>
+                            {SHORTCUT_DEFS.map((def) => {
+                                const isRecording = recordingShortcut === def.id;
+                                const modified = !combosEqual(shortcuts[def.id], DEFAULT_SHORTCUTS[def.id]);
+                                return (
+                                    <div key={def.id} className="settings-row">
+                                        <span className="settings-row-title">{t(def.labelKey)}</span>
+                                        <div className="settings-row-control flex items-center gap-1.5">
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setRecordingShortcut(isRecording ? null : def.id);
+                                                    setShortcutError("");
+                                                }}
+                                                className={cn(
+                                                    "kbd-key cursor-pointer transition-colors",
+                                                    isRecording && "border-[var(--accent)] text-[var(--fg-strong)]"
+                                                )}
+                                                title={t("shortcut_edit_hint")}
+                                            >
+                                                {isRecording ? t("shortcut_press_keys") : comboLabel(shortcuts[def.id])}
+                                            </button>
+                                            {modified && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setShortcutError("");
+                                                        resetShortcut(def.id);
+                                                    }}
+                                                    className="flex size-5 items-center justify-center rounded-sm text-[var(--fg-subtle)] transition-colors hover:bg-[var(--surface-3)] hover:text-[var(--fg-strong)]"
+                                                    title={t("shortcut_reset")}
+                                                    aria-label={t("shortcut_reset")}
+                                                >
+                                                    <RotateCw className="size-3.5"/>
+                                                </button>
+                                            )}
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                            {shortcutError && (
+                                <div className="px-4 pb-2 text-xs text-[var(--destructive)]">{shortcutError}</div>
+                            )}
+
+                            <div className="settings-group-label">{t("shortcuts_fixed")}</div>
                             {TERMINAL_SHORTCUTS.map((item) => (
                                 <div key={item.keys} className="settings-row">
                                     <span className="settings-row-title">{t(item.labelKey)}</span>

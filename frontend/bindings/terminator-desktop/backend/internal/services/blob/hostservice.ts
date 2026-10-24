@@ -19,6 +19,19 @@ export function GetAll(): $CancellablePromise<$models.Host[]> {
     });
 }
 
+/**
+ * ParseSSHConfig 解析当前用户的 ~/.ssh/config，返回可用于导入的主机条目。
+ * 
+ * 仅支持常用指令（Host/HostName/User/Port/IdentityFile/ProxyJump）；包含通配符的
+ * Host 模式（如 *.example.com）与 Match 块会被跳过，避免把一条模板展开成大量
+ * 语义不确定的主机。Include 不展开：被包含文件的内容无法保证可安全合并。
+ */
+export function ParseSSHConfig(): $CancellablePromise<$models.SSHConfigHost[]> {
+    return $Call.ByID(2434262979).then(($result: any) => {
+        return $$createType3($result);
+    });
+}
+
 export function Save(host: $models.Host): $CancellablePromise<string> {
     return $Call.ByID(3162462591, host);
 }
@@ -26,3 +39,5 @@ export function Save(host: $models.Host): $CancellablePromise<string> {
 // Private type creation functions
 const $$createType0 = $models.Host.createFrom;
 const $$createType1 = $Create.Array($$createType0);
+const $$createType2 = $models.SSHConfigHost.createFrom;
+const $$createType3 = $Create.Array($$createType2);

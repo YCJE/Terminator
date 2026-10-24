@@ -20,6 +20,7 @@ import (
 	"terminator-desktop/backend/internal/services/auth"
 	"terminator-desktop/backend/internal/services/backup"
 	"terminator-desktop/backend/internal/services/blob"
+	"terminator-desktop/backend/internal/services/local"
 	"terminator-desktop/backend/internal/services/settings"
 	"terminator-desktop/backend/internal/services/sftp"
 	"terminator-desktop/backend/internal/services/ssh"
@@ -33,6 +34,7 @@ import (
 	root "terminator-desktop"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
+	"github.com/wailsapp/wails/v3/pkg/events"
 )
 
 func init() {
@@ -49,6 +51,8 @@ func init() {
 
 	application.RegisterEvent[emitters.SFTPTransferProgressPayload](emitters.SFTPProgressEvent)
 	application.RegisterEvent[emitters.SFTPTransferCompletePayload](emitters.SFTPCompleteEvent)
+
+	application.RegisterEvent[emitters.FileDropPayload](emitters.FileDropEvent)
 
 	application.RegisterEvent[uint](emitters.UpdaterProgressEvent)
 }
@@ -199,6 +203,8 @@ func main() {
 	}
 	// sftpService 复用 sshService 的 SSH 连接提供文件管理能力
 	sftpService := sftp.NewSftpService(sshService, sftpEmitter)
+	// 本地终端复用 SSH 的数据事件通道，前端无需区分数据来源
+	localShellService := local.NewLocalShellService(sshEmitter)
 	hostService := blob.NewHostService(queries, v)
 	keyService := blob.NewKeyService(queries, v)
 	snippetService := blob.NewSnippetService(queries, v) // 代码片段服务
@@ -221,6 +227,7 @@ func main() {
 	app.RegisterService(application.NewService(syncService))
 	app.RegisterService(application.NewService(sshService))
 	app.RegisterService(application.NewService(sftpService))
+	app.RegisterService(application.NewService(localShellService))
 	app.RegisterService(application.NewService(hostService))
 	app.RegisterService(application.NewService(keyService))
 	app.RegisterService(application.NewService(snippetService)) // 注册代码片段服务
@@ -247,9 +254,26 @@ func main() {
 		URL:              "/",
 	})
 
+	// 外部文件拖放：WebView2 不允许网页读取本地文件绝对路径，
+	// 由 Wails 把路径交给 Go，再连同拖放目标元素上的会话信息转发给前端。
+	mainWindow.OnWindowEvent(events.Common.WindowFilesDropped, func(event *application.WindowEvent) {
+		ctx := event.Context()
+		files := ctx.DroppedFiles()
+		if len(files) == 0 {
+			return
+		}
+		payload := emitters.FileDropPayload{Files: files}
+		if target := ctx.DropTargetDetails(); target != nil {
+			payload.SessionID = target.Attributes["data-session-id"]
+			payload.Kind = target.Attributes["data-drop-kind"]
+		}
+		app.Event.Emit(emitters.FileDropEvent, payload)
+	})
+
 	defer v.Lock() // eh why not
 	defer syncService.StopAutoSync()
 	defer sshService.DisconnectAll() // 优雅断开所有 SSH 会话
+	defer localShellService.CloseAll()
 
 	// Run the application. This blocks until the application has been exited.
 	err = app.Run()

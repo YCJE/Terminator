@@ -1,7 +1,8 @@
-import { PanelLeftClose, PanelLeftOpen, FolderOpen, PanelRightClose, Radio } from "lucide-react";
+import { PanelLeftClose, PanelLeftOpen, FolderOpen, PanelRightClose, Radio, Columns2, Rows2, X, SquareTerminal } from "lucide-react";
 import { useSessionStore } from "@/store/sessionStore";
 import { useUIStore, ViewType } from "@/store/uiStore";
 import { WindowControls } from "@/components/layout/WindowControls";
+import { LatencyBadge, SystemStatsButton } from "@/components/layout/SessionStatusIndicators";
 import { TerminalTab } from "@/components/layout/TerminalTab";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -14,7 +15,11 @@ export function TitleBar() {
     const activeSessionId = useSessionStore((s) => s.activeSessionId);
     const setActiveSession = useSessionStore((s) => s.setActiveSession);
     const removeSession = useSessionStore((s) => s.removeSession);
-    const reorderSessions = useSessionStore((s) => s.reorderSessions);
+    const reorderSessionsByIds = useSessionStore((s) => s.reorderSessionsByIds);
+    const addLocalSession = useSessionStore((s) => s.addLocalSession);
+    const split = useSessionStore((s) => s.split);
+    const splitActiveSession = useSessionStore((s) => s.splitActiveSession);
+    const closeSplit = useSessionStore((s) => s.closeSplit);
     const setSessionColor = useSessionStore((s) => s.setSessionColor);
     const broadcastMode = useSessionStore((s) => s.broadcastMode);
     const toggleBroadcastMode = useSessionStore((s) => s.toggleBroadcastMode);
@@ -34,6 +39,19 @@ export function TitleBar() {
 
     const scrollRef = useRef<HTMLDivElement>(null);
     const [dragIndex, setDragIndex] = useState<number | null>(null);
+
+    // 分屏副窗格不进入标签栏；焦点落在副窗格时高亮其主窗格的标签
+    const visibleSessions = sessions.filter((s) => !s.isSplitPane);
+    const activeTabId = split &&
+        (activeSessionId === split.primaryId || activeSessionId === split.secondaryId)
+        ? split.primaryId
+        : activeSessionId;
+    const activeSession = sessions.find((s) => s.id === activeSessionId);
+    // 本地终端没有延迟、资源面板与 SFTP 文件管理
+    const activeIsLocal = activeSession?.kind === "local";
+    const canSplit = !!activeSession && !activeSession.disconnected && !activeSession.isSplitPane;
+    // 延迟与资源采样都依赖后端已建立的 SSH 会话，连接中/断开时不显示
+    const sessionConnected = activeSession?.status === "connected" && !activeIsLocal;
 
     const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {
         if (scrollRef.current && e.deltaY !== 0) {
@@ -79,12 +97,12 @@ export function TitleBar() {
                  className="terminal-tab-bar flex h-full flex-1 items-center gap-0.5 pl-2
                             overflow-x-auto overflow-y-hidden [&::-webkit-scrollbar]:hidden"
             >
-                {sessions.map((session, index) => (
+                {visibleSessions.map((session, index) => (
                     <TerminalTab
                         key={session.id}
                         session={session}
                         index={index}
-                        isActive={isTerminalView && session.id === activeSessionId}
+                        isActive={isTerminalView && session.id === activeTabId}
                         onClick={() => setActiveSession(session.id)}
                         onClose={() => removeSession(session.id)}
                         onSetColor={(color) => setSessionColor(session.id, color)}
@@ -95,7 +113,11 @@ export function TitleBar() {
                         }}
                         onDrop={(i) => {
                             if (dragIndex !== null && dragIndex !== i) {
-                                reorderSessions(dragIndex, i);
+                                const from = visibleSessions[dragIndex];
+                                const to = visibleSessions[i];
+                                if (from && to) {
+                                    reorderSessionsByIds(from.id, to.id);
+                                }
                             }
                             setDragIndex(null);
                         }}
@@ -105,6 +127,47 @@ export function TitleBar() {
 
             {/* 文件管理面板切换按钮 + 窗口控制按钮 */}
             <div className="flex h-full items-center gap-1 pr-1">
+                {isTerminalView && sessionConnected && (
+                    <>
+                        <LatencyBadge sessionId={activeSessionId}/>
+                        <SystemStatsButton sessionId={activeSessionId}/>
+                    </>
+                )}
+                {isTerminalView && activeSessionId && !split && (
+                    <>
+                        <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            disabled={!canSplit}
+                            onClick={() => splitActiveSession("row")}
+                            className="wails-no-drag text-[var(--fg-muted)] hover:text-[var(--fg-strong)]"
+                            title={tTerm("split_vertical")}
+                        >
+                            <Columns2 className="size-4"/>
+                        </Button>
+                        <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            disabled={!canSplit}
+                            onClick={() => splitActiveSession("column")}
+                            className="wails-no-drag text-[var(--fg-muted)] hover:text-[var(--fg-strong)]"
+                            title={tTerm("split_horizontal")}
+                        >
+                            <Rows2 className="size-4"/>
+                        </Button>
+                    </>
+                )}
+                {isTerminalView && split && (
+                    <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        onClick={closeSplit}
+                        className="wails-no-drag text-[var(--fg-muted)] hover:text-[var(--fg-strong)]"
+                        title={tTerm("split_close")}
+                    >
+                        <X className="size-4"/>
+                    </Button>
+                )}
                 {isTerminalView && activeSessionId && broadcastEnabled && (
                     <Button
                         variant="ghost"
@@ -116,7 +179,7 @@ export function TitleBar() {
                         <Radio className="size-4"/>
                     </Button>
                 )}
-                {isTerminalView && activeSessionId && (
+                {isTerminalView && activeSessionId && !activeIsLocal && (
                     <Button
                         variant="ghost"
                         size="icon-sm"
@@ -128,6 +191,17 @@ export function TitleBar() {
                             ? <PanelRightClose className="size-4"/>
                             : <FolderOpen className="size-4"/>
                         }
+                    </Button>
+                )}
+                {isUnlocked && (
+                    <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        onClick={() => addLocalSession(tTerm("local_terminal_title"))}
+                        className="wails-no-drag text-[var(--fg-muted)] hover:text-[var(--fg-strong)]"
+                        title={tTerm("open_local_terminal")}
+                    >
+                        <SquareTerminal className="size-4"/>
                     </Button>
                 )}
                 <WindowControls/>

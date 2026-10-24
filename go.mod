@@ -3,6 +3,7 @@ module terminator-desktop
 go 1.25.0
 
 require (
+	github.com/aymanbagabas/go-pty v0.2.3
 	github.com/golang-migrate/migrate/v4 v4.19.1
 	github.com/google/uuid v1.6.0
 	github.com/pkg/sftp v1.13.10
@@ -23,6 +24,7 @@ require (
 	github.com/bep/debounce v1.2.1 // indirect
 	github.com/cloudflare/circl v1.6.3 // indirect
 	github.com/coder/websocket v1.8.14 // indirect
+	github.com/creack/pty v1.1.24 // indirect
 	github.com/cyphar/filepath-securejoin v0.6.1 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
@@ -53,6 +55,7 @@ require (
 	github.com/samber/lo v1.52.0 // indirect
 	github.com/sergi/go-diff v1.4.0 // indirect
 	github.com/skeema/knownhosts v1.3.2 // indirect
+	github.com/u-root/u-root v0.16.0 // indirect
 	github.com/wailsapp/go-webview2 v1.0.23 // indirect
 	golang.org/x/exp v0.0.0-20260112195511-716be5621a96 // indirect
 	golang.org/x/sys v0.47.0 // indirect

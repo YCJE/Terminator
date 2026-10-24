@@ -35,9 +35,15 @@ export function SlidePanel({
     children,
 }: SlidePanelProps) {
     const [width, setWidth] = useState(() => {
-        const saved = localStorage.getItem(STORAGE_KEY);
-        const parsed = saved ? parseInt(saved, 10) : NaN;
-        return isNaN(parsed) ? DEFAULT_WIDTH : Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, parsed));
+        // localStorage 在部分受限环境下会抛 SecurityError：面板只是外观设置，
+        // 读取失败时退回默认宽度，不能让整个侧滑面板渲染失败
+        try {
+            const saved = localStorage.getItem(STORAGE_KEY);
+            const parsed = saved ? parseInt(saved, 10) : NaN;
+            return isNaN(parsed) ? DEFAULT_WIDTH : Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, parsed));
+        } catch {
+            return DEFAULT_WIDTH;
+        }
     });
     const draggingRef = useRef(false);
     // 用 ref 跟踪最新宽度，避免闭包过期 + 减少 effect 重建
@@ -67,7 +73,11 @@ export function SlidePanel({
             document.body.style.cursor = "";
             document.body.style.userSelect = "";
             // 从 ref 读取最新宽度，避免闭包过期
-            localStorage.setItem(STORAGE_KEY, String(widthRef.current));
+            try {
+                localStorage.setItem(STORAGE_KEY, String(widthRef.current));
+            } catch {
+                // localStorage 不可用时仅本次不持久化，不影响面板拖拽
+            }
         };
 
         window.addEventListener("mousemove", handleMouseMove);

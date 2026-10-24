@@ -10,5 +10,8 @@ export {
     JumpHostConfig,
     KnownHostEntry,
     PortForwardSpec,
-    SSHConnectionConfig
+    SSHConnectionConfig,
+    SessionLogFile,
+    SessionLogMatch,
+    SystemStats
 } from "./models.js";

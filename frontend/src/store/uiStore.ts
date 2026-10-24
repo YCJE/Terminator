@@ -1,4 +1,14 @@
 import { create } from "zustand";
+import { loadHighlightRules, saveHighlightRules } from "@/lib/highlightRules";
+import type { HighlightRule } from "@/lib/highlightRules";
+import {
+    DEFAULT_SHORTCUTS,
+    loadShortcuts,
+    saveShortcuts,
+    type ShortcutCombo,
+    type ShortcutId,
+    type ShortcutMap,
+} from "@/lib/shortcuts";
 
 export enum ViewType {
     Hosts = "hosts",
@@ -24,6 +34,8 @@ interface UIState {
     isSidebarVisible: boolean;
     isFilePanelVisible: boolean;
     isSnippetPanelVisible: boolean;
+    /** 命令面板（Ctrl+Shift+P）是否打开 */
+    isCommandPaletteOpen: boolean;
     updateVersionReady: string | null;
     dismissedUpdateVersion: string | null;
     /**
@@ -48,6 +60,7 @@ interface UIState {
     setFilePanelVisible: (visible: boolean) => void;
     toggleSnippetPanel: () => void;
     setSnippetPanelVisible: (visible: boolean) => void;
+    setCommandPaletteOpen: (open: boolean) => void;
     setUpdateVersionReady: (version: string | null) => void;
     setDismissedUpdateVersion: (version: string | null) => void;
     setUpdateRelease: (version: string | null, url: string | null) => void;
@@ -63,6 +76,35 @@ interface UIState {
     /** 标签页自定义颜色功能开关（控制右键颜色选择是否可用） */
     tabColorEnabled: boolean;
     toggleTabColorEnabled: () => void;
+    /** 多行粘贴二次确认（防止误将多行命令灌入生产终端） */
+    pasteProtection: boolean;
+    setPasteProtection: (enabled: boolean) => void;
+    /** 断线后自动重连（最多 3 次，指数退避） */
+    autoReconnect: boolean;
+    setAutoReconnect: (enabled: boolean) => void;
+    /** SFTP 面板跟随终端当前目录（依赖 shell 上报 OSC 7） */
+    sftpFollowCwd: boolean;
+    setSftpFollowCwd: (enabled: boolean) => void;
+    /** 命令草稿栏（多行编辑后统一发送） */
+    isComposePanelVisible: boolean;
+    toggleComposePanel: () => void;
+    setComposePanelVisible: (visible: boolean) => void;
+    /** 启动时恢复上次工作区（标签顺序与分屏布局） */
+    workspaceRestore: boolean;
+    setWorkspaceRestore: (enabled: boolean) => void;
+    /** 终端自定义高亮规则 */
+    highlightRules: HighlightRule[];
+    addHighlightRule: (rule: Omit<HighlightRule, "id">) => void;
+    updateHighlightRule: (id: string, updates: Partial<Omit<HighlightRule, "id">>) => void;
+    removeHighlightRule: (id: string) => void;
+    /** 命令完成 / 终端通知（OSC 133;D、OSC 9、OSC 777） */
+    completionNotify: boolean;
+    setCompletionNotify: (enabled: boolean) => void;
+    /** 可配置快捷键（已合并本地覆盖） */
+    shortcuts: ShortcutMap;
+    setShortcut: (id: ShortcutId, combo: ShortcutCombo) => void;
+    resetShortcut: (id: ShortcutId) => void;
+    resetAllShortcuts: () => void;
 }
 
 // ---- 前端本地设置的 localStorage 持久化 ----
@@ -92,6 +134,11 @@ const STORAGE_KEYS = {
     keywordHighlight: 'terminator_keyword_highlight',
     broadcastEnabled: 'terminator_broadcast_enabled',
     tabColorEnabled: 'terminator_tab_color_enabled',
+    pasteProtection: 'terminator_paste_protection',
+    autoReconnect: 'terminator_auto_reconnect',
+    sftpFollowCwd: 'terminator_sftp_follow_cwd',
+    workspaceRestore: 'terminator_workspace_restore',
+    completionNotify: 'terminator_completion_notify',
 } as const;
 
 export const useUIStore = create<UIState>((set) => ({
@@ -100,6 +147,8 @@ export const useUIStore = create<UIState>((set) => ({
     isSidebarVisible: true,
     isFilePanelVisible: false,
     isSnippetPanelVisible: false,
+    isComposePanelVisible: false,
+    isCommandPaletteOpen: false,
     updateVersionReady: null,
     dismissedUpdateVersion: null,
     updateReleaseUrl: null,
@@ -112,6 +161,13 @@ export const useUIStore = create<UIState>((set) => ({
     keywordHighlight: loadBool(STORAGE_KEYS.keywordHighlight, true),
     broadcastEnabled: loadBool(STORAGE_KEYS.broadcastEnabled, false),
     tabColorEnabled: loadBool(STORAGE_KEYS.tabColorEnabled, false),
+    pasteProtection: loadBool(STORAGE_KEYS.pasteProtection, true),
+    autoReconnect: loadBool(STORAGE_KEYS.autoReconnect, false),
+    sftpFollowCwd: loadBool(STORAGE_KEYS.sftpFollowCwd, true),
+    workspaceRestore: loadBool(STORAGE_KEYS.workspaceRestore, true),
+    completionNotify: loadBool(STORAGE_KEYS.completionNotify, true),
+    highlightRules: loadHighlightRules(),
+    shortcuts: loadShortcuts(),
     setActiveView: (view) => set({activeView: view}),
     setSettingsCategory: (category) => set({settingsCategory: category}),
     openSettingsSection: (category) => set({activeView: ViewType.Settings, settingsCategory: category}),
@@ -120,6 +176,7 @@ export const useUIStore = create<UIState>((set) => ({
     setFilePanelVisible: (visible) => set({isFilePanelVisible: visible}),
     toggleSnippetPanel: () => set((state) => ({isSnippetPanelVisible: !state.isSnippetPanelVisible})),
     setSnippetPanelVisible: (visible) => set({isSnippetPanelVisible: visible}),
+    setCommandPaletteOpen: (open) => set({isCommandPaletteOpen: open}),
     setUpdateVersionReady: (version) => set({ updateVersionReady: version }),
     setDismissedUpdateVersion: (version) => set({ dismissedUpdateVersion: version }),
     setUpdateRelease: (version, url) => set({ updateReleaseVersion: version, updateReleaseUrl: url }),
@@ -148,6 +205,58 @@ export const useUIStore = create<UIState>((set) => ({
         saveBool(STORAGE_KEYS.tabColorEnabled, newVal);
         return { tabColorEnabled: newVal };
     }),
+    setPasteProtection: (enabled) => {
+        saveBool(STORAGE_KEYS.pasteProtection, enabled);
+        set({ pasteProtection: enabled });
+    },
+    setAutoReconnect: (enabled) => {
+        saveBool(STORAGE_KEYS.autoReconnect, enabled);
+        set({ autoReconnect: enabled });
+    },
+    setSftpFollowCwd: (enabled) => {
+        saveBool(STORAGE_KEYS.sftpFollowCwd, enabled);
+        set({ sftpFollowCwd: enabled });
+    },
+    toggleComposePanel: () => set((state) => ({isComposePanelVisible: !state.isComposePanelVisible})),
+    setComposePanelVisible: (visible) => set({isComposePanelVisible: visible}),
+    setWorkspaceRestore: (enabled) => {
+        saveBool(STORAGE_KEYS.workspaceRestore, enabled);
+        set({ workspaceRestore: enabled });
+    },
+    addHighlightRule: (rule) => set((state) => {
+        const next = [...state.highlightRules, {...rule, id: crypto.randomUUID()}];
+        saveHighlightRules(next);
+        return { highlightRules: next };
+    }),
+    updateHighlightRule: (id, updates) => set((state) => {
+        const next = state.highlightRules.map((r) => (r.id === id ? {...r, ...updates} : r));
+        saveHighlightRules(next);
+        return { highlightRules: next };
+    }),
+    removeHighlightRule: (id) => set((state) => {
+        const next = state.highlightRules.filter((r) => r.id !== id);
+        saveHighlightRules(next);
+        return { highlightRules: next };
+    }),
+    setCompletionNotify: (enabled) => {
+        saveBool(STORAGE_KEYS.completionNotify, enabled);
+        set({ completionNotify: enabled });
+    },
+    setShortcut: (id, combo) => set((state) => {
+        const next = {...state.shortcuts, [id]: combo};
+        saveShortcuts(next);
+        return { shortcuts: next };
+    }),
+    resetShortcut: (id) => set((state) => {
+        const next = {...state.shortcuts, [id]: {...DEFAULT_SHORTCUTS[id]}};
+        saveShortcuts(next);
+        return { shortcuts: next };
+    }),
+    resetAllShortcuts: () => {
+        const next: ShortcutMap = {...DEFAULT_SHORTCUTS};
+        saveShortcuts(next);
+        set({ shortcuts: next });
+    },
 }));
 
 /** 强调色预设列表，供设置页面渲染选择器。labelKey 指向 settings 命名空间的文案键 */

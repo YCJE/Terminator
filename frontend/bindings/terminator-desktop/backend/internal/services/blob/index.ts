@@ -13,6 +13,7 @@ export {
 export {
     Host,
     ItemType,
+    SSHConfigHost,
     SavedKey,
     Snippet
 } from "./models.js";

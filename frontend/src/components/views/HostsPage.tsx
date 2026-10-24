@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { useQueryClient } from "@tanstack/react-query";
-import { Plus, Search, Server, ChevronRight, Download, Upload } from "lucide-react";
+import { Plus, Search, Server, ChevronRight, Download, Upload, FileCode2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { HostCard } from "@/components/views/HostCard";
@@ -12,18 +12,13 @@ import { SlidePanel } from "@/components/ui/slide-panel";
 import { useHosts, useSaveHost, useDeleteHost } from "@/hooks/useHosts";
 import { useKeys } from "@/hooks/useKeys";
 import { useSessionStore } from "@/store/sessionStore";
-import { HostService, Host, ItemType, SavedKey } from "../../../bindings/terminator-desktop/backend/internal/services/blob";
-import { JumpHostConfig } from "../../../bindings/terminator-desktop/backend/internal/services/ssh/models";
+import { HostService, Host, ItemType, SSHConfigHost } from "../../../bindings/terminator-desktop/backend/internal/services/blob";
+import { buildSessionParams, fallbackHostName } from "@/lib/hostConnection";
+import { parseAppError } from "@/lib/error";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
 const UNGROUPED = "__ungrouped__";
-
-// 无名主机的展示名回退规则。导出与导入必须使用同一规则，
-// 否则导入时 jumpHostName 匹配不到目标主机，跳板关联会被静默丢弃。
-function fallbackHostName(username: string, host: string): string {
-    return `${username}@${host}`;
-}
 
 // 导入的主机端口做规范化：只接受 1-65535 的整数，其余回退到 22。
 // 导入文件可能被手工编辑过，非法端口会让连接时报出难以理解的错误。
@@ -31,41 +26,6 @@ function normalizePort(value: unknown): number {
     const n = typeof value === "number" ? value : Number(value);
     if (!Number.isInteger(n) || n < 1 || n > 65535) return 22;
     return n;
-}
-
-// 递归解析跳板机链：返回最外层跳板机配置，其 jumpHost 字段嵌套下一级跳板。
-// visited 记录已访问的 host id，避免 A→B→A 这类循环引用导致无限递归。
-function resolveJumpHostChain(
-    host: Host,
-    hosts: Host[],
-    keys: SavedKey[] | undefined,
-    visited: Set<string> = new Set(),
-): JumpHostConfig | undefined {
-    if (!host.jumpHostId || visited.has(host.id)) return undefined;
-
-    const jh = hosts.find((h) => h.id === host.jumpHostId);
-    // 找不到、自引用或链上已出现过该跳板机时终止，避免死循环
-    if (!jh || jh.id === host.id || visited.has(jh.id)) return undefined;
-
-    // 只标记「当前主机」已访问，不能把 jh 一并标记：递归时 jh 会成为当前主机，
-    // 提前标记会让它在下一层被当作"已访问"直接返回 undefined，
-    // 从而把多级跳板链截断为仅第一层（配置了 A→B→C 实际只走 A→B）。
-    visited.add(host.id);
-
-    let jhKey: string | undefined = undefined;
-    if (jh.keyId && keys) {
-        const foundJhKey = keys.find((k) => k.id === jh.keyId);
-        if (foundJhKey) jhKey = foundJhKey.privateKey;
-    }
-
-    return new JumpHostConfig({
-        host: jh.host,
-        port: jh.port,
-        username: jh.username,
-        password: jh.password || undefined,
-        privateKey: jhKey,
-        jumpHost: resolveJumpHostChain(jh, hosts, keys, visited),
-    });
 }
 
 export function HostsPage() {
@@ -86,6 +46,10 @@ export function HostsPage() {
 
     // 交互式密码输入状态
     const [passwordPromptHost, setPasswordPromptHost] = useState<Host | null>(null);
+
+    // ~/.ssh/config 导入候选：确认弹窗展示条数与别名，确认后批量落库
+    const [sshConfigCandidates, setSshConfigCandidates] = useState<SSHConfigHost[] | null>(null);
+    const [isImportingSSHConfig, setIsImportingSSHConfig] = useState(false);
 
     const handleCreateNew = () => {
         setEditingHost(null);
@@ -113,6 +77,7 @@ export function HostsPage() {
                 proxyPort: h.proxyPort || 0,
                 proxyUsername: h.proxyUsername || "",
                 agentForwarding: h.agentForwarding || false,
+                onConnect: h.onConnect || "",
             }));
             const json = JSON.stringify(exportData, null, 2);
             const blob = new Blob([json], { type: "application/json" });
@@ -159,6 +124,7 @@ export function HostsPage() {
                     proxyPort: item.proxyPort || undefined,
                     proxyUsername: item.proxyUsername || undefined,
                     agentForwarding: item.agentForwarding || false,
+                    onConnect: typeof item.onConnect === "string" ? item.onConnect : undefined,
                 };
                 const newId = await HostService.Save({ ...base, id: "" } as unknown as Host);
                 imported.push({ id: newId, name, jumpHostName: item.jumpHostName || "", base });
@@ -182,6 +148,91 @@ export function HostsPage() {
         e.target.value = ""; // 重置 input 以便重复导入同一文件
     };
 
+    // 解析 ~/.ssh/config，先展示候选再落库，避免直接写入大量主机
+    const handleSSHConfigImportClick = async () => {
+        try {
+            const parsed = await HostService.ParseSSHConfig();
+            if (!parsed || parsed.length === 0) {
+                toast.error(t("ssh_config_empty"));
+                return;
+            }
+            setSshConfigCandidates(parsed);
+        } catch (err) {
+            console.error("解析 ~/.ssh/config 失败:", err);
+            // 配置文件不存在与解析失败分开提示：前者属于正常情况，用户只需自行创建
+            const message = parseAppError(err).message;
+            toast.error(message.includes("未找到") ? t("ssh_config_empty") : t("ssh_config_parse_failed"));
+        }
+    };
+
+    const handleConfirmSSHConfigImport = async () => {
+        const candidates = sshConfigCandidates;
+        setSshConfigCandidates(null);
+        if (!candidates) return;
+
+        setIsImportingSSHConfig(true);
+        try {
+            const existing = hosts ?? [];
+            // 名称去重：SSH config 的 Host 别名即主机名，重复导入同一别名视为已存在
+            const existingNames = new Set(
+                existing.map((h) => h.name || fallbackHostName(h.username, h.host))
+            );
+            const existingEndpoints = new Set(
+                existing.map((h) => `${h.username}@${h.host}:${h.port}`)
+            );
+
+            const created: { id: string; alias: string; proxyJump: string; base: Record<string, unknown> }[] = [];
+            for (const item of candidates) {
+                const username = item.username || "";
+                const endpoint = `${username}@${item.host}:${item.port}`;
+                if (existingNames.has(item.alias) || existingEndpoints.has(endpoint)) continue;
+
+                const base = {
+                    type: ItemType.TypeHost,
+                    name: item.alias,
+                    group: "",
+                    host: item.host,
+                    port: normalizePort(item.port),
+                    username,
+                    password: "",
+                    keyId: "",
+                };
+                const newId = await HostService.Save({ ...base, id: "" } as unknown as Host);
+                created.push({ id: newId, alias: item.alias, proxyJump: item.proxyJump || "", base });
+                // 把刚保存的主机同步进去重集合：后续条目若与其同别名/同端点应跳过，
+                // 否则同一 user@host:port 的不同别名会被重复导入。
+                existingNames.add(item.alias);
+                existingEndpoints.add(endpoint);
+            }
+
+            // 第二遍：把 ProxyJump 别名映射到新建主机或已有主机的 ID
+            const nameToId = new Map<string, string>();
+            existing.forEach((h) => {
+                const name = h.name || fallbackHostName(h.username, h.host);
+                if (!nameToId.has(name)) nameToId.set(name, h.id);
+            });
+            created.forEach((h) => nameToId.set(h.alias, h.id));
+            for (const h of created) {
+                if (!h.proxyJump) continue;
+                // ProxyJump 支持 user@host:port 与逗号分隔多跳；这里只取第一跳
+                const firstHop = h.proxyJump.split(",")[0]?.trim() || "";
+                const alias = firstHop.replace(/^.*@/, "").replace(/:\d+$/, "");
+                const jumpId = nameToId.get(alias);
+                if (!jumpId || jumpId === h.id) continue;
+                await HostService.Save({ ...h.base, id: h.id, jumpHostId: jumpId } as unknown as Host);
+            }
+
+            const skipped = candidates.length - created.length;
+            toast.success(t("ssh_config_import_success", { count: created.length, skipped }));
+        } catch (err) {
+            console.error("导入 ~/.ssh/config 失败:", err);
+            toast.error(t("ssh_config_import_failed"));
+        } finally {
+            queryClient.invalidateQueries({ queryKey: ["hosts"] });
+            setIsImportingSSHConfig(false);
+        }
+    };
+
     const handleEdit = (host: Host) => {
         setEditingHost(host);
         setShowForm(true);
@@ -200,33 +251,9 @@ export function HostsPage() {
         saveMutation.mutate(host, {onSuccess: () => { setShowForm(false); setEditingHost(null); }});
     };
 
-    // 实际建立连接（提取公共逻辑）
+    // 实际建立连接（提取公共逻辑，与命令面板共用 hostConnection 的参数构建）
     const doConnect = useCallback((host: Host, password?: string) => {
-        let keyString: string | undefined = undefined;
-
-        if (host.keyId && keys) {
-            const foundKey = keys.find(k => k.id === host.keyId);
-            if (foundKey) keyString = foundKey.privateKey;
-        }
-
-        // 解析跳板机配置：按 jumpHostId 递归展开整条跳板链并复用各主机的地址与凭据
-        const jumpHost = hosts ? resolveJumpHostChain(host, hosts, keys) : undefined;
-
-        addSession({
-            host: host.host,
-            port: host.port,
-            username: host.username,
-            password: password || host.password,
-            privateKey: keyString,
-            title: host.name || host.host,
-            jumpHost,
-            proxyType: host.proxyType,
-            proxyHost: host.proxyHost,
-            proxyPort: host.proxyPort,
-            proxyUsername: host.proxyUsername,
-            proxyPassword: host.proxyPassword,
-            agentForwarding: host.agentForwarding,
-        });
+        addSession(buildSessionParams(host, hosts, keys, password));
     }, [keys, hosts, addSession]);
 
     // 连接主机：如果没有保存密码且没有密钥，弹出密码输入框
@@ -314,6 +341,10 @@ export function HostsPage() {
                         onChange={(e) => setSearchQuery(e.target.value)}
                     />
                 </div>
+                <Button variant="outline" onClick={handleSSHConfigImportClick}
+                        className="h-[var(--control-height)] shrink-0 px-2.5" title={t("ssh_config_import")}>
+                    <FileCode2/>
+                </Button>
                 <Button variant="outline" onClick={handleImportClick}
                         className="h-[var(--control-height)] shrink-0 px-2.5" title={t("import_hosts")}>
                     <Upload/>
@@ -427,6 +458,18 @@ export function HostsPage() {
                 description={t("delete_desc", {name: hostToDelete?.name || hostToDelete?.host})}
                 confirmText={t("delete", {ns: "common"})}
                 isDestructive={true}
+            />
+
+            <ConfirmModal
+                isOpen={!!sshConfigCandidates}
+                onClose={() => setSshConfigCandidates(null)}
+                onConfirm={handleConfirmSSHConfigImport}
+                title={t("ssh_config_import_title")}
+                description={t("ssh_config_import_desc", {
+                    count: sshConfigCandidates?.length ?? 0,
+                    names: (sshConfigCandidates ?? []).slice(0, 20).map((h) => h.alias).join(", "),
+                })}
+                confirmText={isImportingSSHConfig ? t("ssh_config_importing") : t("ssh_config_import")}
             />
         </div>
 

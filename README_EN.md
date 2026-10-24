@@ -29,7 +29,20 @@ Terminator is a cross-platform SSH client built with [Wails v3](https://v3.wails
 - Session recovery via SerializeAddon after crash
 - **Terminal search** — Ctrl+F to search output, prev/next navigation, Esc to close
 - **Keyword highlighting** — real-time highlight of ERROR/WARN/INFO/SUCCESS keywords, toggleable in settings
+- **Custom highlight rules** — add keyword or regex rules with six colors in settings; select text in a terminal and click "Highlight" to add it as a rule
+- **Command compose bar** — Ctrl+Shift+U opens a bottom bar to edit multi-line commands before sending to the current or all connected terminals; Ctrl+↑/↓ walks history, stored per host
+- **Workspace restore** — remembers tab order, active tab and split orientation; rebuilt after unlock using saved credentials (hosts requiring a manual password are skipped), toggleable in settings
+- **Drag-and-drop upload** — drop local files onto a terminal to upload them to the shell's current directory (when reported via OSC 7, otherwise the home directory) and insert the remote paths on the prompt
 - **Multi-terminal broadcast** — type in one terminal, commands sync to all connected terminals for batch ops
+- **Split panes** — Ctrl+Shift+D to split right, Ctrl+Shift+E to split down; each pane is its own SSH session, click to switch focus
+- **Command palette** — Ctrl+Shift+P fuzzy-searches hosts, snippets and common actions (switch views, split, file panel, broadcast, lock vault)
+- **Multi-line paste protection** — confirms before pasting multiple lines, so a whole script can't be accidentally pasted into a production shell; toggleable in settings
+- **Auto reconnect** — retries at 2s / 5s / 10s (up to 3 attempts) after an unexpected disconnect and replays recent output; a manual "Reconnect" button is also available
+- **Latency and resource panel** — the title bar shows round-trip time to the server; click the resource icon for 1/5/15-minute load, CPU count, memory, swap, root disk usage and uptime, plus mini trend charts for memory and load
+- **Local terminal** — open a local shell in one click (PowerShell / cmd on Windows, `$SHELL` on Unix) with the same search, highlighting and split-pane features as SSH tabs
+- **Smart tabs and completion notifications** — background tabs pulse when new output arrives and show a completion marker when shell integration reports a finished command; OSC 9 / 777 notifications and OSC 133 command-end markers produce in-app toasts and desktop notifications while the window is in the background (toggleable in settings)
+- **Links and selection search** — URLs in the output open in the system browser; selected text can be searched on Bing or GitHub in one click
+- **Configurable shortcuts** — record new key combinations for the command palette, terminal search, splits and compose bar in settings, with conflict detection and reset-to-default
 
 ### SSH Connection
 
@@ -41,6 +54,7 @@ Terminator is a cross-platform SSH client built with [Wails v3](https://v3.wails
 - **SSH Agent Forwarding** — per-host Agent Forwarding config, allows remote server auth via local SSH Agent
 - **HTTP/SOCKS5 Proxy** — per-host proxy config for SSH connections via HTTP CONNECT or SOCKS5, with proxy auth
 - **known_hosts management** — view and remove pinned host keys in settings; atomic writes, and a failed write rejects the connection (fail-closed)
+- **Run on connect** — per-host command executed automatically after login (e.g. `tmux attach`, `cd` into a project directory)
 
 ### Host & Key Management
 
@@ -51,6 +65,7 @@ Terminator is a cross-platform SSH client built with [Wails v3](https://v3.wails
 - SSH key management — encrypted storage, key-based auth
 - Built-in key generation — Ed25519 and RSA, import from file
 - **Host import/export** — batch export and import host configs as JSON (passwords excluded)
+- **Import from ~/.ssh/config** — parses Host aliases, HostName, User, Port and ProxyJump from your local SSH config and writes them in bulk after confirmation
 - **Custom tab colors** — right-click tab to pick from 8 preset colors, toggleable in settings
 
 ### Visual File Management
@@ -65,11 +80,16 @@ Terminator is a cross-platform SSH client built with [Wails v3](https://v3.wails
 - **File search** — current directory filter and full recursive search modes
 - **Scroll position memory** — restores browse position after navigating back
 - **Remote file editing** — preview dialog supports edit mode, save back to server
+- **Follow terminal directory** — the file panel switches to the directory reported by the shell via OSC 7; toggle in the panel header or settings
+- **Path drag and insert** — drag a file or folder row onto a terminal to insert its quoted remote path, or use the "Insert path into terminal" context menu item
+- **Drag-and-drop upload on the panel** — drop local files onto the SFTP panel to upload them to the current directory (forwarded from native window drop events, so it also works under WebView2)
 
 ### Snippets
 
 - Side panel for managing common command snippets, searchable and groupable
 - Click a snippet to execute in the current terminal; broadcasts to all terminals in broadcast mode
+- **Snippet variables** — use `{{host}}`, `{{port}}`, `{{user}}` or `{{name}}` in a command; they are expanded per target session
+- **Run on all hosts** — right-click a snippet and choose "Run on all connected terminals"; each command is expanded per session
 - Hover any snippet chip to reveal edit/delete buttons; right-click menu also available
 - Add/edit dialog supports group autocomplete from existing groups
 
@@ -118,8 +138,9 @@ Sync consistency and conflict handling:
 - **UI density** — compact/standard/relaxed, adjusts title bar/sidebar/spacing
 - **Terminal color link** — toggleable, terminal ANSI follows UI accent
 - **Feature toggles** — keyword highlight, broadcast, tab colors all toggleable in settings
-- **Shortcut reference** — settings page "Shortcuts" section lists all terminal and tab shortcuts (Ctrl+F search, Ctrl+Shift+C/V copy/paste, Esc close search, etc.)
-- **Session logging** — SSH output written to log files in real-time, viewable in settings
+- **Session snapshots** — name and save the current tab group and split layout; open, overwrite or delete snapshots from settings. Only hosts and layout are stored, never credentials
+- **Shortcut reference and recording** — the settings "Shortcuts" section records terminal and tab shortcuts (palette, search, splits and compose bar are customizable; copy/paste etc. are fixed)
+- **Session logging** — SSH output written to log files in real-time; the "Session" tab in settings lets you browse files, preview content and search across logs
 - **Multi-language** — Chinese/English, Chinese default on first launch
 - **Dark/Light themes** — Abyss / Frost
 - **RAF batch merge** — high-frequency events merged via requestAnimationFrame
@@ -171,6 +192,28 @@ Sync consistency and conflict handling:
 - [x] Idempotent request retries (exponential backoff)
 - [x] Skin system (Default / HUD / Editorial)
 - [x] Quality gates (vet / gofmt / test / tsc) + locale key parity check
+- [x] Split panes (horizontal / vertical, independent sessions)
+- [x] Command palette (Ctrl+Shift+P)
+- [x] Run-on-connect commands per host
+- [x] Import from ~/.ssh/config
+- [x] Multi-line paste protection
+- [x] Auto reconnect with session replay
+- [x] Latency badge + server resource panel
+- [x] Snippet variables and multi-host execution
+- [x] SFTP follows terminal directory (OSC 7)
+- [x] Session log browsing and cross-file search
+- [x] Workspace restore (tab order / split layout / active tab)
+- [x] Command compose bar with per-host history
+- [x] Custom highlight rules + highlight selection
+- [x] Drag-and-drop upload (terminal → SFTP current directory)
+- [x] Local terminal (built-in PTY, no SSH required)
+- [x] Smart tabs and completion notifications (OSC 9 / 777 / 133, desktop notifications)
+- [x] Enhanced monitoring (load / CPU count / swap + mini trend charts)
+- [x] SFTP path drag and "Insert path into terminal"
+- [x] Session snapshots (named tab groups; open / overwrite / delete)
+- [x] Configurable shortcuts (recording, conflict detection, reset)
+- [x] Terminal links and selection search (Bing / GitHub)
+- [ ] Zmodem / trzsz file transfer
 - [ ] Multiple profiles (teams)
 - [ ] Android client
 - [ ] CLI client

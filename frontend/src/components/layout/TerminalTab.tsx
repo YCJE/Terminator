@@ -1,4 +1,4 @@
-import { X, Ban } from "lucide-react";
+import { X, Ban, CheckCircle2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { TerminalSession } from "@/store/sessionStore";
 import { useUIStore } from "@/store/uiStore";
@@ -180,6 +180,20 @@ export function TerminalTab({
                     )}
                 />
                 <span className="truncate flex-1">{session.title}</span>
+                {/* 命令完成标记：远端上报 OSC 133;D 后，非当前标签显示完成提醒 */}
+                {session.commandDone && !isActive && (
+                    <CheckCircle2
+                        className="size-3 shrink-0 text-[var(--success)]"
+                        aria-label={t("tab_command_done")}
+                    />
+                )}
+                {/* 活动标记：后台会话有新输出时闪动，切换到该标签后清除 */}
+                {session.hasActivity && !isActive && (
+                    <span
+                        className="size-1.5 shrink-0 animate-pulse rounded-full bg-[var(--fg-strong)]"
+                        aria-label={t("tab_new_activity")}
+                    />
+                )}
                 <button
                     type="button"
                     title="Close tab"

@@ -62,9 +62,10 @@ export function PortForwardingPage() {
     const [isSaving, setIsSaving] = useState(false);
     const [forwardToDelete, setForwardToDelete] = useState<TrackedForward | null>(null);
 
-    // 仅展示已连接（或正在连接）且未断开的会话
+    // 仅展示已连接（或正在连接）且未断开的 SSH 会话；
+    // 本地终端没有后端 SSH 会话，转发调用会直接返回 session not found。
     const connectedSessions = useMemo(
-        () => sessions.filter((s) => !s.disconnected),
+        () => sessions.filter((s) => !s.disconnected && s.kind !== "local"),
         [sessions]
     );
 

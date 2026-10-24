@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
-import { Search, Plus, Pencil, Trash2, ChevronDown, Terminal as TerminalIcon, FolderOpen } from "lucide-react";
+import { Search, Plus, Pencil, Trash2, ChevronDown, Terminal as TerminalIcon, FolderOpen, MonitorUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -21,7 +21,8 @@ import {
 import { ConfirmModal } from "@/components/ui/confirm-modal";
 import { useSnippetStore } from "@/store/snippetStore";
 import { useSessionStore } from "@/store/sessionStore";
-import { SshService } from "../../../bindings/terminator-desktop/backend/internal/services/ssh";
+import { renderSnippetCommand } from "@/lib/snippets";
+import { sendSessionInput } from "@/lib/sessionTransport";
 import { Snippet, ItemType } from "../../../bindings/terminator-desktop/backend/internal/services/blob";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -66,17 +67,30 @@ export function SnippetPanel({ sessionId }: SnippetPanelProps) {
         return Array.from(groups).sort();
     }, [snippets]);
 
-    // 执行代码片段：将命令发送到活跃终端
+    // 执行代码片段：将命令发送到活跃终端（变量按当前会话展开）
+    // 统一走会话传输路由，本地终端标签也能执行片段。
     const handleExecute = (snippet: Snippet) => {
         if (!sessionId) return;
-        SshService.Input(sessionId, snippet.command + "\n").catch(console.error);
+        const state = useSessionStore.getState();
+        const session = state.sessions.find((s) => s.id === sessionId);
+        const command = renderSnippetCommand(snippet.command, session);
+        sendSessionInput(sessionId, command + "\n").catch(console.error);
         // 广播模式：同时发送到其他所有活跃终端
-        const {broadcastMode, getActiveSessionIds} = useSessionStore.getState();
-        if (broadcastMode) {
-            const others = getActiveSessionIds().filter((id) => id !== sessionId);
-            for (const id of others) {
-                SshService.Input(id, snippet.command + "\n").catch(() => {});
+        if (state.broadcastMode) {
+            for (const id of state.getActiveSessionIds().filter((id) => id !== sessionId)) {
+                const other = state.sessions.find((s) => s.id === id);
+                sendSessionInput(id, renderSnippetCommand(snippet.command, other) + "\n").catch(() => {});
             }
+        }
+    };
+
+    // 在所有已连接会话中执行同一片段（每个会话独立展开变量）
+    const handleExecuteOnAll = (snippet: Snippet) => {
+        const state = useSessionStore.getState();
+        const ids = state.getActiveSessionIds();
+        for (const id of ids) {
+            const session = state.sessions.find((s) => s.id === id);
+            sendSessionInput(id, renderSnippetCommand(snippet.command, session) + "\n").catch(() => {});
         }
     };
 
@@ -242,6 +256,7 @@ export function SnippetPanel({ sessionId }: SnippetPanelProps) {
                                             snippet={snippet}
                                             sessionId={sessionId}
                                             onExecute={handleExecute}
+                                            onExecuteOnAll={handleExecuteOnAll}
                                             onEdit={handleEdit}
                                             onDelete={setSnippetToDelete}
                                         />
@@ -336,11 +351,13 @@ interface SnippetChipProps {
     snippet: Snippet;
     sessionId: string | null;
     onExecute: (snippet: Snippet) => void;
+    /** 在所有已连接会话中执行（变量按各自会话展开） */
+    onExecuteOnAll: (snippet: Snippet) => void;
     onEdit: (snippet: Snippet) => void;
     onDelete: (snippet: Snippet) => void;
 }
 
-function SnippetChip({ snippet, sessionId, onExecute, onEdit, onDelete }: SnippetChipProps) {
+function SnippetChip({ snippet, sessionId, onExecute, onExecuteOnAll, onEdit, onDelete }: SnippetChipProps) {
     const { t } = useTranslation("terminal");
     const menuTriggerRef = useRef<HTMLButtonElement>(null);
 
@@ -401,6 +418,10 @@ function SnippetChip({ snippet, sessionId, onExecute, onEdit, onDelete }: Snippe
                 <DropdownMenuItem onClick={() => onExecute(snippet)}>
                     <TerminalIcon className="size-3.5"/>
                     {t("snippet_run")}
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => onExecuteOnAll(snippet)}>
+                    <MonitorUp className="size-3.5"/>
+                    {t("snippet_run_all")}
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => onEdit(snippet)}>
                     <Pencil className="size-3.5"/>

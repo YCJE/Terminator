@@ -12,11 +12,13 @@ import {
     Network,
     ShieldCheck,
     Route,
+    Terminal,
 } from "lucide-react";
 import {Host, ItemType} from "../../../bindings/terminator-desktop/backend/internal/services/blob";
 import {Button} from "@/components/ui/button";
 import {Input} from "@/components/ui/input";
 import {Label} from "@/components/ui/label";
+import {Textarea} from "@/components/ui/textarea";
 import {
     Select,
     SelectContent,
@@ -145,6 +147,8 @@ export function HostForm({initialData, isSaving, onSave, onCancel}: HostFormProp
             proxyPassword: hasProxy ? (formData.proxyPassword || undefined) : undefined,
             // 清理跳板机字段：未选择或自引用时置空
             jumpHostId: formData.jumpHostId && formData.jumpHostId !== formData.id ? formData.jumpHostId : undefined,
+            // 连接后执行：去空白，空值不落库
+            onConnect: formData.onConnect?.trim() || undefined,
         });
 
         onSave(finalHost);
@@ -389,6 +393,26 @@ export function HostForm({initialData, isSaving, onSave, onCancel}: HostFormProp
                     </Select>
                     <p className="text-xs text-[var(--fg-muted)]">
                         {t("jump_host_desc")}
+                    </p>
+                </div>
+
+                {/* 连接后自动执行 */}
+                <div className="grid gap-2">
+                    <div className="flex items-center gap-2">
+                        <Terminal className="size-4 text-[var(--fg-subtle)]"/>
+                        <Label htmlFor="onConnect">{t("on_connect_label")}</Label>
+                    </div>
+                    <Textarea
+                        id="onConnect"
+                        className="min-h-16 font-mono text-xs"
+                        placeholder={t("on_connect_placeholder")}
+                        value={formData.onConnect || ""}
+                        onChange={(e) =>
+                            setFormData(prev => ({...prev, onConnect: e.target.value}))
+                        }
+                    />
+                    <p className="text-xs text-[var(--fg-muted)]">
+                        {t("on_connect_desc")}
                     </p>
                 </div>
 

@@ -10,6 +10,11 @@ void i18n
     .init({
         fallbackLng: "zh",
         debug: false,
+        // 语言包目录只有 en / zh：浏览器上报 zh-CN、en-US 等带地区码的语言时，
+        // 统一按主语言加载，避免请求 /locales/zh-CN/... 产生 404 并回退。
+        load: "languageOnly",
+        supportedLngs: ["en", "zh"],
+        nonExplicitSupportedLngs: true,
         ns:
             [
                 "common",

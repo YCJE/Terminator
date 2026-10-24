@@ -36,6 +36,11 @@ export class Host {
      */
     "agentForwarding"?: boolean;
 
+    /**
+     * 连接成功后自动执行的命令（可选，明文存于加密 blob 内）
+     */
+    "onConnect"?: string;
+
     /** Creates a new Host instance. */
     constructor($$source: Partial<Host> = {}) {
         if (!("id" in $$source)) {
@@ -83,6 +88,67 @@ export enum ItemType {
      */
     TypeSnippet = "snippet",
 };
+
+/**
+ * SSHConfigHost 是 ~/.ssh/config 中一个可导入的主机条目。
+ */
+export class SSHConfigHost {
+    /**
+     * Host 别名
+     */
+    "alias": string;
+
+    /**
+     * HostName，缺省时等于 Alias
+     */
+    "host": string;
+
+    /**
+     * Port，缺省 22
+     */
+    "port": number;
+
+    /**
+     * User，缺省为当前系统用户
+     */
+    "username": string;
+
+    /**
+     * 私钥路径（已展开 ~）
+     */
+    "identityFile"?: string;
+
+    /**
+     * ProxyJump 原始值
+     */
+    "proxyJump"?: string;
+
+    /** Creates a new SSHConfigHost instance. */
+    constructor($$source: Partial<SSHConfigHost> = {}) {
+        if (!("alias" in $$source)) {
+            this["alias"] = "";
+        }
+        if (!("host" in $$source)) {
+            this["host"] = "";
+        }
+        if (!("port" in $$source)) {
+            this["port"] = 0;
+        }
+        if (!("username" in $$source)) {
+            this["username"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new SSHConfigHost instance from a string or object.
+     */
+    static createFrom($$source: any = {}): SSHConfigHost {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new SSHConfigHost($$parsedSource as Partial<SSHConfigHost>);
+    }
+}
 
 export class SavedKey {
     "id": string;

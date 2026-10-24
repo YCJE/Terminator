@@ -36,12 +36,14 @@ interface FileTableProps {
     loading: boolean;
     onOpen: (entry: FileEntry) => void;
     onContextMenu: (entry: FileEntry, e: React.MouseEvent) => void;
+    /** 拖动文件行：由父组件写入远端路径 MIME，供终端插入路径 */
+    onEntryDragStart?: (entry: FileEntry, e: React.DragEvent) => void;
     filterText?: string;
     onScrollChange?: (scrollTop: number) => void;
     restoreScrollTop?: number;
 }
 
-function FileTableImpl({ entries, loading, onOpen, onContextMenu, filterText, onScrollChange, restoreScrollTop }: FileTableProps) {
+function FileTableImpl({ entries, loading, onOpen, onContextMenu, onEntryDragStart, filterText, onScrollChange, restoreScrollTop }: FileTableProps) {
     const { t } = useTranslation("sftp");
     const [sortKey, setSortKey] = useState<SortKey>("name");
     const [sortDir, setSortDir] = useState<SortDir>("asc");
@@ -237,6 +239,13 @@ function FileTableImpl({ entries, loading, onOpen, onContextMenu, filterText, on
                                     onContextMenu={(e) => {
                                         e.preventDefault();
                                         onContextMenu(entry, e);
+                                    }}
+                                    draggable={!!onEntryDragStart}
+                                    onDragStart={(e) => {
+                                        if (!onEntryDragStart) return;
+                                        // 阻止冒泡到面板的拖拽上传处理器，避免把内部拖拽当成外部文件
+                                        e.stopPropagation();
+                                        onEntryDragStart(entry, e);
                                     }}
                                     className={cn(
                                         "sftp-row text-sm",

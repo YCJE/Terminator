@@ -12,6 +12,9 @@
 // 2. 已有 ANSI 颜色的文本中的关键词被重新着色后会清除原有颜色
 // 3. 写入路径从 Uint8Array 改为 string，有微小的性能开销
 
+import { sgrForColor } from "@/lib/highlightRules";
+import type { HighlightRule } from "@/lib/highlightRules";
+
 /** 关键词规则：文本 + 对应的 ANSI SGR 颜色序列 */
 export interface KeywordRule {
     /** 关键词文本 */
@@ -75,20 +78,50 @@ function escapeRegExp(s: string): string {
  * @param keywords 关键词规则列表，默认使用 DEFAULT_KEYWORDS
  * @returns 处理器对象，包含 process 和 flush 方法
  */
-export function createKeywordHighlighter(keywords: KeywordRule[] = DEFAULT_KEYWORDS) {
+export function createKeywordHighlighter(
+    keywords: KeywordRule[] = DEFAULT_KEYWORDS,
+    getCustomRules?: () => HighlightRule[],
+) {
     // 按关键词文本长度降序排列，确保 "WARNING" 优先于 "WARN" 匹配
     // 虽然单词边界 \b 已能处理此问题，但长词优先是更稳健的做法
     const sorted = [...keywords].sort((a, b) => b.text.length - a.text.length);
 
     // 构建匹配所有关键词的正则表达式，使用单词边界 \b 避免子串误匹配
     // 例如：\bfail\b 不会匹配 "failed" 中的 "fail"
-    const pattern = new RegExp(
-        `\\b(${sorted.map((k) => escapeRegExp(k.text)).join('|')})\\b`,
-        'g',
-    );
+    const pattern = sorted.length > 0
+        ? new RegExp(
+            `\\b(${sorted.map((k) => escapeRegExp(k.text)).join('|')})\\b`,
+            'g',
+        )
+        : null;
 
     // 构建 关键词 → 颜色 的映射表，用于替换时查找
     const colorMap = new Map(keywords.map((k) => [k.text, k.color]));
+
+    // 自定义规则按数组引用缓存编译结果：store 更新会替换数组引用。
+    let lastRules: HighlightRule[] | null = null;
+    let customMatchers: { re: RegExp; sgr: string }[] = [];
+
+    function compileCustomRules(): { re: RegExp; sgr: string }[] {
+        const rules = getCustomRules?.() ?? [];
+        if (rules === lastRules) return customMatchers;
+        lastRules = rules;
+
+        const result: { re: RegExp; sgr: string }[] = [];
+        for (const rule of rules) {
+            if (!rule.enabled || !rule.pattern) continue;
+            const source = rule.regex ? rule.pattern : escapeRegExp(rule.pattern);
+            try {
+                // 跳过可匹配空字符串的规则，避免在每个字符之间插入颜色序列
+                if (new RegExp(source).test("")) continue;
+                result.push({ re: new RegExp(source, "g"), sgr: sgrForColor(rule.color) });
+            } catch {
+                // 非法正则静默跳过，设置页会提示规则无效
+            }
+        }
+        customMatchers = result;
+        return result;
+    }
 
     // stream 模式的 TextDecoder，自动处理不完整的 UTF-8 尾部字节
     const decoder = new TextDecoder('utf-8');
@@ -98,7 +131,14 @@ export function createKeywordHighlighter(keywords: KeywordRule[] = DEFAULT_KEYWO
      * 将匹配到的关键词用 ANSI 颜色序列包裹
      */
     function highlight(text: string): string {
-        return text.replace(pattern, (match) => {
+        // 先应用自定义规则，再应用内置关键词：内置规则优先级更高，
+        // 例如用户高亮了普通文本，而其中含有 ERROR 时仍显示为错误色。
+        let result = text;
+        for (const { re, sgr } of compileCustomRules()) {
+            result = result.replace(re, (match) => `${sgr}${match}${ANSI_RESET}`);
+        }
+        if (!pattern) return result;
+        return result.replace(pattern, (match) => {
             const color = colorMap.get(match);
             return color ? `${color}${match}${ANSI_RESET}` : match;
         });

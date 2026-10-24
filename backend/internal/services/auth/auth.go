@@ -464,6 +464,12 @@ func (s *AuthService) RegisterOnServer(ctx context.Context, serverURL string) er
 		}
 	}()
 
+	// 与本地登录一致：NULL/空 AuthSalt 会让 LoginKey 变成可预测的弱密钥，
+	// 注册到服务器后该账户将永久使用空盐派生凭据。数据损坏时应拒绝而不是继续。
+	if !user.AuthSalt.Valid || user.AuthSalt.String == "" {
+		return apperror.Validation("auth salt is missing; vault data may be corrupted")
+	}
+
 	authRes, err := s.client.Register(ctx, serverURL, &api.RegisterRequest{
 		Username:           user.Username,
 		AuthSalt:           user.AuthSalt.String,
