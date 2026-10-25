@@ -14,6 +14,72 @@ Self-hostable SSH client with sync
 
 Terminator is a cross-platform SSH client built with [Wails v3](https://v3.wails.io/) and Go. Supports self-hosted servers for sync.
 
+## Screenshots
+
+### Hosts
+
+<img src="docs/screenshots/hosts.png" alt="Host list and host details" width="900">
+
+- Card grid groups hosts by group; the search box matches name, address, username and group name
+- Clicking a card opens a slide-in details panel for address, SSH port and authentication
+- Authentication supports password / key / ask-each-time, with a plain-text toggle for passwords
+- Advanced options live in the same panel: jump host, HTTP / SOCKS5 proxy, agent forwarding, run on connect
+- Import hosts from `~/.ssh/config`, or export / import a JSON host list
+
+### Keys
+
+<img src="docs/screenshots/keys.png" alt="Key list and key details" width="900">
+
+- Keys are stored encrypted in the local vault; cards show the name and type (Ed25519 / RSA)
+- Generate Ed25519 or RSA key pairs in-app, or import an existing private key from a file
+- Edit the name, type and private key in the side panel; changes apply to host connections immediately
+- Keys are decoupled from hosts, so swapping a key updates every host that references it
+
+### Terminal workspace
+
+<img src="docs/screenshots/terminal.png" alt="Terminal with multiple tabs and split panes" width="900">
+
+- Multi-tab management: each tab is its own SSH session and can be reordered by dragging; overflowing tabs scroll horizontally and reveal the active tab automatically
+- Split panes: <kbd>Ctrl+Shift+D</kbd> for side-by-side, <kbd>Ctrl+Shift+E</kbd> for stacked; drag the divider to resize (18% minimum per side)
+- In-terminal search (<kbd>Ctrl+F</kbd>), keyword highlighting, highlight selection, and clickable links in the output
+- Tab colors show connection state, the title bar shows round-trip latency, and the resource panel reports 1/5/15-minute load, memory, disk usage and uptime
+- Compose bar (<kbd>Ctrl+Shift+U</kbd>) lets you edit multi-line commands before sending to the current terminal or all connected terminals
+
+### Visual file management (SFTP)
+
+<img src="docs/screenshots/sftp.png" alt="SFTP file panel" width="900">
+
+- The file panel switches between a single list and a dual pane (directory tree + file list); both the panel and the tree width are draggable
+- The list shows name, size, permissions and modification time; uploads and downloads report live progress in a transfer queue
+- Resumable large transfers, direct remote file editing, mkdir, rename, chmod and delete
+- Follows the shell's current directory (OSC 7); drag a row onto the terminal to insert its path, or drop local files onto the panel to upload
+- Switch between instant current-directory filtering and full recursive search
+
+### Snippets
+
+<img src="docs/screenshots/snippets.png" alt="Snippet panel" width="900">
+
+- Snippets are grouped and searchable, with hover edit / delete actions and a context menu
+- Click a snippet to run it in the current terminal; the context menu can run it on every connected terminal
+- Commands may use `{{host}}`, `{{port}}`, `{{user}}` and `{{name}}` variables, expanded per target session
+
+### Port forwarding
+
+<img src="docs/screenshots/port-forwarding.png" alt="Port forwarding list and create panel" width="900">
+
+- Local and remote forwards share one list showing the listening address, target, source session and status
+- The create panel picks an SSH session and ports; entries take effect immediately and stopped ones can be cleared
+- Removing a forward or closing its session reclaims the tunnel, so long runs do not leak handles
+
+### Settings
+
+<img src="docs/screenshots/settings.png" alt="Settings page" width="900">
+
+- Six categories: appearance, terminal, shortcuts, sync, security, about
+- Appearance: dark / light theme, 7 accent colors, three skins, three density levels and terminal color linking
+- Terminal: keyword highlighting, broadcast mode, tab colors, paste protection, auto reconnect, SFTP follow directory, workspace restore and completion notifications
+- Custom highlight rules (keyword or regex) and named session snapshots are managed from the same page
+
 ## Features
 
 ### Terminal
