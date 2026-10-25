@@ -8,7 +8,7 @@
   "import_key": "导入密钥",
   "edit_title": "编辑密钥",
   "new_title": "新建密钥",
-  "key_name_label": "密钥名称",
+  "key_name_label": "名称",
   "key_name_placeholder": "例如：AWS 生产环境",
   "private_key_label": "私钥",
   "load_from_file": "从文件加载",
@@ -19,5 +19,8 @@
   "delete_title": "删除 SSH 密钥？",
   "delete_desc": "确定要删除密钥“{{name}}”吗？此操作无法撤销，可能导致依赖此密钥的主机无法连接。",
   "ssh_private_key": "SSH 私钥",
-  "section_key_details": "密钥详情"
+  "section_key_details": "密钥详情",
+  "key_type": "类型 {{type}}",
+  "key_type_label": "密钥类型",
+  "no_search_results": "没有匹配的密钥"
 }

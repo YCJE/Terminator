@@ -35,7 +35,7 @@ export class ErrorBoundary extends Component<Props, State> {
         if (this.state.hasError) {
             return this.props.fallback ?? (
                 <div className="flex h-full w-full flex-col items-center justify-center gap-3 p-6">
-                    <p className="text-sm font-medium text-destructive">
+                    <p className="text-sm text-destructive">
                         {i18n.t("common:render_error")}
                     </p>
                     <div className="max-w-lg w-full rounded-lg border border-[var(--hairline)] bg-[var(--surface-2)] p-3">
@@ -56,7 +56,7 @@ export class ErrorBoundary extends Component<Props, State> {
                     <button
                         type="button"
                         onClick={this.handleRetry}
-                        className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
+                        className="rounded-md bg-primary px-3 py-1.5 text-xs text-primary-foreground hover:bg-primary/90"
                     >
                         {i18n.t("common:retry")}
                     </button>

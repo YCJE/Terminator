@@ -1,11 +1,29 @@
 import { useState, useMemo, useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { useQueryClient } from "@tanstack/react-query";
-import { Plus, Search, Server, ChevronRight, Download, Upload, FileCode2 } from "lucide-react";
+import {
+    Plus,
+    Server,
+    Download,
+    Upload,
+    FileCode2,
+    ChevronDown,
+    SquareTerminal,
+    LayoutGrid,
+    MoreHorizontal,
+    Trash2,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuSeparator,
+    DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { HostCard } from "@/components/views/HostCard";
-import { HostForm } from "@/components/views/HostForm";
+import { HostForm, HOST_FORM_ID } from "@/components/views/HostForm";
 import { PasswordPromptDialog } from "@/components/views/PasswordPromptDialog";
 import { ConfirmModal } from "@/components/ui/confirm-modal";
 import { SlidePanel } from "@/components/ui/slide-panel";
@@ -16,9 +34,8 @@ import { HostService, Host, ItemType, SSHConfigHost } from "../../../bindings/te
 import { buildSessionParams, fallbackHostName } from "@/lib/hostConnection";
 import { parseAppError } from "@/lib/error";
 import { cn } from "@/lib/utils";
+import type React from "react";
 import { toast } from "sonner";
-
-const UNGROUPED = "__ungrouped__";
 
 // 导入的主机端口做规范化：只接受 1-65535 的整数，其余回退到 22。
 // 导入文件可能被手工编辑过，非法端口会让连接时报出难以理解的错误。
@@ -35,14 +52,15 @@ export function HostsPage() {
 
     const saveMutation = useSaveHost();
     const deleteMutation = useDeleteHost();
-    const {addSession} = useSessionStore();
+    const {addSession, addLocalSession} = useSessionStore();
     const queryClient = useQueryClient();
 
-    const [showForm, setShowForm] = useState(false);
+    const [panelOpen, setPanelOpen] = useState(false);
     const [editingHost, setEditingHost] = useState<Host | null>(null);
+    const [selectedHostId, setSelectedHostId] = useState<string | null>(null);
     const [hostToDelete, setHostToDelete] = useState<Host | null>(null);
     const [searchQuery, setSearchQuery] = useState("");
-    const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+    const [selectedGroup, setSelectedGroup] = useState<string | null>(null);
 
     // 交互式密码输入状态
     const [passwordPromptHost, setPasswordPromptHost] = useState<Host | null>(null);
@@ -53,7 +71,21 @@ export function HostsPage() {
 
     const handleCreateNew = () => {
         setEditingHost(null);
-        setShowForm(true);
+        setSelectedHostId(null);
+        setPanelOpen(true);
+    };
+
+    const closePanel = () => {
+        setPanelOpen(false);
+        setEditingHost(null);
+        setSelectedHostId(null);
+    };
+
+    // 单击卡片：选中并在右侧详情面板中编辑（Termius 交互）
+    const handleSelect = (host: Host) => {
+        setEditingHost(host);
+        setSelectedHostId(host.id);
+        setPanelOpen(true);
     };
 
     // 导入/导出主机配置
@@ -235,7 +267,8 @@ export function HostsPage() {
 
     const handleEdit = (host: Host) => {
         setEditingHost(host);
-        setShowForm(true);
+        setSelectedHostId(host.id);
+        setPanelOpen(true);
     };
 
     const handleDeletePrompt = (host: Host) => {
@@ -243,12 +276,15 @@ export function HostsPage() {
     };
 
     const handleConfirmDelete = () => {
-        if (hostToDelete) deleteMutation.mutate(hostToDelete.id);
+        if (hostToDelete) {
+            deleteMutation.mutate(hostToDelete.id);
+            if (selectedHostId === hostToDelete.id) closePanel();
+        }
         setHostToDelete(null);
     };
 
     const handleSave = (host: Host) => {
-        saveMutation.mutate(host, {onSuccess: () => { setShowForm(false); setEditingHost(null); }});
+        saveMutation.mutate(host, {onSuccess: closePanel});
     };
 
     // 实际建立连接（提取公共逻辑，与命令面板共用 hostConnection 的参数构建）
@@ -283,206 +319,276 @@ export function HostsPage() {
         setPasswordPromptHost(null);
     };
 
-    // 搜索过滤 + 分组
-    const groupedHosts = useMemo(() => {
-        const query = searchQuery.toLowerCase();
-        const filtered = hosts?.filter((h) =>
-            h.name?.toLowerCase().includes(query) ||
-            h.host.toLowerCase().includes(query) ||
-            (h.group || "").toLowerCase().includes(query)
-        ) || [];
-
-        // 按分组组织
-        const groups = new Map<string, Host[]>();
-        for (const h of filtered) {
-            const g = h.group?.trim() || UNGROUPED;
-            if (!groups.has(g)) groups.set(g, []);
-            groups.get(g)!.push(h);
+    // 分组卡片：按分组聚合主机数量（Termius 的 Groups 区）
+    const groupEntries = useMemo(() => {
+        const counts = new Map<string, number>();
+        for (const h of hosts ?? []) {
+            const g = h.group?.trim();
+            if (!g) continue;
+            counts.set(g, (counts.get(g) || 0) + 1);
         }
-        // 排序：未分组放最后
-        return Array.from(groups.entries()).sort(([a], [b]) => {
-            if (a === UNGROUPED) return 1;
-            if (b === UNGROUPED) return -1;
-            return a.localeCompare(b);
-        });
-    }, [hosts, searchQuery]);
+        return Array.from(counts.entries()).sort(([a], [b]) => a.localeCompare(b));
+    }, [hosts]);
 
-    const toggleGroup = (group: string) => {
-        setCollapsedGroups(prev => {
-            const next = new Set(prev);
-            if (next.has(group)) next.delete(group);
-            else next.add(group);
-            return next;
-        });
-    };
+    // 搜索 + 分组筛选后的主机列表
+    const visibleHosts = useMemo(() => {
+        const query = searchQuery.toLowerCase();
+        return (hosts ?? [])
+            .filter((h) => !selectedGroup || (h.group?.trim() || "") === selectedGroup)
+            .filter((h) =>
+                h.name?.toLowerCase().includes(query) ||
+                h.host.toLowerCase().includes(query) ||
+                (h.group || "").toLowerCase().includes(query))
+            .sort((a, b) => (a.name || a.host).localeCompare(b.name || b.host));
+    }, [hosts, searchQuery, selectedGroup]);
 
-    const hasGroups = groupedHosts.length > 1 || (groupedHosts.length === 1 && groupedHosts[0][0] !== UNGROUPED);
+    const selectedHost = useMemo(
+        () => (hosts ?? []).find((h) => h.id === selectedHostId) ?? null,
+        [hosts, selectedHostId]
+    );
 
     return (
         <div className="flex h-full w-full overflow-hidden">
-        <div className="lazy-fade-in flex h-full min-w-0 flex-1 flex-col overflow-hidden">
-            {/* 工具条：标题 + 计数 + 搜索 + 操作 */}
-            <div className="flex shrink-0 items-center gap-3 border-b border-[var(--hairline)] px-6 pt-4 pb-3">
-                <h1 className="shrink-0 text-base font-semibold tracking-tight text-[var(--fg-strong)]">
-                    {t("page_title")}
-                </h1>
-                <span className="shrink-0 rounded-[5px] border border-[var(--hairline)] bg-[var(--surface-2)]
-                                 px-1.5 py-0.5 font-mono text-[11.5px] text-[var(--fg-subtle)]">
-                    {hosts?.length ?? 0}
-                </span>
-                <div className="flex-1"/>
-                <div className="relative w-64 min-w-0 shrink">
-                    <Search className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-[var(--fg-subtle)]"/>
-                    <Input
-                        placeholder={t("search_hosts")}
-                        className="h-[var(--control-height)] w-full border-[var(--hairline)]
-                                   bg-[var(--surface-0)] pl-8 text-[12.5px]"
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                    />
-                </div>
-                <Button variant="outline" onClick={handleSSHConfigImportClick}
-                        className="h-[var(--control-height)] shrink-0 px-2.5" title={t("ssh_config_import")}>
-                    <FileCode2/>
-                </Button>
-                <Button variant="outline" onClick={handleImportClick}
-                        className="h-[var(--control-height)] shrink-0 px-2.5" title={t("import_hosts")}>
-                    <Upload/>
-                </Button>
-                <Button variant="outline" onClick={handleExport}
-                        className="h-[var(--control-height)] shrink-0 px-2.5" title={t("export_hosts")}>
-                    <Download/>
-                </Button>
-                <Button onClick={handleCreateNew} className="h-[var(--control-height)] shrink-0">
-                    <Plus/>
-                    {t("new_host")}
-                </Button>
-            </div>
-            <input ref={fileInputRef} type="file" accept=".json" onChange={handleImportFile} className="hidden"/>
-
-            {/* 列表：分组 + 紧凑行 */}
-            <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-8">
-                {isLoading && <div className="px-2 py-4 text-sm text-[var(--fg-muted)]">{t("loading_hosts")}</div>}
-
-                {!isLoading && hosts?.length === 0 && (
-                    <div
-                        className="soft-card mt-4 flex flex-col items-center justify-center py-20 text-center
-                                   rounded-xl">
-                        <div className="mb-4 flex size-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                            <Server className="size-6"/>
-                        </div>
-                        <h3 className="text-lg font-semibold text-[var(--fg-strong)]">{t("empty_title")}</h3>
-                        <p className="mb-4 mt-2 text-sm text-[var(--fg-muted)]">{t("empty_desc")}</p>
-                        <Button variant="outline" onClick={handleCreateNew}>{t("add_first_host")}</Button>
+            <div className="lazy-fade-in flex h-full min-w-0 flex-1 flex-col overflow-hidden">
+                {/* 搜索行：全宽搜索 + 右侧 Connect（Termius 结构） */}
+                <div className="page-header">
+                    <div className="search-field">
+                        <Input
+                            placeholder={t("search_hosts")}
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                        />
+                        <button
+                            type="button"
+                            className="search-action"
+                            disabled={!selectedHost}
+                            onClick={() => selectedHost && handleConnect(selectedHost)}
+                        >
+                            {t("connect_now")}
+                        </button>
                     </div>
-                )}
 
-                {/* 主机列表：有分组时按分组展示，无分组时平铺 */}
-                {hasGroups ? (
-                    <div className="flex flex-col">
-                        {groupedHosts.map(([group, groupHosts]) => {
-                            const isCollapsed = collapsedGroups.has(group);
-                            const groupName = group === UNGROUPED ? t("ungrouped") : group;
-                            return (
-                                <div key={group} className="mt-5">
-                                    {/* 分组标题 */}
+                    {/* 工具栏：新建主机（含下拉）/ 终端 */}
+                    <div className="toolbar-row">
+                        <div className="split-btn">
+                            <button type="button" className="split-btn-main" onClick={handleCreateNew}>
+                                <Plus className="size-4"/>
+                                {t("new_host")}
+                            </button>
+                            <DropdownMenu modal={false}>
+                                <DropdownMenuTrigger asChild>
                                     <button
-                                        onClick={() => toggleGroup(group)}
-                                        className="sticky top-0 z-[2] flex h-[30px] w-full items-center gap-2
-                                                   border-b border-[var(--hairline)] bg-[var(--surface-0)] px-2 text-left"
+                                        type="button"
+                                        className="split-btn-caret"
+                                        aria-label={t("new_host")}
                                     >
-                                        <ChevronRight
-                                            className={cn(
-                                                "size-3.5 text-[var(--fg-subtle)] transition-transform",
-                                                !isCollapsed && "rotate-90"
-                                            )}
-                                        />
-                                        <span className="text-[11.5px] font-semibold uppercase tracking-[0.06em] text-[var(--fg-muted)]">
-                                            {groupName}
-                                        </span>
-                                        <span className="font-mono text-[11px] text-[var(--fg-subtle)]">
-                                            {groupHosts.length}
-                                        </span>
-                                        <span className="h-px flex-1 bg-[var(--hairline)]"/>
+                                        <ChevronDown className="size-3.5"/>
                                     </button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="start" className="w-52">
+                                    <DropdownMenuItem onClick={handleCreateNew}>
+                                        <Plus className="mr-2 size-4"/>
+                                        {t("new_host")}
+                                    </DropdownMenuItem>
+                                    <DropdownMenuSeparator/>
+                                    <DropdownMenuItem onClick={handleImportClick}>
+                                        <Upload className="mr-2 size-4"/>
+                                        {t("import_hosts")}
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem onClick={handleExport}>
+                                        <Download className="mr-2 size-4"/>
+                                        {t("export_hosts")}
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem onClick={handleSSHConfigImportClick}>
+                                        <FileCode2 className="mr-2 size-4"/>
+                                        {t("ssh_config_import")}
+                                    </DropdownMenuItem>
+                                </DropdownMenuContent>
+                            </DropdownMenu>
+                        </div>
 
-                                    {/* 分组内的主机行 */}
-                                    {!isCollapsed && (
-                                        <div className="list-rows">
-                                            {groupHosts.map((host) => (
-                                                <HostCard
-                                                    key={host.id}
-                                                    host={host}
-                                                    onConnect={handleConnect}
-                                                    onEdit={handleEdit}
-                                                    onDelete={handleDeletePrompt}
-                                                />
-                                            ))}
-                                        </div>
-                                    )}
+                        <button type="button" className="toolbar-btn" onClick={() => addLocalSession()}>
+                            <SquareTerminal className="size-4"/>
+                            {t("local_terminal")}
+                        </button>
+                    </div>
+                </div>
+                <input ref={fileInputRef} type="file" accept=".json" onChange={handleImportFile} className="hidden"/>
+
+                {/* 列表：Groups 分组卡片 + Hosts 主机卡片 */}
+                <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-10">
+                    {isLoading && <div className="py-4 text-sm text-[var(--fg-muted)]">{t("loading_hosts")}</div>}
+
+                    {!isLoading && hosts?.length === 0 && (
+                        <div className="empty-state">
+                            <span className="empty-state-icon">
+                                <Server className="size-5"/>
+                            </span>
+                            <h3 className="empty-state-title">{t("empty_title")}</h3>
+                            <p className="empty-state-desc">{t("empty_desc")}</p>
+                            <Button variant="outline" className="mt-4" onClick={handleCreateNew}>
+                                {t("add_first_host")}
+                            </Button>
+                        </div>
+                    )}
+
+                    {!isLoading && (hosts?.length ?? 0) > 0 && (
+                        <>
+                            {groupEntries.length > 0 && (
+                                <section>
+                                    <div className="section-head is-first">{t("sections_groups")}</div>
+                                    <div className="card-grid">
+                                        {groupEntries.map(([group, count]) => (
+                                            <div
+                                                key={group}
+                                                role="button"
+                                                tabIndex={0}
+                                                className={cn("card-tile", selectedGroup === group && "is-selected")}
+                                                onClick={() => setSelectedGroup((prev) => prev === group ? null : group)}
+                                                onKeyDown={(e) => {
+                                                    if (e.key === "Enter" && e.target === e.currentTarget) {
+                                                        e.preventDefault();
+                                                        setSelectedGroup((prev) => prev === group ? null : group);
+                                                    }
+                                                }}
+                                            >
+                                                <span
+                                                    className="card-tile-icon is-tinted"
+                                                    style={{"--chip-tint": "var(--primary)"} as React.CSSProperties}
+                                                >
+                                                    <LayoutGrid className="size-4"/>
+                                                </span>
+                                                <span className="card-tile-main">
+                                                    <span className="card-tile-title">
+                                                        <span className="card-tile-name">{group}</span>
+                                                    </span>
+                                                    <span className="card-tile-meta">
+                                                        {t("group_hosts", {count})}
+                                                    </span>
+                                                </span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </section>
+                            )}
+
+                            <section>
+                                <div className={cn("section-head", groupEntries.length === 0 && "is-first")}>
+                                    {t("sections_hosts")}
                                 </div>
-                            );
-                        })}
-                    </div>
-                ) : groupedHosts.length > 0 ? (
-                    <div className="list-rows mt-2">
-                        {groupedHosts[0][1].map((host) => (
-                            <HostCard
-                                key={host.id}
-                                host={host}
-                                onConnect={handleConnect}
-                                onEdit={handleEdit}
-                                onDelete={handleDeletePrompt}
-                            />
-                        ))}
-                    </div>
-                ) : !isLoading && hosts && hosts.length > 0 ? (
-                    <div className="py-12 text-center text-sm text-[var(--fg-muted)]">
-                        {t("no_search_results")}
-                    </div>
-                ) : null}
+                                <div className="card-grid">
+                                    {visibleHosts.map((host) => (
+                                        <HostCard
+                                            key={host.id}
+                                            host={host}
+                                            selected={selectedHostId === host.id}
+                                            onSelect={handleSelect}
+                                            onConnect={handleConnect}
+                                            onEdit={handleEdit}
+                                            onDelete={handleDeletePrompt}
+                                        />
+                                    ))}
+                                </div>
+                            </section>
+
+                            {visibleHosts.length === 0 && (
+                                <div className="py-12 text-center text-sm text-[var(--fg-muted)]">
+                                    {t("no_search_results")}
+                                </div>
+                            )}
+                        </>
+                    )}
+                </div>
+
+                <PasswordPromptDialog
+                    isOpen={!!passwordPromptHost}
+                    hostName={passwordPromptHost?.name || passwordPromptHost?.host || ""}
+                    onClose={() => setPasswordPromptHost(null)}
+                    onConfirm={handlePasswordConfirm}
+                />
+
+                <ConfirmModal
+                    isOpen={!!hostToDelete}
+                    onClose={() => setHostToDelete(null)}
+                    onConfirm={handleConfirmDelete}
+                    title={t("delete_title")}
+                    description={t("delete_desc", {name: hostToDelete?.name || hostToDelete?.host})}
+                    confirmText={t("delete", {ns: "common"})}
+                    isDestructive={true}
+                />
+
+                <ConfirmModal
+                    isOpen={!!sshConfigCandidates}
+                    onClose={() => setSshConfigCandidates(null)}
+                    onConfirm={handleConfirmSSHConfigImport}
+                    title={t("ssh_config_import_title")}
+                    description={t("ssh_config_import_desc", {
+                        count: sshConfigCandidates?.length ?? 0,
+                        names: (sshConfigCandidates ?? []).slice(0, 20).map((h) => h.alias).join(", "),
+                    })}
+                    confirmText={isImportingSSHConfig ? t("ssh_config_importing") : t("ssh_config_import")}
+                />
             </div>
-
-            <PasswordPromptDialog
-                isOpen={!!passwordPromptHost}
-                hostName={passwordPromptHost?.name || passwordPromptHost?.host || ""}
-                onClose={() => setPasswordPromptHost(null)}
-                onConfirm={handlePasswordConfirm}
-            />
-
-            <ConfirmModal
-                isOpen={!!hostToDelete}
-                onClose={() => setHostToDelete(null)}
-                onConfirm={handleConfirmDelete}
-                title={t("delete_title")}
-                description={t("delete_desc", {name: hostToDelete?.name || hostToDelete?.host})}
-                confirmText={t("delete", {ns: "common"})}
-                isDestructive={true}
-            />
-
-            <ConfirmModal
-                isOpen={!!sshConfigCandidates}
-                onClose={() => setSshConfigCandidates(null)}
-                onConfirm={handleConfirmSSHConfigImport}
-                title={t("ssh_config_import_title")}
-                description={t("ssh_config_import_desc", {
-                    count: sshConfigCandidates?.length ?? 0,
-                    names: (sshConfigCandidates ?? []).slice(0, 20).map((h) => h.alias).join(", "),
-                })}
-                confirmText={isImportingSSHConfig ? t("ssh_config_importing") : t("ssh_config_import")}
-            />
-        </div>
 
             <SlidePanel
-                open={showForm}
-                onClose={() => setShowForm(false)}
-                title={editingHost ? t("edit_title") : t("new_title")}
+                open={panelOpen}
+                onClose={closePanel}
+                title={editingHost ? t("host_details") : t("new_title")}
+                subtitle={editingHost
+                    ? `${editingHost.username}@${editingHost.host}`
+                    : t("form_subtitle")}
+                actions={editingHost ? (
+                    <DropdownMenu modal={false}>
+                        <DropdownMenuTrigger asChild>
+                            <button
+                                type="button"
+                                className="cursor-pointer rounded-md p-1.5 text-[var(--fg-muted)]
+                                           transition-colors hover:bg-[var(--surface-3)] hover:text-[var(--fg-strong)]"
+                                aria-label={t("more_actions", {ns: "common"})}
+                            >
+                                <MoreHorizontal className="size-4"/>
+                            </button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-44">
+                            <DropdownMenuItem
+                                className="text-[var(--destructive)] focus:text-[var(--destructive)]"
+                                onClick={() => handleDeletePrompt(editingHost)}
+                            >
+                                <Trash2 className="mr-2 size-4"/>
+                                {t("delete_host")}
+                            </DropdownMenuItem>
+                        </DropdownMenuContent>
+                    </DropdownMenu>
+                ) : undefined}
+                contentClassName="space-y-0 p-5"
+                footer={
+                    <div className="flex flex-col gap-2">
+                        {editingHost && (
+                            <Button
+                                type="button"
+                                variant="outline"
+                                className="h-10 w-full"
+                                onClick={() => handleConnect(editingHost)}
+                                disabled={saveMutation.isPending}
+                            >
+                                {t("connect_now")}
+                            </Button>
+                        )}
+                        <Button
+                            type="submit"
+                            form={HOST_FORM_ID}
+                            className="h-10 w-full"
+                            disabled={saveMutation.isPending}
+                        >
+                            {saveMutation.isPending ? t("saving", {ns: "common"}) : t("save_host")}
+                        </Button>
+                    </div>
+                }
             >
                 <HostForm
                     initialData={editingHost}
                     isSaving={saveMutation.isPending}
                     onSave={handleSave}
-                    onCancel={() => setShowForm(false)}
                 />
             </SlidePanel>
         </div>

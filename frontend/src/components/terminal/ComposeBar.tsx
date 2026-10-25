@@ -83,7 +83,7 @@ export function ComposeBar({ sessionId }: ComposeBarProps) {
         <div className="flex h-full shrink-0 flex-col gap-1.5 border-t border-[var(--hairline)] bg-[var(--surface-1)] px-3 py-2">
             {/* 头部：标题 + 发送目标 + 历史清理 + 关闭 */}
             <div className="flex items-center gap-2">
-                <span className="text-[11.5px] font-semibold text-[var(--fg-strong)]">
+                <span className="text-[11.5px] text-[var(--fg-strong)]">
                     {t("compose_title")}
                 </span>
                 <span className="min-w-0 truncate font-mono text-[10.5px] text-[var(--fg-subtle)]">

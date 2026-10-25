@@ -71,12 +71,12 @@ function parseLogLine(line: string): ParsedLogLine {
 function getLevelColor(level: string): string {
     switch (level.toUpperCase()) {
         case "ERROR":
-            return "text-destructive font-semibold";
+            return "text-destructive";
         case "WARN":
         case "WARNING":
-            return "text-warning font-semibold";
+            return "text-warning";
         case "INFO":
-            return "text-info font-semibold";
+            return "text-info";
         case "DEBUG":
             return "text-[var(--fg-subtle)]";
         default:
@@ -284,7 +284,7 @@ export function LogViewer() {
                         className={cn(
                             "rounded-[var(--radius-sm)] px-2.5 py-1 text-xs transition-colors",
                             tab === id
-                                ? "bg-[var(--surface-3)] font-medium text-[var(--fg-strong)]"
+                                ? "bg-[var(--surface-3)] text-[var(--fg-strong)]"
                                 : "text-[var(--fg-muted)] hover:text-[var(--fg-strong)]"
                         )}
                     >

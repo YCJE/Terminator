@@ -3,13 +3,13 @@
 // 支持左边缘拖拽调整宽度
 
 import { useState, useRef, useCallback, useEffect } from "react";
-import { X, ArrowLeft } from "lucide-react";
+import { PanelRightClose, ArrowLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-const MIN_WIDTH = 380;
-const MAX_WIDTH = 760;
-const DEFAULT_WIDTH = 460;
-const STORAGE_KEY = "slide-panel-width";
+const MIN_WIDTH = 340;
+const MAX_WIDTH = 720;
+const DEFAULT_WIDTH = 380;
+const STORAGE_KEY = "slide-panel-width-v2";
 
 interface SlidePanelProps {
     open: boolean;
@@ -20,6 +20,8 @@ interface SlidePanelProps {
     showBackButton?: boolean;
     actions?: React.ReactNode;
     footer?: React.ReactNode;
+    /** 内容区附加类名：不同页面可覆盖默认内边距与行间距 */
+    contentClassName?: string;
     children: React.ReactNode;
 }
 
@@ -32,6 +34,7 @@ export function SlidePanel({
     showBackButton = false,
     actions,
     footer,
+    contentClassName,
     children,
 }: SlidePanelProps) {
     const [width, setWidth] = useState(() => {
@@ -101,7 +104,7 @@ export function SlidePanel({
         <div
             className={cn(
                 "relative flex h-full shrink-0 flex-col overflow-hidden",
-                "border-l border-[var(--hairline)] bg-[var(--surface-1)] shadow-[-16px_0_32px_var(--elevate-shadow-2)]",
+                "border-l border-[var(--hairline)] bg-[var(--surface-1)]",
                 "slide-panel-enter"
             )}
             style={{ width: `${width}px` }}
@@ -113,7 +116,7 @@ export function SlidePanel({
             />
 
             {/* Header — 固定高度 */}
-            <div className="flex shrink-0 items-center justify-between gap-2 border-b border-[var(--hairline)] px-4 py-3">
+            <div className="flex shrink-0 items-center justify-between gap-2 px-5 py-4">
                 <div className="flex min-w-0 items-center gap-2">
                     {showBackButton && onBack && (
                         <button
@@ -124,9 +127,9 @@ export function SlidePanel({
                         </button>
                     )}
                     <div className="min-w-0">
-                        <h3 className="truncate text-sm font-semibold">{title}</h3>
+                        <h3 className="truncate text-[14px] text-[var(--fg-strong)]">{title}</h3>
                         {subtitle && (
-                            <p className="truncate text-xs text-[var(--fg-muted)]">{subtitle}</p>
+                            <p className="mt-0.5 truncate text-[11px] text-[var(--fg-muted)]">{subtitle}</p>
                         )}
                     </div>
                 </div>
@@ -134,23 +137,24 @@ export function SlidePanel({
                     {actions}
                     <button
                         onClick={onClose}
-                        className="cursor-pointer rounded-md p-1.5 transition-colors hover:bg-[var(--surface-3)]"
+                        className="cursor-pointer rounded-md p-1.5 text-[var(--fg-muted)] transition-colors hover:bg-[var(--surface-3)] hover:text-[var(--fg-strong)]"
+                        aria-label="Close"
                     >
-                        <X className="size-4" />
+                        <PanelRightClose className="size-4" />
                     </button>
                 </div>
             </div>
 
             {/* Content — 可滚动区域 */}
             <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
-                <div className="space-y-4 p-4">
+                <div className={cn("space-y-4 p-5", contentClassName)}>
                     {children}
                 </div>
             </div>
 
             {/* Footer — 固定高度（可选） */}
             {footer && (
-                <div className="shrink-0 border-t border-[var(--hairline)] px-4 py-3">
+                <div className="shrink-0 px-5 py-3">
                     {footer}
                 </div>
             )}

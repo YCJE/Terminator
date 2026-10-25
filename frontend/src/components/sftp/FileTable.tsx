@@ -264,7 +264,8 @@ function FileTableImpl({ entries, loading, onOpen, onContextMenu, onEntryDragSta
                                                 <FileText className="size-4 text-[var(--fg-muted)]" />
                                             )}
                                         </span>
-                                        <span className={cn("truncate", entry.isDir && "font-medium")}>
+                                        {/* 目录不再额外加粗：中文文件名无法反映 500，靠主色文件夹图标区分 */}
+                                        <span className="truncate">
                                             {entry.name}
                                         </span>
                                     </div>

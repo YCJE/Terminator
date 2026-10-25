@@ -10,6 +10,10 @@ interface TerminalTabProps {
     session: TerminalSession;
     isActive: boolean;
     index: number;
+    /** 正在被拖动（降低透明度） */
+    isDragging?: boolean;
+    /** 拖拽落点：before 在左侧、after 在右侧显示插入标记 */
+    dropSide?: "before" | "after";
     onClick: () => void;
     onClose: () => void;
     onDragStart: (index: number) => void;
@@ -53,6 +57,8 @@ export function TerminalTab({
     session,
     isActive,
     index,
+    isDragging,
+    dropSide,
     onClick,
     onClose,
     onDragStart,
@@ -122,9 +128,22 @@ export function TerminalTab({
             <div
                 onClick={onClick}
                 onContextMenu={handleContextMenu}
+                // 中键关闭：符合浏览器/终端标签的通用习惯
+                onAuxClick={(e) => {
+                    if (e.button === 1) {
+                        e.preventDefault();
+                        onClose();
+                    }
+                }}
+                onMouseDown={(e) => {
+                    // 阻止中键触发的自动滚动模式
+                    if (e.button === 1) e.preventDefault();
+                }}
                 tabIndex={0}
                 role="tab"
                 aria-selected={isActive}
+                // 供标签栏把激活标签滚入视口
+                data-tab-id={session.id}
                 draggable
                 onDragStart={(e) => {
                     e.dataTransfer.effectAllowed = "move";
@@ -160,15 +179,21 @@ export function TerminalTab({
                 }}
                 className={cn(
                     "tab-enter shell-tab wails-no-drag group relative flex min-w-28 max-w-48 cursor-pointer",
-                    "items-center justify-between gap-1.5 px-2.5 text-xs font-medium",
+                    // 字重固定 400：中文回退字体（Microsoft YaHei UI）只有 400/700 两档，
+                    // font-medium(500) 会被直接取整成 400，导致标签内中文比拉丁字母细一档；
+                    // 统一 400 让中英文粗细一致（Termius 标签同样是常规字重）。
+                    "items-center justify-between gap-1.5 px-2.5 text-xs font-normal",
                     "terminal-tab",
-                    isActive ? "terminal-tab-active" : "terminal-tab-inactive"
+                    isActive ? "terminal-tab-active" : "terminal-tab-inactive",
+                    isDragging && "is-dragging",
+                    dropSide === "before" && "is-drop-before",
+                    dropSide === "after" && "is-drop-after"
                 )}
             >
                 {/* 自定义颜色指示条（标签页左侧彩色竖条） */}
                 {session.color && (
                     <span
-                        className="absolute left-0 top-1/2 h-4 w-0.5 -translate-y-1/2 rounded-full"
+                        className="absolute left-1 top-1/2 h-4 w-0.5 -translate-y-1/2 rounded-full"
                         style={{ backgroundColor: session.color }}
                     />
                 )}
@@ -203,7 +228,8 @@ export function TerminalTab({
                         onClose();
                     }}
                     className={cn(
-                        "ml-1 flex size-4 items-center justify-center rounded-sm transition-all hover:bg-destructive/20",
+                        "ml-1 flex size-4 items-center justify-center rounded-sm text-[var(--fg-muted)]",
+                        "transition-colors hover:bg-[var(--surface-3)] hover:text-[var(--fg-strong)] active:bg-[var(--surface-3)]",
                         isActive ? "opacity-100" : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
                     )}
                 >
@@ -214,14 +240,14 @@ export function TerminalTab({
             {/* 右键颜色选择菜单 —— 使用 Portal 渲染到 body，避免被 overflow:hidden 裁切 */}
             {colorMenuOpen && createPortal(
                 <div
-                    className="fixed z-50 min-w-44 rounded-[var(--radius-md)] border border-[var(--hairline)]
-                               bg-[var(--surface-2)] p-2 shadow-2xl"
+                    className="fixed z-50 min-w-44 rounded-[var(--radius-lg)] border border-[var(--hairline)]
+                               bg-[var(--surface-2)] p-2 shadow-[var(--shadow-menu)]"
                     style={{ left: menuPos.x, top: menuPos.y }}
                     onClick={(e) => e.stopPropagation()}
                     onContextMenu={(e) => e.preventDefault()}
                 >
                     {/* 菜单标题 */}
-                    <div className="mb-2 px-1 text-xs font-medium text-[var(--fg-subtle)]">
+                    <div className="mb-2 px-1 text-xs text-[var(--fg-subtle)]">
                         {t("tab_color")}
                     </div>
                     {/* 颜色网格 */}

@@ -501,7 +501,7 @@ export function SettingsPage() {
 
             {/* 左侧分类导航 */}
             <nav className="flex w-52 shrink-0 flex-col border-r border-[var(--hairline)]">
-                <h1 className="px-5 pt-5 pb-3 text-[13px] font-semibold tracking-tight text-[var(--fg-strong)]">
+                <h1 className="px-5 pt-5 pb-3 text-[15px] tracking-tight text-[var(--fg-strong)]">
                     {t("page_title")}
                 </h1>
                 <div className="settings-nav">
@@ -520,7 +520,7 @@ export function SettingsPage() {
 
             {/* 右侧内容区 */}
             <div className="flex-1 overflow-y-auto">
-                <div className="mx-auto flex w-full max-w-2xl flex-col gap-4 px-8 py-6">
+                <div className="mx-auto flex w-full max-w-xl flex-col gap-4 px-8 py-6">
 
                     {/* ============ 外观 ============ */}
                     {activeCategory === "appearance" && (
@@ -808,7 +808,7 @@ export function SettingsPage() {
                                         className="flex flex-wrap items-center gap-2 border-t border-[var(--hairline)] px-4 py-2"
                                     >
                                         <div className="min-w-0 flex-1">
-                                            <div className="truncate text-[12.5px] font-medium text-[var(--fg-strong)]">
+                                            <div className="truncate text-[12.5px] text-[var(--fg-strong)]">
                                                 {snapshot.name}
                                             </div>
                                             <div className="text-[10.5px] text-[var(--fg-subtle)]">
@@ -911,7 +911,7 @@ export function SettingsPage() {
                                     <span className="text-[11.5px] text-[var(--fg-subtle)]">
                                         {t("username", {ns: "common"})}
                                     </span>
-                                    <span className="truncate text-[14px] font-semibold text-[var(--fg-strong)]">
+                                    <span className="truncate text-[14px] text-[var(--fg-strong)]">
                                         {user?.username || t("loading", {ns: "common"})}
                                     </span>
                                 </div>
@@ -921,7 +921,7 @@ export function SettingsPage() {
                                 <div className="callout is-danger mx-4 mb-3">
                                     <AlertTriangle className="mt-0.5 size-3.5 shrink-0"/>
                                     <div className="flex min-w-0 flex-col gap-0.5">
-                                        <span className="text-[12px] font-medium">{t("sync_offline")}</span>
+                                        <span className="text-[12px]">{t("sync_offline")}</span>
                                         <span className="text-[11px] opacity-90">
                                             {t(`errors:${lastError.code}`, {defaultValue: lastError.message})}
                                         </span>
@@ -1111,7 +1111,7 @@ export function SettingsPage() {
                                         <>
                                             <div className="mb-2 flex items-center gap-2">
                                                 <Download className="size-4 text-primary"/>
-                                                <span className="text-[13px] font-semibold text-primary">
+                                                <span className="text-[13px] text-primary">
                                                     {t("new_version_available", {version: releaseInfo.latestVersion})}
                                                 </span>
                                             </div>
@@ -1153,7 +1153,7 @@ export function SettingsPage() {
                                                 <div className="callout is-success mt-3">
                                                     <ShieldCheck className="mt-0.5 size-3.5 shrink-0"/>
                                                     <div className="flex min-w-0 flex-col gap-1">
-                                                        <span className="text-[11.5px] font-medium text-[var(--fg-strong)]">
+                                                        <span className="text-[11.5px] text-[var(--fg-strong)]">
                                                             {t("download_verified")}
                                                         </span>
                                                         <span className="break-all font-mono text-[11px]">

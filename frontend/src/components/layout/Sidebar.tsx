@@ -39,7 +39,8 @@ export function Sidebar() {
                         title={item.title}
                         className={cn("shell-nav-btn wails-no-drag", activeView === item.view && "is-active")}
                     >
-                        <item.icon className="size-[18px]"/>
+                        <item.icon className="size-[16px] shrink-0"/>
+                        <span className="shell-nav-label">{item.title}</span>
                     </button>
                 ))}
             </nav>
@@ -58,11 +59,12 @@ export function Sidebar() {
                             ? `${t("page_title", { ns: "settings" })} · ${t("conflict_badge_tooltip", {ns: "settings", count: conflictCount})}`
                             : t("page_title", { ns: "settings" })}
                     >
-                        <Settings className="size-[18px]"/>
+                        <Settings className="size-[16px] shrink-0"/>
+                        <span className="shell-nav-label">{t("page_title", { ns: "settings" })}</span>
                     </button>
 
                     <div className={cn(
-                        "absolute right-1 top-1 size-2 rounded-full border border-[var(--sidebar)]",
+                        "absolute right-2 top-1/2 size-2 -translate-y-1/2 rounded-full",
                         dotColor
                     )}/>
 
@@ -71,7 +73,7 @@ export function Sidebar() {
                         <span
                             aria-label={t("conflict_badge_tooltip", {ns: "settings", count: conflictCount})}
                             className="pointer-events-none absolute -bottom-1 -right-1 flex size-4 items-center
-                                       justify-center rounded-full bg-destructive text-[10px] font-medium
+                                       justify-center rounded-full bg-destructive text-[10px]
                                        leading-none text-destructive-foreground"
                         >
                             {conflictCount > 9 ? "9+" : conflictCount}

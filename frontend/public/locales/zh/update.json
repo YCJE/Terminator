@@ -3,5 +3,6 @@
   "update_to": "更新到 {{version}}",
   "restart_update": "重启并更新",
   "update_available": "有新版本可用",
-  "open_download_page": "前往下载"
+  "open_download_page": "前往下载",
+  "nav_update": "更新"
 }

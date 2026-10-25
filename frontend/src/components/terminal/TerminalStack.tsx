@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import { Events } from "@wailsio/runtime";
 import { useTranslation } from "react-i18next";
 import { Code2, ChevronUp, ChevronDown, SquarePen } from "lucide-react";
@@ -38,17 +38,71 @@ export function TerminalStack({isVisible}: TerminalStackProps) {
     const isSplitView = !!split &&
         (activeSessionId === split.primaryId || activeSessionId === split.secondaryId);
 
-    // 分屏窗格使用绝对定位各占一半；普通标签仍为整块覆盖
-    const paneClass = (id: string): string => {
-        if (!isSplitView || !split) return "inset-0";
+    // 分屏比例与拖拽状态：分隔条拖动时实时更新主窗格占比
+    const splitContainerRef = useRef<HTMLDivElement>(null);
+    const [splitRatio, setSplitRatio] = useState(0.5);
+    const [splitDragging, setSplitDragging] = useState(false);
+
+    // 分屏对象变化（换窗格/换方向）时回到 1:1
+    useEffect(() => {
+        setSplitRatio(0.5);
+    }, [split?.primaryId, split?.secondaryId, split?.orientation]);
+
+    // 分屏进入动效：在布局阶段挂上动画类，保证首帧就是淡入起点而不会先闪一下；
+    // 动画结束后摘掉类名，避免影响拖拽时逐帧写比例。
+    const splitViewKey = split ? `${split.primaryId}|${split.secondaryId}|${split.orientation}` : "";
+    const prevSplitViewKeyRef = useRef(splitViewKey);
+    const [splitEntering, setSplitEntering] = useState(false);
+
+    useLayoutEffect(() => {
+        if (prevSplitViewKeyRef.current === splitViewKey) return;
+        prevSplitViewKeyRef.current = splitViewKey;
+        if (!splitViewKey) {
+            setSplitEntering(false);
+            return;
+        }
+        setSplitEntering(true);
+        const timer = setTimeout(() => setSplitEntering(false), 260);
+        return () => clearTimeout(timer);
+    }, [splitViewKey]);
+
+    // 主窗格按比例占据一侧，副窗格占据剩余空间；分隔条单独绘制
+    const paneStyle = (id: string): CSSProperties | undefined => {
+        if (!isSplitView || !split) return undefined;
+        const percent = `${splitRatio * 100}%`;
         if (split.orientation === "row") {
             return id === split.primaryId
-                ? "inset-y-0 left-0 right-1/2 border-r border-[var(--hairline)]"
-                : "inset-y-0 left-1/2 right-0";
+                ? { right: "auto", width: percent }
+                : { left: percent };
         }
         return id === split.primaryId
-            ? "inset-x-0 top-0 bottom-1/2 border-b border-[var(--hairline)]"
-            : "inset-x-0 top-1/2 bottom-0";
+            ? { bottom: "auto", height: percent }
+            : { top: percent };
+    };
+
+    const handleSplitPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+        if (!split) return;
+        e.preventDefault();
+        e.currentTarget.setPointerCapture(e.pointerId);
+        setSplitDragging(true);
+    };
+
+    const handleSplitPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+        if (!splitDragging || !split) return;
+        const rect = splitContainerRef.current?.getBoundingClientRect();
+        if (!rect || rect.width === 0 || rect.height === 0) return;
+        const next = split.orientation === "row"
+            ? (e.clientX - rect.left) / rect.width
+            : (e.clientY - rect.top) / rect.height;
+        // 两侧各留 18% 最小宽度，避免窗格被拖成不可用尺寸
+        setSplitRatio(Math.min(0.82, Math.max(0.18, next)));
+    };
+
+    const handleSplitPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+        setSplitDragging(false);
+        if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+            e.currentTarget.releasePointerCapture(e.pointerId);
+        }
     };
 
     // 全局监听 SFTP 传输进度与完成事件，实时更新传输队列状态
@@ -86,7 +140,14 @@ export function TerminalStack({isVisible}: TerminalStackProps) {
             <div className="relative flex min-h-0 flex-1 overflow-hidden">
                 {/* 终端区域（草稿栏作为其下方同列面板，不覆盖文件面板） */}
                 <div className="flex min-w-0 flex-1 flex-col">
-                    <div className="relative min-h-0 flex-1 overflow-hidden">
+                    <div
+                        ref={splitContainerRef}
+                        className={cn(
+                            "terminal-split-container relative min-h-0 flex-1 overflow-hidden",
+                            splitDragging && "is-split-dragging",
+                            splitEntering && "is-split-enter"
+                        )}
+                    >
                         {sessions.map((session) => {
                             const paneVisible = isSplitView
                                 ? session.id === split?.primaryId || session.id === split?.secondaryId
@@ -102,10 +163,36 @@ export function TerminalStack({isVisible}: TerminalStackProps) {
                                     disconnected={session.disconnected}
                                     onConnect={session.onConnect}
                                     reconnectNonce={session.reconnectNonce}
-                                    className={paneClass(session.id)}
+                                    className={cn(
+                                        "inset-0",
+                                        paneStyle(session.id) !== undefined && "terminal-split-pane"
+                                    )}
+                                    style={paneStyle(session.id)}
                                 />
                             );
                         })}
+
+                        {/* 可拖拽分隔条：1px 发丝线 + 9px 命中区，悬停/拖动时变为强调色 */}
+                        {isSplitView && split && (
+                            <div
+                                // 换方向时重新挂载，重放分隔条淡入
+                                key={`${split.primaryId}|${split.secondaryId}|${split.orientation}`}
+                                role="separator"
+                                aria-orientation={split.orientation === "row" ? "vertical" : "horizontal"}
+                                className={cn(
+                                    "terminal-split-divider",
+                                    split.orientation === "row" ? "is-vertical" : "is-horizontal",
+                                    splitDragging && "is-dragging"
+                                )}
+                                style={split.orientation === "row"
+                                    ? { left: `${splitRatio * 100}%` }
+                                    : { top: `${splitRatio * 100}%` }}
+                                onPointerDown={handleSplitPointerDown}
+                                onPointerMove={handleSplitPointerMove}
+                                onPointerUp={handleSplitPointerUp}
+                                onLostPointerCapture={() => setSplitDragging(false)}
+                            />
+                        )}
                     </div>
                     {isComposePanelVisible && (
                         <div className="shrink-0" style={{height: "9.5rem"}}>
@@ -144,8 +231,8 @@ export function TerminalStack({isVisible}: TerminalStackProps) {
                     type="button"
                     onClick={toggleComposePanel}
                     className={cn(
-                        "terminal-overlay-btn px-2.5 py-1.5 text-xs font-medium",
-                        isComposePanelVisible && "text-primary"
+                        "terminal-overlay-btn px-2.5 py-1.5 text-xs",
+                        isComposePanelVisible && "is-active"
                     )}
                     title={t("compose_toggle")}
                 >
@@ -155,7 +242,10 @@ export function TerminalStack({isVisible}: TerminalStackProps) {
                 <button
                     type="button"
                     onClick={toggleSnippetPanel}
-                    className="terminal-overlay-btn px-2.5 py-1.5 text-xs font-medium"
+                    className={cn(
+                        "terminal-overlay-btn px-2.5 py-1.5 text-xs",
+                        isSnippetPanelVisible && "is-active"
+                    )}
                     title={t("snippet_toggle")}
                 >
                     <Code2 className="size-3.5"/>

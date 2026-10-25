@@ -1,6 +1,6 @@
 import {useState, useEffect, useRef, SyntheticEvent} from "react";
 import {useTranslation} from "react-i18next";
-import {KeyRound, Tag, FileText, Sparkles, Loader2} from "lucide-react";
+import {Tag, FileText, Sparkles, Loader2} from "lucide-react";
 import {SavedKey, ItemType, KeyService} from "../../../bindings/terminator-desktop/backend/internal/services/blob";
 import {Button} from "@/components/ui/button";
 import {Input} from "@/components/ui/input";
@@ -14,15 +14,18 @@ import {
     SelectValue,
 } from "@/components/ui/select";
 import {handleAppError} from "@/lib/error";
+import {cn} from "@/lib/utils";
+
+/** 表单 id：详情面板底部的保存按钮通过 form 属性触发提交 */
+export const KEY_FORM_ID = "key-form";
 
 interface KeyFormProps {
     initialData?: SavedKey | null;
     isSaving: boolean;
     onSave: (key: SavedKey) => void;
-    onCancel: () => void;
 }
 
-export function KeyForm({initialData, isSaving, onSave, onCancel}: KeyFormProps) {
+export function KeyForm({initialData, isSaving, onSave}: KeyFormProps) {
     const {t} = useTranslation(["keys", "common"]);
     const [name, setName] = useState(() => initialData?.name || "");
     const [privateKey, setPrivateKey] = useState(() => initialData?.privateKey || "");
@@ -82,114 +85,109 @@ export function KeyForm({initialData, isSaving, onSave, onCancel}: KeyFormProps)
     };
 
     return (
-        <form onSubmit={handleSubmit} className="flex flex-col gap-5">
-            {/* 密钥详情区 */}
-            <section className="flex flex-col gap-4">
-                <div className="flex items-center gap-2 text-sm font-semibold text-[var(--fg-strong)]">
-                    <KeyRound className="size-4 text-primary"/>
-                    {t("section_key_details")}
-                </div>
-
-                <div className="grid gap-2">
-                    <Label htmlFor="name">{t("key_name_label")}</Label>
-                    <div className="relative">
-                        <Tag
-                            className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--fg-subtle)]"/>
-                        <Input
-                            id="name"
-                            className="pl-9"
-                            placeholder={t("key_name_placeholder")}
-                            required
-                            value={name}
-                            onChange={(e) => setName(e.target.value)}
-                        />
-                    </div>
-                </div>
-
-                <div className="grid gap-2">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                        <Label htmlFor="privateKey">{t("private_key_label")}</Label>
-                        <div className="flex flex-wrap items-center gap-2">
-                            {/* 生成密钥 */}
-                            <div className="flex items-center gap-1.5">
-                                <Select value={keyType} onValueChange={setKeyType}>
-                                    <SelectTrigger className="h-7 w-[110px] text-xs">
-                                        <SelectValue/>
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="ed25519">Ed25519</SelectItem>
-                                        <SelectItem value="rsa">RSA</SelectItem>
-                                    </SelectContent>
-                                </Select>
-                                {keyType === "rsa" && (
-                                    <Select value={rsaBits} onValueChange={setRsaBits}>
-                                        <SelectTrigger className="h-7 w-[70px] text-xs">
-                                            <SelectValue/>
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            <SelectItem value="2048">2048</SelectItem>
-                                            <SelectItem value="4096">4096</SelectItem>
-                                        </SelectContent>
-                                    </Select>
-                                )}
-                                <Button
-                                    type="button"
-                                    variant="secondary"
-                                    size="sm"
-                                    className="h-7 text-xs"
-                                    onClick={handleGenerate}
-                                    disabled={generating}
-                                >
-                                    {generating
-                                        ? <Loader2 className="mr-1 size-3 animate-spin"/>
-                                        : <Sparkles className="mr-1 size-3"/>}
-                                    {t("generate")}
-                                </Button>
-                            </div>
-                            {/* 从文件加载 */}
-                            <Button
-                                type="button"
-                                variant="ghost"
-                                size="sm"
-                                className="h-7 text-xs"
-                                onClick={() => fileInputRef.current?.click()}
-                            >
-                                <FileText className="mr-1 size-3"/>
-                                {t("load_from_file")}
-                            </Button>
-                            <input
-                                type="file"
-                                ref={fileInputRef}
-                                className="hidden"
-                                onChange={(e) => {
-                                    // 某些 WebView 在用户取消选择时仍会触发 change（FileList 为空），
-                                    // 直接取 files[0] 会得到 undefined 并在 readAsText 处抛错
-                                    const file = e.target.files?.[0];
-                                    if (file) handleFileRead(file);
-                                }}
-                            />
-                        </div>
-                    </div>
-
-                    <Textarea
-                        id="privateKey"
+        <form
+            id={KEY_FORM_ID}
+            onSubmit={handleSubmit}
+            aria-busy={isSaving}
+            className="host-form flex flex-col gap-5"
+        >
+            <div className="hf-field">
+                <Label htmlFor="name">{t("key_name_label")}</Label>
+                <div className="hf-input-wrap">
+                    <Tag/>
+                    <Input
+                        id="name"
+                        placeholder={t("key_name_placeholder")}
                         required
-                        className="min-h-37.5 max-h-64 overflow-y-auto font-mono text-xs"
-                        value={privateKey}
-                        onChange={(e) => setPrivateKey(e.target.value)}
-                        placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
+                        value={name}
+                        onChange={(e) => setName(e.target.value)}
                     />
                 </div>
-            </section>
+            </div>
 
-            {/* 底部操作按钮 */}
-            <div className="flex items-center justify-end gap-2 border-t border-[var(--hairline)] pt-4">
-                <Button type="button" variant="outline" onClick={onCancel} disabled={isSaving}>
-                    {t("cancel", {ns: "common"})}
+            <div className="hf-field">
+                <Label>{t("key_type_label")}</Label>
+                <div className="hf-seg is-2" role="tablist" aria-label={t("key_type_label")}>
+                    <button
+                        type="button"
+                        role="tab"
+                        aria-selected={keyType === "ed25519"}
+                        className={cn("hf-seg-btn", keyType === "ed25519" && "is-active")}
+                        onClick={() => setKeyType("ed25519")}
+                    >
+                        Ed25519
+                    </button>
+                    <button
+                        type="button"
+                        role="tab"
+                        aria-selected={keyType === "rsa"}
+                        className={cn("hf-seg-btn", keyType === "rsa" && "is-active")}
+                        onClick={() => setKeyType("rsa")}
+                    >
+                        RSA
+                    </button>
+                </div>
+
+                {keyType === "rsa" && (
+                    <Select value={rsaBits} onValueChange={setRsaBits}>
+                        <SelectTrigger className="w-full">
+                            <SelectValue/>
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="2048">2048</SelectItem>
+                            <SelectItem value="4096">4096</SelectItem>
+                        </SelectContent>
+                    </Select>
+                )}
+
+                <Button
+                    type="button"
+                    variant="secondary"
+                    className="h-10 w-full"
+                    onClick={handleGenerate}
+                    disabled={generating}
+                >
+                    {generating
+                        ? <Loader2 className="mr-2 size-4 animate-spin"/>
+                        : <Sparkles className="mr-2 size-4"/>}
+                    {t("generate")}
                 </Button>
-                <Button type="submit" disabled={isSaving || !privateKey}>
-                    {isSaving ? t("saving", {ns: "common"}) : t("save_key")}
-                </Button>
+            </div>
+
+            <div className="hf-field">
+                <div className="flex items-center justify-between gap-2">
+                    <Label htmlFor="privateKey">{t("private_key_label")}</Label>
+                    <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 text-xs"
+                        onClick={() => fileInputRef.current?.click()}
+                    >
+                        <FileText className="mr-1 size-3"/>
+                        {t("load_from_file")}
+                    </Button>
+                    <input
+                        type="file"
+                        ref={fileInputRef}
+                        className="hidden"
+                        onChange={(e) => {
+                            // 某些 WebView 在用户取消选择时仍会触发 change（FileList 为空），
+                            // 直接取 files[0] 会得到 undefined 并在 readAsText 处抛错
+                            const file = e.target.files?.[0];
+                            if (file) handleFileRead(file);
+                        }}
+                    />
+                </div>
+                <Textarea
+                    id="privateKey"
+                    required
+                    className="min-h-38 max-h-64 overflow-y-auto rounded-lg border-transparent
+                               bg-[var(--surface-2)] font-mono text-xs"
+                    value={privateKey}
+                    onChange={(e) => setPrivateKey(e.target.value)}
+                    placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
+                />
             </div>
         </form>
     );

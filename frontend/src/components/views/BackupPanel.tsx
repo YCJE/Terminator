@@ -23,7 +23,7 @@ function SummaryRow({ label, value }: { label: string; value: string }) {
     return (
         <div className="flex items-start justify-between gap-4">
             <span className="shrink-0 text-[var(--fg-muted)]">{label}</span>
-            <span className="break-all text-right font-medium text-[var(--fg-strong)]">{value}</span>
+            <span className="break-all text-right text-[var(--fg-strong)]">{value}</span>
         </div>
     );
 }
@@ -142,7 +142,7 @@ export function BackupPanel() {
                     <div className="callout is-success mx-4 mb-3">
                         <ShieldCheck className="mt-0.5 size-3.5 shrink-0"/>
                         <div className="flex min-w-0 flex-col gap-1">
-                            <span className="text-[11.5px] font-medium text-[var(--fg-strong)]">
+                            <span className="text-[11.5px] text-[var(--fg-strong)]">
                                 {t("backup_export_success")}
                             </span>
                             <span className="break-all font-mono text-[11px]">{exportedPath}</span>

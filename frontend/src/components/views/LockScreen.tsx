@@ -183,7 +183,7 @@ export function LockScreen() {
 
     return (
         <div className="absolute inset-0 z-50 flex h-full w-full items-center justify-center bg-[var(--surface-0)]">
-            <div className="lazy-fade-in relative w-full max-w-sm rounded-2xl border border-[var(--hairline)] bg-[var(--surface-1)] p-7 shadow-[0_12px_40px_var(--elevate-shadow-2)]">
+            <div className="lazy-fade-in relative w-full max-w-sm rounded-[var(--radius-xl)] border border-[var(--hairline)] bg-[var(--surface-1)] p-7 shadow-[var(--shadow-modal)]">
 
                 {mode !== "select" && mode !== "login" && (
                     <Button
@@ -278,7 +278,7 @@ export function LockScreen() {
                                 <Shield className="size-5"/>
                             </div>
                             <div>
-                                <div className="font-medium text-[var(--fg-strong)]">{t("create_local_title")}</div>
+                                <div className="text-[var(--fg-strong)]">{t("create_local_title")}</div>
                                 <div className="text-xs text-[var(--fg-muted)]">{t("create_local_desc")}</div>
                             </div>
                         </Button>
@@ -294,7 +294,7 @@ export function LockScreen() {
                                 <Server className="size-5"/>
                             </div>
                             <div>
-                                <div className="font-medium text-[var(--fg-strong)]">{t("restore_server_title")}</div>
+                                <div className="text-[var(--fg-strong)]">{t("restore_server_title")}</div>
                                 <div className="text-xs text-[var(--fg-muted)]">{t("restore_server_desc")}</div>
                             </div>
                         </Button>

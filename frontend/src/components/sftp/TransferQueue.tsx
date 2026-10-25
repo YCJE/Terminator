@@ -97,13 +97,13 @@ export function TransferQueue() {
             <div className="flex items-center justify-between px-3 py-1.5">
                 <button
                     type="button"
-                    className="flex items-center gap-1.5 text-xs font-medium text-[var(--fg-muted)] transition-colors hover:text-[var(--fg-strong)]"
+                    className="flex items-center gap-1.5 text-xs text-[var(--fg-muted)] transition-colors hover:text-[var(--fg-strong)]"
                     onClick={() => setCollapsed((c) => !c)}
                 >
                     <ChevronDown className={cn("size-3.5 transition-transform", !collapsed && "rotate-180")} />
                     {t("transfers")}
                     {activeCount > 0 && (
-                        <span className="ml-1 rounded-full bg-primary/15 px-1.5 py-0.5 text-[0.625rem] font-semibold text-primary">
+                        <span className="ml-1 rounded-full bg-primary/15 px-1.5 py-0.5 text-[0.625rem] text-primary">
                             {activeCount}
                         </span>
                     )}

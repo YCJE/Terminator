@@ -102,7 +102,7 @@ export function SyncConflictPanel() {
                                 <Icon className="size-4"/>
                             </div>
                             <div className="flex min-w-0 flex-col">
-                                <span className="truncate text-[12.5px] font-medium text-[var(--fg-strong)]">
+                                <span className="truncate text-[12.5px] text-[var(--fg-strong)]">
                                     {conflict.name || t("conflict_unknown_item")}
                                 </span>
                                 <span className="text-[11px] text-[var(--fg-subtle)]">
@@ -113,7 +113,7 @@ export function SyncConflictPanel() {
 
                         <div className="grid grid-cols-2 gap-3">
                             <div className="flex flex-col gap-1 rounded-[var(--radius-sm)] bg-[var(--surface-2)] px-3 py-2">
-                                <span className="text-[11px] font-medium text-[var(--fg-strong)]">
+                                <span className="text-[11px] text-[var(--fg-strong)]">
                                     {t("conflict_local")}
                                 </span>
                                 <span className="text-[11px] text-[var(--fg-subtle)]">
@@ -126,7 +126,7 @@ export function SyncConflictPanel() {
                                 )}
                             </div>
                             <div className="flex flex-col gap-1 rounded-[var(--radius-sm)] bg-[var(--surface-2)] px-3 py-2">
-                                <span className="text-[11px] font-medium text-[var(--fg-strong)]">
+                                <span className="text-[11px] text-[var(--fg-strong)]">
                                     {t("conflict_remote")}
                                 </span>
                                 <span className="text-[11px] text-[var(--fg-subtle)]">

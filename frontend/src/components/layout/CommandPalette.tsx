@@ -414,7 +414,7 @@ export function CommandPalette() {
                 >
                     <div
                         className="palette-panel w-[min(620px,92vw)] overflow-hidden rounded-[var(--radius-lg)]
-                                   border border-[var(--hairline-strong)] bg-[var(--surface-1)] shadow-2xl"
+                                   border border-[var(--hairline-strong)] bg-[var(--surface-1)] shadow-[var(--shadow-modal)]"
                         onClick={(e) => e.stopPropagation()}
                     >
                         <div className="flex items-center gap-2 border-b border-[var(--hairline)] px-4 py-3">
@@ -441,7 +441,7 @@ export function CommandPalette() {
                             )}
                             {sections.map((section) => (
                                 <div key={section.kind}>
-                                    <div className="px-4 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--fg-subtle)]">
+                                    <div className="px-4 pb-1 pt-2 text-[11px] uppercase tracking-[0.08em] text-[var(--fg-subtle)]">
                                         {sectionTitle[section.kind]}
                                     </div>
                                     {section.items.map((item) => {

@@ -154,7 +154,7 @@ export const useUIStore = create<UIState>((set) => ({
     updateReleaseUrl: null,
     updateReleaseVersion: null,
     theme: "dark",
-    accentColor: "monochrome",
+    accentColor: "sky",
     spaciness: 1,
     skin: "default",
     terminalColorLink: false,
@@ -262,7 +262,7 @@ export const useUIStore = create<UIState>((set) => ({
 /** 强调色预设列表，供设置页面渲染选择器。labelKey 指向 settings 命名空间的文案键 */
 export const ACCENT_PRESETS: { value: AccentColor; labelKey: string; color: string; colorDark?: string }[] = [
     { value: "monochrome", labelKey: "accent_monochrome", color: "#171717", colorDark: "#fafafa" },
-    { value: "sky", labelKey: "accent_sky", color: "#60a5fa" },
+    { value: "sky", labelKey: "accent_sky", color: "#0a84ff" },
     { value: "emerald", labelKey: "accent_emerald", color: "#34d399" },
     { value: "violet", labelKey: "accent_violet", color: "#a78bfa" },
     { value: "amber", labelKey: "accent_amber", color: "#fbbf24" },

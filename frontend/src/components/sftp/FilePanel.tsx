@@ -815,7 +815,7 @@ export function FilePanel({ sessionId }: FilePanelProps) {
 
             {/* 头部标题 */}
             <div className="flex items-center justify-between border-b border-[var(--hairline)] px-3 py-2">
-                <span className="text-[12.5px] font-semibold text-[var(--fg-strong)]">{t("file_panel_title")}</span>
+                <span className="text-[12.5px] font-normal text-[var(--fg-strong)]">{t("file_panel_title")}</span>
                 <div className="flex items-center gap-0.5">
                     <Button
                         variant="ghost"
@@ -1009,7 +1009,7 @@ export function FilePanel({ sessionId }: FilePanelProps) {
                     {searchResults ? (
                         /* 全局搜索结果列表 */
                         <div className="flex h-full flex-col overflow-hidden">
-                            <div className="border-b border-[var(--hairline)] bg-[var(--surface-2)] px-3 py-1.5 text-xs font-medium text-[var(--fg-subtle)]">
+                            <div className="border-b border-[var(--hairline)] bg-[var(--surface-2)] px-3 py-1.5 text-xs text-[var(--fg-subtle)]">
                                 {searching
                                     ? t("searching")
                                     : t("search_results_count", { count: searchResults.length })
@@ -1072,7 +1072,8 @@ export function FilePanel({ sessionId }: FilePanelProps) {
                                                     }
                                                 </span>
                                                 <div className="flex min-w-0 flex-col">
-                                                    <span className={cn("truncate", item.isDir && "font-medium")}>
+                                                    {/* 目录不再额外加粗：中文文件名无法反映 500，靠主色文件夹图标区分 */}
+                                                    <span className="truncate">
                                                         {item.name}
                                                     </span>
                                                     <span className="truncate text-[0.625rem] text-[var(--fg-subtle)]">
@@ -1106,7 +1107,7 @@ export function FilePanel({ sessionId }: FilePanelProps) {
             {/* 拖拽上传提示遮罩 */}
             {isDragOver && (
                 <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-primary/5">
-                    <div className="rounded-lg border-2 border-dashed border-primary/50 bg-[var(--surface-1)] px-6 py-4 text-sm font-medium text-primary">
+                    <div className="rounded-lg border-2 border-dashed border-primary/50 bg-[var(--surface-1)] px-6 py-4 text-sm text-primary">
                         {t("upload")}
                     </div>
                 </div>

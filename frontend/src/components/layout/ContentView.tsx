@@ -9,7 +9,7 @@ export function ContentView() {
     const {activeView} = useUIStore();
 
     return (
-        <main className="relative flex flex-1 overflow-hidden bg-[var(--surface-0)]">
+        <main className="relative flex flex-1 overflow-hidden bg-[var(--surface-1)]">
 
             {activeView === ViewType.Hosts && <HostsPage/>}
             {activeView === ViewType.Keys && <KeysPage/>}

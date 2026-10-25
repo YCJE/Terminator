@@ -8,7 +8,7 @@
   "import_key": "Import a Key",
   "edit_title": "Edit Key",
   "new_title": "New Key",
-  "key_name_label": "Key Name",
+  "key_name_label": "Label",
   "key_name_placeholder": "e.g. AWS Production",
   "private_key_label": "Private Key",
   "load_from_file": "Load from file",
@@ -19,5 +19,8 @@
   "delete_title": "Delete SSH Key?",
   "delete_desc": "Are you sure you want to delete the key \"{{name}}\"? This action cannot be undone and may break hosts relying on this key.",
   "ssh_private_key": "SSH Private Key",
-  "section_key_details": "Key Details"
+  "section_key_details": "Key Details",
+  "key_type": "Type {{type}}",
+  "key_type_label": "Key type",
+  "no_search_results": "No keys match your search"
 }

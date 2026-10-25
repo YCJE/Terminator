@@ -149,55 +149,36 @@ export function PortForwardingPage() {
     return (
         <div className="flex h-full w-full overflow-hidden">
         <div className="lazy-fade-in flex h-full min-w-0 flex-1 flex-col overflow-hidden">
-            {/* 工具条：标题 + 计数 + 添加按钮 */}
-            <div className="flex shrink-0 items-center gap-3 border-b border-[var(--hairline)] px-6 pt-4 pb-3">
-                <h1 className="shrink-0 text-base font-semibold tracking-tight text-[var(--fg-strong)]">
-                    {t("title")}
-                </h1>
-                <span className="shrink-0 rounded-[5px] border border-[var(--hairline)] bg-[var(--surface-2)]
-                                 px-1.5 py-0.5 font-mono text-[11.5px] text-[var(--fg-subtle)]">
-                    {forwards.length}
-                </span>
-                <div className="flex-1"/>
-                <Button
-                    onClick={handleOpenForm}
-                    className="h-[var(--control-height)] shrink-0"
-                    disabled={connectedSessions.length === 0}
-                    title={
-                        connectedSessions.length === 0
-                            ? t("no_sessions")
-                            : undefined
-                    }
-                >
-                    <Plus/>
-                    {t("add_button")}
-                </Button>
+            {/* 工具栏：与主机 / 密钥页同一结构，无页面标题 */}
+            <div className="page-header">
+                <div className="toolbar-row">
+                    <button
+                        type="button"
+                        className="toolbar-btn is-solid"
+                        onClick={handleOpenForm}
+                        disabled={connectedSessions.length === 0}
+                        title={connectedSessions.length === 0 ? t("no_sessions") : undefined}
+                    >
+                        <Plus className="size-4"/>
+                        {t("add_button")}
+                    </button>
+                </div>
             </div>
 
             {/* 列表 */}
-            <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-8">
+            <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-10">
                 {/* 空状态 */}
                 {forwards.length === 0 && (
-                    <div
-                        className="soft-card mt-4 flex flex-col items-center justify-center py-20 text-center
-                                   rounded-xl"
-                    >
-                        <div
-                            className="mb-4 flex size-12 items-center justify-center rounded-xl
-                                       bg-primary/10 text-primary"
-                        >
-                            <ArrowRightLeft className="size-6"/>
-                        </div>
-                        <h3 className="text-lg font-semibold text-[var(--fg-strong)]">
-                            {t("empty_title")}
-                        </h3>
-                        <p className="mb-4 mt-2 max-w-md text-sm text-[var(--fg-muted)]">
-                            {t("empty_desc")}
-                        </p>
+                    <div className="empty-state">
+                        <span className="empty-state-icon">
+                            <ArrowRightLeft className="size-5"/>
+                        </span>
+                        <h3 className="empty-state-title">{t("empty_title")}</h3>
+                        <p className="empty-state-desc">{t("empty_desc")}</p>
                         {connectedSessions.length === 0 ? (
-                            <p className="text-xs text-[var(--fg-muted)]">{t("no_sessions")}</p>
+                            <p className="empty-state-desc mt-3">{t("no_sessions")}</p>
                         ) : (
-                            <Button variant="outline" onClick={handleOpenForm}>
+                            <Button variant="outline" className="mt-4" onClick={handleOpenForm}>
                                 <Plus/>
                                 {t("add_button")}
                             </Button>
@@ -207,7 +188,7 @@ export function PortForwardingPage() {
 
                 {/* 端口转发列表 */}
                 {forwards.length > 0 && (
-                    <div className="list-rows mt-2">
+                    <div className="rule-list">
                         {forwards.map((forward) => (
                             <PortForwardCard
                                 key={forward.id}
@@ -275,7 +256,7 @@ function PortForwardCard({forward, onDelete}: PortForwardCardProps) {
     const Icon = isLocal ? ArrowRightLeft : Network;
 
     return (
-        <div className="list-row group">
+        <div className="list-row rule-row group">
             {/* 类型图标 */}
             <span
                 className="list-chip is-tinted"

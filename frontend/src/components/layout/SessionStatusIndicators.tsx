@@ -134,7 +134,7 @@ function UsageBar({ used, total }: { used: number; total: number }) {
         <div className="mt-1 h-1 w-full overflow-hidden rounded-full bg-[var(--surface-3)]">
             <div
                 className={cn(
-                    "h-full rounded-full transition-[width] duration-300",
+                    "h-full rounded-full transition-[width] duration-[var(--motion-base)]",
                     percent >= 90 ? "bg-destructive" : percent >= 70 ? "bg-warning" : "bg-primary"
                 )}
                 style={{ width: `${percent}%` }}
@@ -210,7 +210,7 @@ export function SystemStatsButton({ sessionId }: SessionIndicatorProps) {
                 </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-72 p-3">
-                <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.06em] text-[var(--fg-subtle)]">
+                <div className="mb-2 text-[11px] uppercase tracking-[0.06em] text-[var(--fg-subtle)]">
                     {t("stats_title")}
                 </div>
 

@@ -61,7 +61,8 @@ export function UpdatePopover() {
                         className="shell-nav-btn is-accent wails-no-drag"
                         title={isManualDownload ? t("update_available") : t("update_ready")}
                     >
-                        <ArrowDownToLine className="size-[18px]"/>
+                        <ArrowDownToLine className="size-[16px] shrink-0"/>
+                        <span className="shell-nav-label">{t("nav_update")}</span>
                     </button>
                 </div>
             </PopoverTrigger>
@@ -69,7 +70,7 @@ export function UpdatePopover() {
             <PopoverContent side="right" align="end" className="z-50 w-56 p-4">
                 <div className="flex flex-col gap-3">
                     <div className="flex flex-col">
-                        <span className="font-semibold">
+                        <span>
                             {isManualDownload ? t("update_available") : t("update_ready")}
                         </span>
                         <span className="text-xs text-[var(--fg-muted)]">

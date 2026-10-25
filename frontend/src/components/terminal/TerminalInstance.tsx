@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
@@ -46,11 +46,13 @@ interface TerminalInstanceProps {
     onConnect?: string;
     /** 定位类名：普通标签为 inset-0，分屏窗格各占半幅 */
     className?: string;
+    /** 分屏比例定位（覆盖 inset-0 的对应边） */
+    style?: CSSProperties;
     /** 重连计数：变化时重新建立 SSH 连接并回放最近输出 */
     reconnectNonce?: number;
 }
 
-export function TerminalInstance({sessionId, isVisible, isFocused, config, sessionKind, disconnected, onConnect, className, reconnectNonce}: TerminalInstanceProps) {
+export function TerminalInstance({sessionId, isVisible, isFocused, config, sessionKind, disconnected, onConnect, className, style, reconnectNonce}: TerminalInstanceProps) {
     const {t} = useTranslation("terminal");
     const isLocal = sessionKind === "local";
     const theme = useUIStore((s) => s.theme);
@@ -727,6 +729,7 @@ export function TerminalInstance({sessionId, isVisible, isFocused, config, sessi
                 isFocused ? "terminal-pane-focused z-10" : "terminal-pane-unfocused"
             )}
             style={{
+                ...style,
                 visibility: isVisible ? "visible" : "hidden",
             }}
         >
@@ -736,7 +739,7 @@ export function TerminalInstance({sessionId, isVisible, isFocused, config, sessi
             {isDragOver && (
                 <div className="pointer-events-none absolute inset-2 z-30 flex items-center justify-center
                                 rounded-[var(--radius-md)] border-2 border-dashed border-primary
-                                bg-[var(--surface-0)] text-xs font-medium text-[var(--fg-strong)]">
+                                bg-[var(--surface-0)] text-xs text-[var(--fg-strong)]">
                     {isLocal ? t("drop_insert_path_hint") : t("upload_drop_hint")}
                 </div>
             )}
@@ -860,7 +863,7 @@ export function TerminalInstance({sessionId, isVisible, isFocused, config, sessi
                             reconnectAttemptsRef.current = 0;
                             useSessionStore.getState().reconnectSession(sessionId);
                         }}
-                        className="terminal-overlay-btn px-3 py-1.5 text-xs font-medium"
+                        className="terminal-overlay-btn px-3 py-1.5 text-xs"
                     >
                         <RotateCw className="size-3.5"/>
                         {t("reconnect")}
