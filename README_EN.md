@@ -35,6 +35,8 @@ Terminator is a cross-platform SSH client built with [Wails v3](https://v3.wails
 - **Drag-and-drop upload** — drop local files onto a terminal to upload them to the shell's current directory (when reported via OSC 7, otherwise the home directory) and insert the remote paths on the prompt
 - **Multi-terminal broadcast** — type in one terminal, commands sync to all connected terminals for batch ops
 - **Split panes** — Ctrl+Shift+D to split right, Ctrl+Shift+E to split down; each pane is its own SSH session, click to switch focus
+- **Draggable split divider** — drag the divider to resize both panes (18% minimum per side); highlighted on hover and while dragging, resets to 1:1 whenever the split changes
+- **Tab bar interactions** — horizontal overflow scrolling with edge fades and auto-reveal of the active tab; drag to reorder with directional insert markers; middle-click to close
 - **Command palette** — Ctrl+Shift+P fuzzy-searches hosts, snippets and common actions (switch views, split, file panel, broadcast, lock vault)
 - **Multi-line paste protection** — confirms before pasting multiple lines, so a whole script can't be accidentally pasted into a production shell; toggleable in settings
 - **Auto reconnect** — retries at 2s / 5s / 10s (up to 3 attempts) after an unexpected disconnect and replays recent output; a manual "Reconnect" button is also available
@@ -58,7 +60,7 @@ Terminator is a cross-platform SSH client built with [Wails v3](https://v3.wails
 
 ### Host & Key Management
 
-- Netcatty-style slide panel for add/edit — draggable width adjustment
+- Termius-style slide panel for add/edit — draggable width adjustment
 - Host grouping with collapse/expand, search by group name
 - OS-specific icons (Linux/Windows/macOS)
 - Interactive password input — optionally don't save passwords
@@ -143,6 +145,7 @@ Sync consistency and conflict handling:
 - **Session logging** — SSH output written to log files in real-time; the "Session" tab in settings lets you browse files, preview content and search across logs
 - **Multi-language** — Chinese/English, Chinese default on first launch
 - **Dark/Light themes** — Abyss / Frost
+- **Motion system** — 160–220ms transitions with two easing curves, three elevation shadows for menus/dialogs/floating controls, respects the system reduce-motion preference
 - **RAF batch merge** — high-frequency events merged via requestAnimationFrame
 - **Error debouncing** — classified errors + debounce window
 - **ConfigProxy** — config file only stores user-modified values
@@ -167,7 +170,7 @@ Sync consistency and conflict handling:
 - [x] Flow control + scroll anchoring + virtual list
 - [x] Accent colors + terminal color link
 - [x] UI density adjustment
-- [x] Slide panel UI (Netcatty-style, draggable)
+- [x] Slide panel UI (Termius-style, draggable)
 - [x] Tab recovery (SerializeAddon)
 - [x] RAF batch + error debounce
 - [x] ConfigProxy default value erasure
@@ -213,6 +216,9 @@ Sync consistency and conflict handling:
 - [x] Session snapshots (named tab groups; open / overwrite / delete)
 - [x] Configurable shortcuts (recording, conflict detection, reset)
 - [x] Terminal links and selection search (Bing / GitHub)
+- [x] Termius-style UI overhaul (unified cards / lists / detail panels)
+- [x] Draggable split divider + tab overflow scrolling and drag feedback
+- [x] Unified motion rhythm (160–220ms + three overlay shadows)
 - [ ] Zmodem / trzsz file transfer
 - [ ] Multiple profiles (teams)
 - [ ] Android client
