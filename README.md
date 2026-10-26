@@ -21,15 +21,52 @@ Terminator
 
 ---
 
+## 目录
+
+- [概述](#概述)
+- [下载与安装](#下载与安装)
+- [界面预览](#界面预览)
+  - [主机管理](#主机管理)
+  - [密钥管理](#密钥管理)
+  - [终端工作区](#终端工作区)
+  - [命令面板](#命令面板)
+  - [命令草稿栏](#命令草稿栏)
+  - [可视化文件管理（SFTP）](#可视化文件管理sftp)
+  - [代码片段](#代码片段)
+  - [端口转发](#端口转发)
+  - [端到端加密同步](#端到端加密同步)
+  - [安全与备份](#安全与备份)
+  - [日志与会话检索](#日志与会话检索)
+  - [设置](#设置)
+- [核心功能](#核心功能)
+- [安全加固](#安全加固)
+- [云端服务器](#云端服务器)
+- [技术架构](#技术架构)
+- [开发](#开发)
+- [开发路线](#开发路线)
+
 ## 概述
 
 Terminator 是一款跨平台 SSH 客户端，专注于**安全、隐私和本地控制**。所有敏感数据（主机配置、SSH 密钥、凭据）在本地使用 Argon2id + AES-256-GCM 加密，即使使用云同步，服务器也永远无法解密你的数据。
+
+## 下载与安装
+
+从 [Releases](https://github.com/YCJE/Terminator/releases) 页面下载最新的 Windows 安装包。
+
+| 文件 | 说明 |
+|---|---|
+| `terminator-amd64-installer.exe` | **推荐**。NSIS 安装包，自动安装 WebView2 运行时，生成开始菜单与卸载入口 |
+| `terminator.exe` | 免安装版，解压即可直接运行，适合便携使用 |
+| `Terminator-windows-stable-Setup.exe` | 支持静默自动更新的安装包（应用内更新通道） |
+| `Terminator-windows-stable-Portable.zip` | 便携版压缩包，解压即用 |
+
+> Windows 上首次运行需要 [WebView2 运行时](https://developer.microsoft.com/microsoft-edge/webview2/)（绝大多数新版系统已内置）；Linux 与 macOS 的产物（AppImage / `pkg`）同样可在同一 Releases 页面下载。
 
 ## 界面预览
 
 ### 主机管理
 
-<img src="docs/screenshots/hosts.png" alt="主机列表与主机详情" width="900">
+<img src="docs/screenshots/hosts.webp" alt="主机列表与主机详情" width="900">
 
 - 卡片网格按分组聚合主机，搜索框同时匹配名称、地址、用户名与分组名
 - 单击卡片从右侧滑出详情面板，地址、SSH 端口与认证方式可直接修改
@@ -39,7 +76,7 @@ Terminator 是一款跨平台 SSH 客户端，专注于**安全、隐私和本�
 
 ### 密钥管理
 
-<img src="docs/screenshots/keys.png" alt="密钥列表与密钥详情" width="900">
+<img src="docs/screenshots/keys.webp" alt="密钥列表与密钥详情" width="900">
 
 - 密钥加密保存在本地保险库，卡片展示名称与类型（Ed25519 / RSA）
 - 内置 Ed25519 与 RSA 密钥对生成，也可从文件导入现有私钥
@@ -48,7 +85,7 @@ Terminator 是一款跨平台 SSH 客户端，专注于**安全、隐私和本�
 
 ### 终端工作区
 
-<img src="docs/screenshots/terminal.png" alt="终端多标签与分屏" width="900">
+<img src="docs/screenshots/terminal.webp" alt="终端多标签与分屏" width="900">
 
 - 多标签管理：每个标签是独立 SSH 会话，可拖动排序；标签过多时横向滚动，并把激活标签自动滚入视口
 - 分屏：<kbd>Ctrl+Shift+D</kbd> 左右分屏、<kbd>Ctrl+Shift+E</kbd> 上下分屏，拖动中间分隔条调整比例（每侧最小 18%）
@@ -56,9 +93,26 @@ Terminator 是一款跨平台 SSH 客户端，专注于**安全、隐私和本�
 - 标签颜色标记连接状态，标题栏显示往返时延；资源面板查看 1/5/15 分钟负载、内存、磁盘与运行时长
 - 命令草稿栏（<kbd>Ctrl+Shift+U</kbd>）先编辑多行命令再发送，可只发当前终端或全部已连接终端
 
+### 命令面板
+
+<img src="docs/screenshots/command-palette.webp" alt="命令面板" width="900">
+
+- <kbd>Ctrl+Shift+P</kbd> 呼出，输入即模糊匹配主机、代码片段与常用动作
+- 主机项直接发起连接，片段项在当前终端执行，动作项可切换页面、设置分类、分屏、文件面板、草稿栏与广播
+- 结果按「主机 / 代码片段 / 动作」分组，方向键选择、回车执行、<kbd>Esc</kbd> 关闭
+
+### 命令草稿栏
+
+<img src="docs/screenshots/compose.webp" alt="命令草稿栏" width="900">
+
+- 终端下方的多行编辑器，先在本地校对再发送，避免半成品命令被误送进远端
+- 发送目标可在「当前终端」与「全部已连接」之间切换，一次把同一段脚本下发到多台机器
+- 最近发送的命令保留为标签，点击即可回填微调；<kbd>Ctrl+↑</kbd> / <kbd>Ctrl+↓</kbd> 回溯历史
+- 历史只记录从草稿栏主动发送的内容，不读取终端键入，密码等敏感输入不会被留存
+
 ### 可视化文件管理（SFTP）
 
-<img src="docs/screenshots/sftp.png" alt="SFTP 文件面板" width="900">
+<img src="docs/screenshots/sftp.webp" alt="SFTP 文件面板" width="900">
 
 - 文件面板可在单栏列表与「目录树 + 文件列表」双面板之间切换，面板与目录树宽度都可拖动
 - 文件列表展示名称、大小、权限与修改时间，上传 / 下载带实时进度与传输队列
@@ -68,7 +122,7 @@ Terminator 是一款跨平台 SSH 客户端，专注于**安全、隐私和本�
 
 ### 代码片段
 
-<img src="docs/screenshots/snippets.png" alt="代码片段面板" width="900">
+<img src="docs/screenshots/snippets.webp" alt="代码片段面板" width="900">
 
 - 片段按分组管理，支持搜索、悬停编辑 / 删除与右键菜单
 - 点击片段直接在当前终端执行；右键可选择「在所有已连接终端执行」
@@ -76,15 +130,40 @@ Terminator 是一款跨平台 SSH 客户端，专注于**安全、隐私和本�
 
 ### 端口转发
 
-<img src="docs/screenshots/port-forwarding.png" alt="端口转发列表与新增面板" width="900">
+<img src="docs/screenshots/port-forwarding.webp" alt="端口转发列表" width="900">
 
 - 本地转发与远程转发统一列表，显示监听地址、目标地址、来源会话与运行状态
 - 新增面板选择 SSH 会话与端口，保存后立即生效；已停止条目可一键清理
 - 移除转发或关闭会话时隧道连接随之回收，长期运行不泄漏句柄
 
+### 端到端加密同步
+
+<img src="docs/screenshots/sync.webp" alt="同步设置与冲突处理" width="900">
+
+- 支持自建服务器与 WebDAV 两种通道，主机、密钥与片段先加密再上传，服务端拿不到明文
+- 多端并发修改同一对象时进入冲突面板，逐条选择「保留本机」或「保留云端」，处理前不同步其余条目
+- 冲突数量通过侧边栏徽标与顶部横幅提示，点击即可直达处理位置
+- 同步状态以彩色圆点标识：同步中 / 成功 / 失败，失败原因在面板内展开
+
+### 安全与备份
+
+<img src="docs/screenshots/security.webp" alt="安全设置与已知主机" width="900">
+
+- 已知主机（TOFU）：首次连接固定服务器密钥指纹，之后密钥变化会被直接拒绝，需在此删除旧记录才能重连
+- 一键锁定保险库：清空内存中的密钥与凭据并返回锁屏，桌面会话随之断开
+- 导出加密备份 / 从备份文件恢复；「清除保险库」会永久删除本地数据库并断开所有会话
+
+### 日志与会话检索
+
+<img src="docs/screenshots/logs.webp" alt="应用日志与会话日志检索" width="900">
+
+- 应用日志按级别着色（INFO / WARN / ERROR / DEBUG），支持刷新、复制与清除
+- 会话日志按会话逐日落盘，可设置保留天数，超期自动清理，适合事后排障与审计
+- 在所有会话日志中检索关键字，结果显示文件名与行号，点击即可预览该文件上下文
+
 ### 设置
 
-<img src="docs/screenshots/settings.png" alt="设置页" width="900">
+<img src="docs/screenshots/settings.webp" alt="设置页" width="900">
 
 - 六个分类：外观、终端、快捷键、同步、安全、关于
 - 外观：深色 / 浅色主题、7 种强调色、三套皮肤、三档界面密度与终端配色联动

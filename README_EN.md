@@ -14,11 +14,47 @@ Self-hostable SSH client with sync
 
 Terminator is a cross-platform SSH client built with [Wails v3](https://v3.wails.io/) and Go. Supports self-hosted servers for sync.
 
+## Contents
+
+- [Downloads](#downloads)
+- [Screenshots](#screenshots)
+  - [Hosts](#hosts)
+  - [Keys](#keys)
+  - [Terminal workspace](#terminal-workspace)
+  - [Command palette](#command-palette)
+  - [Compose bar](#compose-bar)
+  - [Visual file management (SFTP)](#visual-file-management-sftp)
+  - [Snippets](#snippets)
+  - [Port forwarding](#port-forwarding)
+  - [End-to-end encrypted sync](#end-to-end-encrypted-sync)
+  - [Security and backup](#security-and-backup)
+  - [Logs and session search](#logs-and-session-search)
+  - [Settings](#settings)
+- [Features](#features)
+- [Security](#security)
+- [Self-hosted server](#self-hosted-server)
+- [Architecture](#architecture)
+- [Development](#development)
+- [Roadmap](#roadmap)
+
+## Downloads
+
+Grab the latest Windows build from the [Releases](https://github.com/YCJE/Terminator/releases) page.
+
+| File | Description |
+|---|---|
+| `terminator-amd64-installer.exe` | **Recommended.** NSIS installer that bootstraps the WebView2 runtime and registers Start-menu / uninstall entries |
+| `terminator.exe` | Portable build, run it directly without installation |
+| `Terminator-windows-stable-Setup.exe` | Installer wired to the in-app auto-update channel |
+| `Terminator-windows-stable-Portable.zip` | Portable archive, unzip and run |
+
+> Windows needs the [WebView2 runtime](https://developer.microsoft.com/microsoft-edge/webview2/) on first launch (already present on most recent systems). Linux and macOS builds (AppImage / `pkg`) are published on the same Releases page.
+
 ## Screenshots
 
 ### Hosts
 
-<img src="docs/screenshots/hosts.png" alt="Host list and host details" width="900">
+<img src="docs/screenshots/hosts.webp" alt="Host list and host details" width="900">
 
 - Card grid groups hosts by group; the search box matches name, address, username and group name
 - Clicking a card opens a slide-in details panel for address, SSH port and authentication
@@ -28,7 +64,7 @@ Terminator is a cross-platform SSH client built with [Wails v3](https://v3.wails
 
 ### Keys
 
-<img src="docs/screenshots/keys.png" alt="Key list and key details" width="900">
+<img src="docs/screenshots/keys.webp" alt="Key list and key details" width="900">
 
 - Keys are stored encrypted in the local vault; cards show the name and type (Ed25519 / RSA)
 - Generate Ed25519 or RSA key pairs in-app, or import an existing private key from a file
@@ -37,7 +73,7 @@ Terminator is a cross-platform SSH client built with [Wails v3](https://v3.wails
 
 ### Terminal workspace
 
-<img src="docs/screenshots/terminal.png" alt="Terminal with multiple tabs and split panes" width="900">
+<img src="docs/screenshots/terminal.webp" alt="Terminal with multiple tabs and split panes" width="900">
 
 - Multi-tab management: each tab is its own SSH session and can be reordered by dragging; overflowing tabs scroll horizontally and reveal the active tab automatically
 - Split panes: <kbd>Ctrl+Shift+D</kbd> for side-by-side, <kbd>Ctrl+Shift+E</kbd> for stacked; drag the divider to resize (18% minimum per side)
@@ -45,9 +81,26 @@ Terminator is a cross-platform SSH client built with [Wails v3](https://v3.wails
 - Tab colors show connection state, the title bar shows round-trip latency, and the resource panel reports 1/5/15-minute load, memory, disk usage and uptime
 - Compose bar (<kbd>Ctrl+Shift+U</kbd>) lets you edit multi-line commands before sending to the current terminal or all connected terminals
 
+### Command palette
+
+<img src="docs/screenshots/command-palette.webp" alt="Command palette" width="900">
+
+- Opens with <kbd>Ctrl+Shift+P</kbd>; typing fuzzy-matches hosts, snippets and common actions
+- Host entries start a connection, snippet entries run in the active terminal, action entries switch pages, settings sections, split panes, file panel, compose bar or broadcast
+- Results are grouped into Hosts / Snippets / Actions; arrow keys to move, <kbd>Enter</kbd> to run, <kbd>Esc</kbd> to close
+
+### Compose bar
+
+<img src="docs/screenshots/compose.webp" alt="Compose bar" width="900">
+
+- A multi-line editor under the terminal: draft and proofread locally before anything reaches the remote shell
+- Choose the current terminal or all connected terminals as the target and push one script to a whole fleet at once
+- Recently sent commands stay as chips for quick edits; <kbd>Ctrl+↑</kbd> / <kbd>Ctrl+↓</kbd> walk through the history
+- Only commands sent from the compose bar are recorded — keystrokes typed into the terminal (such as passwords) are never stored
+
 ### Visual file management (SFTP)
 
-<img src="docs/screenshots/sftp.png" alt="SFTP file panel" width="900">
+<img src="docs/screenshots/sftp.webp" alt="SFTP file panel" width="900">
 
 - The file panel switches between a single list and a dual pane (directory tree + file list); both the panel and the tree width are draggable
 - The list shows name, size, permissions and modification time; uploads and downloads report live progress in a transfer queue
@@ -57,7 +110,7 @@ Terminator is a cross-platform SSH client built with [Wails v3](https://v3.wails
 
 ### Snippets
 
-<img src="docs/screenshots/snippets.png" alt="Snippet panel" width="900">
+<img src="docs/screenshots/snippets.webp" alt="Snippet panel" width="900">
 
 - Snippets are grouped and searchable, with hover edit / delete actions and a context menu
 - Click a snippet to run it in the current terminal; the context menu can run it on every connected terminal
@@ -65,15 +118,40 @@ Terminator is a cross-platform SSH client built with [Wails v3](https://v3.wails
 
 ### Port forwarding
 
-<img src="docs/screenshots/port-forwarding.png" alt="Port forwarding list and create panel" width="900">
+<img src="docs/screenshots/port-forwarding.webp" alt="Port forwarding list" width="900">
 
 - Local and remote forwards share one list showing the listening address, target, source session and status
 - The create panel picks an SSH session and ports; entries take effect immediately and stopped ones can be cleared
 - Removing a forward or closing its session reclaims the tunnel, so long runs do not leak handles
 
+### End-to-end encrypted sync
+
+<img src="docs/screenshots/sync.webp" alt="Sync settings and conflict resolution" width="900">
+
+- Sync over a self-hosted server or WebDAV; hosts, keys and snippets are encrypted before upload, so the server never sees plaintext
+- Concurrent edits to the same item land in the conflict panel, where each item keeps either the local or the remote version; other items stay blocked until resolved
+- Conflict counts surface in the sidebar badge and the top banner, both linking straight to the panel
+- A colored dot reports sync state (syncing / success / failed), with failure details expanded in place
+
+### Security and backup
+
+<img src="docs/screenshots/security.webp" alt="Security settings and known hosts" width="900">
+
+- Known hosts (TOFU): the server key is pinned on first connect; a later key change is rejected until the old record is removed here
+- One-click vault lock clears keys and credentials from memory, returns to the lock screen and disconnects sessions
+- Export an encrypted backup or restore one; wiping the vault permanently deletes the local database and drops every session
+
+### Logs and session search
+
+<img src="docs/screenshots/logs.webp" alt="Application logs and session log search" width="900">
+
+- Application logs are colored by level (INFO / WARN / ERROR / DEBUG) and can be refreshed, copied or cleared
+- Session logs roll over daily per session with a configurable retention window, ideal for after-the-fact troubleshooting and audits
+- Search across all session logs; hits show file name and line number, and a click previews that file's context
+
 ### Settings
 
-<img src="docs/screenshots/settings.png" alt="Settings page" width="900">
+<img src="docs/screenshots/settings.webp" alt="Settings page" width="900">
 
 - Six categories: appearance, terminal, shortcuts, sync, security, about
 - Appearance: dark / light theme, 7 accent colors, three skins, three density levels and terminal color linking
@@ -291,11 +369,6 @@ Sync consistency and conflict handling:
 - [ ] CLI client
 
 Something missing? Suggest more! [Issues](https://github.com/YCJE/Terminator/issues/new)
-
-## Screenshots
-
-<img src="assets/term-en-white.png" width="1600" alt="Terminator main screen"/>
-<img src="assets/term-t-white.png" width="1600" alt="Terminator terminal"/>
 
 ## Development
 

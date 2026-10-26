@@ -295,8 +295,8 @@ export function LogViewer() {
 
             {tab === "app" ? (
                 <>
-                    <div className="flex items-center justify-between">
-                        <div className="flex flex-col">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex min-w-[11rem] flex-1 flex-col">
                             <span className="settings-row-title">{t("log_title")}</span>
                             <span className="settings-row-desc">{t("log_desc")}</span>
                         </div>
@@ -359,8 +359,8 @@ export function LogViewer() {
                 </>
             ) : (
                 <>
-                    <div className="flex items-center justify-between">
-                        <div className="flex flex-col">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex min-w-[11rem] flex-1 flex-col">
                             <span className="settings-row-title">{t("session_log_viewer_title")}</span>
                             <span className="settings-row-desc">{t("session_log_viewer_desc")}</span>
                         </div>

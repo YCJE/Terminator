@@ -691,7 +691,10 @@ html[data-skin="editorial"] .font-heading {
 }
 
 /* 行内箭头（端口转发：本地 → 远程） */
+/* Tailwind 预检把 svg 设为 display:block，这里必须显式改回 inline-block，
+   否则箭头会把地址拆成上下两行（本地一行、远程一行） */
 .list-arrow {
+    display: inline-block;
     color: var(--fg-subtle);
     margin: 0 0.3rem;
     vertical-align: -2px;

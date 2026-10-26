@@ -101,7 +101,7 @@ function FileTableImpl({ entries, loading, onOpen, onContextMenu, onEntryDragSta
         "minmax(0,1fr)",
         showSize ? "60px" : "0px",
         showPerm ? "80px" : "0px",
-        showTime ? "100px" : "0px",
+        showTime ? "112px" : "0px",
     ].join(" ");
 
     // 按搜索文本过滤
@@ -280,7 +280,7 @@ function FileTableImpl({ entries, loading, onOpen, onContextMenu, onEntryDragSta
                                         </span>
                                     )}
                                     {showTime && (
-                                        <span className="truncate text-[var(--fg-muted)]">
+                                        <span className="truncate whitespace-nowrap font-mono text-[11px] text-[var(--fg-muted)]">
                                             {formatDateTime(entry.modTime)}
                                         </span>
                                     )}
