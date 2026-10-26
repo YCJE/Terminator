@@ -35,7 +35,7 @@ Unicode true
 ## Override the version explicitly. wails_tools.nsh defaults to 0.0.1, which would
 ## make the installer PE version and the registry DisplayVersion diverge from the app.
 ## NOTE: keep this file ASCII-only - makensis reads it as ACP and aborts on non-ASCII bytes.
-!define INFO_PRODUCTVERSION "0.8.8"
+!define INFO_PRODUCTVERSION "0.8.9"
 
 !include "wails_tools.nsh"
 
