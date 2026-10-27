@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"runtime/debug"
 	"strings"
+	"sync/atomic"
 	"terminator-desktop/backend/cmd/terminator-desktop/emitters"
 	"terminator-desktop/backend/cmd/terminator-desktop/env"
 	"terminator-desktop/backend/internal/api"
@@ -118,7 +119,9 @@ func main() {
 
 	slog.Info("Environment", "IsDebug", isDebug)
 
-	var mainWindow *application.WebviewWindow
+	// 第二实例回调由 Wails 的监听 goroutine 执行，与下方窗口创建并发，
+	// 用原子指针避免在未同步的情况下读写窗口句柄（-race 可复现）。
+	var mainWindow atomic.Pointer[application.WebviewWindow]
 
 	// Create a new Wails application by providing the necessary options.
 	// Variables 'Name' and 'Description' are for application metadata.
@@ -143,9 +146,9 @@ func main() {
 		SingleInstance: &application.SingleInstanceOptions{
 			UniqueID: "com.terminator.desktop",
 			OnSecondInstanceLaunch: func(data application.SecondInstanceData) {
-				if mainWindow != nil {
-					mainWindow.Restore()
-					mainWindow.Focus()
+				if w := mainWindow.Load(); w != nil {
+					w.Restore()
+					w.Focus()
 				}
 
 				slog.Info("Second instance launched", "args", data.Args)
@@ -241,7 +244,7 @@ func main() {
 	// 'Mac' options tailor the window when running on macOS.
 	// 'BackgroundColour' is the background colour of the window.
 	// 'URL' is the URL that will be loaded into the webview.
-	mainWindow = app.Window.NewWithOptions(application.WebviewWindowOptions{
+	mainWin := app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title:          AppName,
 		EnableFileDrop: true,
 		Frameless:      runtime.GOOS == "windows",
@@ -253,10 +256,11 @@ func main() {
 		BackgroundColour: application.NewRGB(9, 9, 11),
 		URL:              "/",
 	})
+	mainWindow.Store(mainWin)
 
 	// 外部文件拖放：WebView2 不允许网页读取本地文件绝对路径，
 	// 由 Wails 把路径交给 Go，再连同拖放目标元素上的会话信息转发给前端。
-	mainWindow.OnWindowEvent(events.Common.WindowFilesDropped, func(event *application.WindowEvent) {
+	mainWin.OnWindowEvent(events.Common.WindowFilesDropped, func(event *application.WindowEvent) {
 		ctx := event.Context()
 		files := ctx.DroppedFiles()
 		if len(files) == 0 {

@@ -135,14 +135,18 @@ func (s *SyncService) PauseSync() func() {
 }
 
 func (s *SyncService) Sync(ctx context.Context) (err error) {
-	if !s.vault.IsUnlocked() {
-		return nil
-	}
-
 	// 等待整体替换数据的操作（备份导入 / 数据擦除）结束：在途同步读到的是
 	// 替换前的旧副本，若继续执行会把旧数据推回服务器或写回本地。
 	s.syncGate.RLock()
 	defer s.syncGate.RUnlock()
+
+	// 解锁状态必须在取得 syncGate 之后再检查：WipeData / LockVault 会先拿写锁，
+	// 再清空 users 与内存密钥。若在加锁前检查，等锁期间数据可能已被擦除，
+	// 之后 GetUser 得到 sql.ErrNoRows、GetLoginKey 得到 VaultLocked，会把用户
+	// 刚完成的擦除或上锁误报成"同步失败"。
+	if !s.vault.IsUnlocked() {
+		return nil
+	}
 
 	s.mutex.Lock()
 	if s.isSyncing {
@@ -170,7 +174,7 @@ func (s *SyncService) Sync(ctx context.Context) (err error) {
 
 	// 读取 AppSettings 判断同步方式：webdav 走 WebDAV 全量同步，其余走服务器同步
 	if s.settingsSvc != nil {
-		appSettings, err := s.settingsSvc.GetSettings()
+		appSettings, err := s.settingsSvc.GetSettingsWithSecrets()
 		if err != nil {
 			return err
 		}
