@@ -55,7 +55,7 @@ func NewSettingsService(appDir string) *SettingsService {
 	}
 }
 
-func (s *SettingsService) GetSettings() (AppSettings, error) {
+func (s *SettingsService) loadSettings() (AppSettings, error) {
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
 
@@ -109,6 +109,24 @@ func (s *SettingsService) GetSettings() (AppSettings, error) {
 	}
 
 	return def, nil
+}
+
+// GetSettings 返回给前端的设置副本，绝不包含 WebDAV 密码。
+//
+// 密码只应留在本地 settings.json 与后端内存中：渲染进程不需要读取，
+// 编辑配置时留空即表示"不修改"，由 SaveSettings 的合并逻辑保留旧密码。
+// 后端内部需要密码的路径（WebDAV 同步、连接测试）改用 GetSettingsWithSecrets。
+func (s *SettingsService) GetSettings() (AppSettings, error) {
+	st, err := s.loadSettings()
+	st.WebDAVPassword = ""
+	return st, err
+}
+
+// GetSettingsWithSecrets 返回含 WebDAV 密码的完整设置，仅供后端内部使用。
+//
+//wails:ignore 含明文凭据，不能暴露为前端 binding
+func (s *SettingsService) GetSettingsWithSecrets() (AppSettings, error) {
+	return s.loadSettings()
 }
 
 // defaultSettings 返回默认设置值

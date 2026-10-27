@@ -27,7 +27,7 @@ export class AppSettings {
 
     /**
      * 外观偏好
-     * "monochrome"|"sky"|"emerald"|"violet"|"amber"|"rose"|"cyan" (默认 monochrome)
+     * "monochrome"|"sky"|"emerald"|"violet"|"amber"|"rose"|"cyan" (默认 sky)
      */
     "accent_color": string;
 

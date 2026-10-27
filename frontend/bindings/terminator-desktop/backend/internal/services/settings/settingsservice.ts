@@ -23,6 +23,13 @@ export function GetLogs(maxLines: number): $CancellablePromise<string> {
     return $Call.ByID(3313034702, maxLines);
 }
 
+/**
+ * GetSettings 返回给前端的设置副本，绝不包含 WebDAV 密码。
+ * 
+ * 密码只应留在本地 settings.json 与后端内存中：渲染进程不需要读取，
+ * 编辑配置时留空即表示"不修改"，由 SaveSettings 的合并逻辑保留旧密码。
+ * 后端内部需要密码的路径（WebDAV 同步、连接测试）改用 GetSettingsWithSecrets。
+ */
 export function GetSettings(): $CancellablePromise<$models.AppSettings> {
     return $Call.ByID(1855091376).then(($result: any) => {
         return $$createType0($result);

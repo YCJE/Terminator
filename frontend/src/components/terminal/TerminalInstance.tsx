@@ -527,7 +527,11 @@ export function TerminalInstance({sessionId, isVisible, isFocused, config, sessi
         // 自动重连：仅在用户成功连接过且开启了自动重连时尝试，
         // 最多 3 次（2s / 5s / 10s）。手动关闭标签会卸载组件并清掉定时器。
         // 本地终端 shell 退出属于用户主动行为，不自动拉起新 shell。
-        if (!isLocal && useUIStore.getState().autoReconnect && hasConnectedRef.current) {
+        // 重连期间 init effect 的 cleanup 会把 hasConnectedRef 置回 false，
+        // 仅凭它判断会让自动重连只尝试一次。reconnectAttemptsRef > 0 表示本轮
+        // 重连尚未成功，据此继续 2s/5s/10s 的后续尝试。
+        const reconnecting = reconnectAttemptsRef.current > 0;
+        if (!isLocal && useUIStore.getState().autoReconnect && (hasConnectedRef.current || reconnecting)) {
             const attempt = reconnectAttemptsRef.current;
             if (attempt < 3) {
                 const delay = [2000, 5000, 10000][attempt];

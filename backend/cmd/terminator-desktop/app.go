@@ -27,7 +27,7 @@ func (s *WebDAVService) TestWebDAVConnection(url, username, password string) err
 	// 若此处直接拿空密码去请求，编辑既有配置时点"测试连接"会必然 401，
 	// 让用户误以为已保存的凭据失效。
 	if password == "" {
-		if current, err := s.settingsSvc.GetSettings(); err == nil {
+		if current, err := s.settingsSvc.GetSettingsWithSecrets(); err == nil {
 			password = current.WebDAVPassword
 		}
 	}

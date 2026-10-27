@@ -103,6 +103,12 @@ export default function App() {
         const unsubscribe = Events.On(AppEvent.SshClosed, (event) => {
             const data = event?.data as { id?: string } | null;
             if (!data?.id) return;
+            // 重连时旧连接的 Disconnect 也会发一次 closed。会话处于 connecting
+            // 说明新连接仍在建立，此时标记断开会让 TerminalInstance 的
+            // disconnected effect 重新排一轮重连。该事件的实例内守卫见
+            // TerminalInstance，这里保持同样语义，避免全局处理器绕过它。
+            const session = useSessionStore.getState().sessions.find((s) => s.id === data.id);
+            if (session?.status === "connecting") return;
             markSessionDisconnected(data.id);
         });
 

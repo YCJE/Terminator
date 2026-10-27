@@ -196,7 +196,9 @@ export function TerminalStack({isVisible}: TerminalStackProps) {
                     </div>
                     {isComposePanelVisible && (
                         <div className="shrink-0" style={{height: "9.5rem"}}>
-                            <ComposeBar sessionId={activeSessionId}/>
+                            {/* key 绑定会话：切换标签时重建，避免 A 标签的草稿
+                                被误发到 B 标签（或"发送到全部"时的其他会话） */}
+                            <ComposeBar key={activeSessionId ?? "none"} sessionId={activeSessionId}/>
                         </div>
                     )}
                 </div>
