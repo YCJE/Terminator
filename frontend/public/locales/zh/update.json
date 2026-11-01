@@ -4,5 +4,7 @@
   "restart_update": "重启并更新",
   "update_available": "有新版本可用",
   "open_download_page": "前往下载",
-  "nav_update": "更新"
+  "nav_update": "更新",
+  "later": "稍后提醒",
+  "skip_version": "跳过此版本"
 }

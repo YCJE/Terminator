@@ -6,10 +6,60 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/pem"
+	"errors"
 	"fmt"
+	"strings"
 
 	"golang.org/x/crypto/ssh"
 )
+
+// KeyValidation 描述一次私钥解析/校验的结果。
+// Encrypted 表示私钥本身带口令；Fingerprint 为 OpenSSH 风格 SHA256 指纹，
+// 可用于和服务器端 authorized_keys 或运维提供的指纹对照。
+type KeyValidation struct {
+	Valid       bool   `json:"valid"`
+	Encrypted   bool   `json:"encrypted"`
+	KeyType     string `json:"keyType"`
+	Fingerprint string `json:"fingerprint"`
+}
+
+// ValidateKey 校验私钥格式与口令，并返回公钥类型与指纹。
+// 加密私钥必须提供正确口令；口令错误、私钥损坏或格式不支持都会返回错误，
+// 调用方据此在保存前拦截，避免把无法用于连接的密钥写入保险库。
+func (s *KeyService) ValidateKey(privateKey string, passphrase string) (*KeyValidation, error) {
+	key := strings.TrimSpace(privateKey)
+	if key == "" {
+		return nil, fmt.Errorf("私钥内容为空")
+	}
+
+	signer, err := ssh.ParsePrivateKey([]byte(key))
+	encrypted := false
+	if err != nil {
+		var missing *ssh.PassphraseMissingError
+		// 部分旧格式（PEM）在无口令时返回的错误类型可能被包装，
+		// errors.As 可兼容；同时只要用户提供了口令就再尝试一次。
+		if errors.As(err, &missing) || passphrase != "" {
+			encrypted = true
+			if passphrase == "" {
+				return nil, fmt.Errorf("私钥已加密，请输入口令")
+			}
+			signer, err = ssh.ParsePrivateKeyWithPassphrase([]byte(key), []byte(passphrase))
+			if err != nil {
+				return nil, fmt.Errorf("口令错误或私钥已损坏")
+			}
+		} else {
+			return nil, fmt.Errorf("私钥格式无效: %v", err)
+		}
+	}
+
+	pub := signer.PublicKey()
+	return &KeyValidation{
+		Valid:       true,
+		Encrypted:   encrypted,
+		KeyType:     pub.Type(),
+		Fingerprint: ssh.FingerprintSHA256(pub),
+	}, nil
+}
 
 // GenerateKey 生成 SSH 私钥
 // keyType: "ed25519" 或 "rsa"

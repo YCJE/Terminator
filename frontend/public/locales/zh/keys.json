@@ -22,5 +22,15 @@
   "section_key_details": "密钥详情",
   "key_type": "类型 {{type}}",
   "key_type_label": "密钥类型",
-  "no_search_results": "没有匹配的密钥"
+  "no_search_results": "没有匹配的密钥",
+  "passphrase_label": "私钥口令",
+  "passphrase_placeholder": "只有加密私钥才需要填写",
+  "passphrase_hint": "带口令的私钥（如 id_rsa、id_ed25519 的加密版本）需填写口令；口令随密钥加密保存在本地保险库，不会上传。",
+  "show_passphrase": "显示口令",
+  "hide_passphrase": "隐藏口令",
+  "verify_key": "验证密钥",
+  "validate_key_failed": "密钥校验失败",
+  "key_encrypted": "已加密",
+  "key_unencrypted": "未加密",
+  "key_fingerprint": "指纹"
 }

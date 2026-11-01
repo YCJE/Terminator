@@ -1,4 +1,4 @@
-import {useState, useMemo} from "react";
+import {useState, useMemo, useEffect} from "react";
 import {useTranslation} from "react-i18next";
 import {
     Plus,
@@ -23,6 +23,8 @@ import {SlidePanel} from "@/components/ui/slide-panel";
 import {ConfirmModal} from "@/components/ui/confirm-modal";
 import {useSessionStore} from "@/store/sessionStore";
 import {usePortForwardStore, type TrackedForward} from "@/store/portForwardStore";
+import {forwardScope} from "@/lib/portForwardPersistence";
+import {isSshKind} from "@/lib/sessionBackend";
 import {SshService} from "../../../bindings/terminator-desktop/backend/internal/services/ssh";
 import {PortForwardSpec} from "../../../bindings/terminator-desktop/backend/internal/services/ssh/models";
 import {cn} from "@/lib/utils";
@@ -57,15 +59,21 @@ export function PortForwardingPage() {
     const removeForward = usePortForwardStore((s) => s.removeForward);
     const restoreForward = usePortForwardStore((s) => s.restoreForward);
 
+    // 打开页面时按持久化配置补齐占位条目：锁屏后 store 被清空，
+    // 但 localStorage 里的配置仍在，重新进入页面即可看到待恢复的转发
+    useEffect(() => {
+        usePortForwardStore.getState().reloadStored();
+    }, []);
+
     const [showForm, setShowForm] = useState(false);
     const [formData, setFormData] = useState<FormState>(DEFAULT_FORM);
     const [isSaving, setIsSaving] = useState(false);
     const [forwardToDelete, setForwardToDelete] = useState<TrackedForward | null>(null);
 
     // 仅展示已连接（或正在连接）且未断开的 SSH 会话；
-    // 本地终端没有后端 SSH 会话，转发调用会直接返回 session not found。
+    // 本地 / Telnet / 串口没有后端 SSH 会话，转发调用会直接返回 session not found。
     const connectedSessions = useMemo(
-        () => sessions.filter((s) => !s.disconnected && s.kind !== "local"),
+        () => sessions.filter((s) => !s.disconnected && isSshKind(s.kind)),
         [sessions]
     );
 
@@ -102,6 +110,7 @@ export function PortForwardingPage() {
         const sessionTitle =
             connectedSessions.find((s) => s.id === formData.sessionId)?.title ||
             formData.sessionId;
+        const targetSession = connectedSessions.find((s) => s.id === formData.sessionId);
 
         const spec = new PortForwardSpec({
             id,
@@ -116,7 +125,13 @@ export function PortForwardingPage() {
         setIsSaving(true);
         try {
             await SshService.AddPortForward(spec);
-            addForward({...spec, sessionTitle, status: "active" as const});
+            // scope 用于持久化：应用重启后按主机匹配并自动恢复
+            addForward({
+                ...spec,
+                sessionTitle,
+                status: "active" as const,
+                scope: targetSession ? forwardScope(targetSession) : formData.sessionId,
+            });
             setShowForm(false);
         } catch (err) {
             console.error("AddPortForward failed:", err);
@@ -188,15 +203,19 @@ export function PortForwardingPage() {
 
                 {/* 端口转发列表 */}
                 {forwards.length > 0 && (
-                    <div className="rule-list">
-                        {forwards.map((forward) => (
-                            <PortForwardCard
-                                key={forward.id}
-                                forward={forward}
-                                onDelete={() => handleDeletePrompt(forward)}
-                            />
-                        ))}
-                    </div>
+                    <>
+                        {/* 与主机 / 密钥页保持同一条"分区标题 → 内容"的排版节奏 */}
+                        <div className="section-head is-first">{t("list_title")}</div>
+                        <div className="rule-list">
+                            {forwards.map((forward) => (
+                                <PortForwardCard
+                                    key={forward.id}
+                                    forward={forward}
+                                    onDelete={() => handleDeletePrompt(forward)}
+                                />
+                            ))}
+                        </div>
+                    </>
                 )}
 
                 {/* 删除确认 */}
@@ -272,10 +291,10 @@ function PortForwardCard({forward, onDelete}: PortForwardCardProps) {
                 {forward.remoteHost}:{forward.remotePort}
             </span>
 
-            {/* 次信息：所属会话 */}
+            {/* 次信息：所属会话（重启后尚未连接时为空，显示占位符） */}
             <span className="list-tag is-icon" title={forward.sessionTitle}>
                 <Server className="size-3 shrink-0"/>
-                <span>{forward.sessionTitle}</span>
+                <span>{forward.sessionTitle || "—"}</span>
             </span>
 
             {/* 状态 */}
@@ -343,30 +362,30 @@ function PortForwardForm({formData, onChange, connectedSessions}: PortForwardFor
                 )}
             </div>
 
-            {/* 转发类型 */}
+            {/* 转发类型：分段控件，避免两个大号实心按钮在表单里过重 */}
             <div className="grid gap-2">
                 <Label>{t("label_type")}</Label>
-                <div className="grid grid-cols-2 gap-2">
-                    <Button
+                <div className="seg-choice">
+                    <button
                         type="button"
-                        variant={formData.type === "local" ? "default" : "outline"}
+                        aria-pressed={formData.type === "local"}
                         onClick={() => update({type: "local"})}
-                        className="justify-center"
+                        className={cn("seg-choice-btn", formData.type === "local" && "is-active")}
                     >
-                        <ArrowRightLeft/>
+                        <ArrowRightLeft className="size-3.5 shrink-0"/>
                         {t("type_local")}
-                    </Button>
-                    <Button
+                    </button>
+                    <button
                         type="button"
-                        variant={formData.type === "remote" ? "default" : "outline"}
+                        aria-pressed={formData.type === "remote"}
                         onClick={() => update({type: "remote"})}
-                        className="justify-center"
+                        className={cn("seg-choice-btn", formData.type === "remote" && "is-active")}
                     >
-                        <Network/>
+                        <Network className="size-3.5 shrink-0"/>
                         {t("type_remote")}
-                    </Button>
+                    </button>
                 </div>
-                <p className="text-xs text-[var(--fg-muted)]">
+                <p className="text-xs leading-relaxed text-[var(--fg-subtle)]">
                     {formData.type === "local" ? t("desc_local") : t("desc_remote")}
                 </p>
             </div>

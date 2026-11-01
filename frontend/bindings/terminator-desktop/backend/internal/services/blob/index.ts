@@ -13,6 +13,7 @@ export {
 export {
     Host,
     ItemType,
+    KeyValidation,
     SSHConfigHost,
     SavedKey,
     Snippet

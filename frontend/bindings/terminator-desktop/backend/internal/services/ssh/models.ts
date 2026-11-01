@@ -6,9 +6,78 @@
 import { Create as $Create } from "@wailsio/runtime";
 
 /**
+ * ConnectionTestResult 是连接预检的完整结果。
+ * 即使失败也返回结果对象而不是 Go error，使前端能逐阶段展示失败位置。
+ */
+export class ConnectionTestResult {
+    "ok": boolean;
+    "steps": ConnectionTestStep[];
+    "error"?: string;
+
+    /** Creates a new ConnectionTestResult instance. */
+    constructor($$source: Partial<ConnectionTestResult> = {}) {
+        if (!("ok" in $$source)) {
+            this["ok"] = false;
+        }
+        if (!("steps" in $$source)) {
+            this["steps"] = [];
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ConnectionTestResult instance from a string or object.
+     */
+    static createFrom($$source: any = {}): ConnectionTestResult {
+        const $$createField1_0 = $$createType1;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("steps" in $$parsedSource) {
+            $$parsedSource["steps"] = $$createField1_0($$parsedSource["steps"]);
+        }
+        return new ConnectionTestResult($$parsedSource as Partial<ConnectionTestResult>);
+    }
+}
+
+/**
+ * ConnectionTestStep 描述连接预检中的一个阶段。
+ * Key 是稳定标识，由前端负责本地化；Detail 仅在失败时给出具体原因。
+ */
+export class ConnectionTestStep {
+    "key": string;
+    "ok": boolean;
+    "durationMs": number;
+    "detail"?: string;
+
+    /** Creates a new ConnectionTestStep instance. */
+    constructor($$source: Partial<ConnectionTestStep> = {}) {
+        if (!("key" in $$source)) {
+            this["key"] = "";
+        }
+        if (!("ok" in $$source)) {
+            this["ok"] = false;
+        }
+        if (!("durationMs" in $$source)) {
+            this["durationMs"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ConnectionTestStep instance from a string or object.
+     */
+    static createFrom($$source: any = {}): ConnectionTestStep {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new ConnectionTestStep($$parsedSource as Partial<ConnectionTestStep>);
+    }
+}
+
+/**
  * JumpHostConfig 跳板机配置。
  * JumpHost 支持嵌套，用于多级链式跳转：config.JumpHost 为最外层跳板
  * （由本机直接连接），其 JumpHost 字段指向再往内一层的跳板，依此类推。
+ * 跳板机的 keyboard-interactive 暂不支持：跳板阶段没有可交互的会话上下文。
  */
 export class JumpHostConfig {
     "host": string;
@@ -16,6 +85,8 @@ export class JumpHostConfig {
     "username": string;
     "password"?: string;
     "privateKey"?: string;
+    "privateKeyPassphrase"?: string;
+    "certificate"?: string;
     "jumpHost"?: JumpHostConfig | null;
 
     /** Creates a new JumpHostConfig instance. */
@@ -37,10 +108,10 @@ export class JumpHostConfig {
      * Creates a new JumpHostConfig instance from a string or object.
      */
     static createFrom($$source: any = {}): JumpHostConfig {
-        const $$createField5_0 = $$createType1;
+        const $$createField7_0 = $$createType3;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("jumpHost" in $$parsedSource) {
-            $$parsedSource["jumpHost"] = $$createField5_0($$parsedSource["jumpHost"]);
+            $$parsedSource["jumpHost"] = $$createField7_0($$parsedSource["jumpHost"]);
         }
         return new JumpHostConfig($$parsedSource as Partial<JumpHostConfig>);
     }
@@ -143,6 +214,12 @@ export class SSHConnectionConfig {
     "privateKey"?: string;
 
     /**
+     * PrivateKeyPassphrase 是加密私钥的解密口令（可选）。
+     * 只在私钥带口令时需要，随会话参数由前端从保险库中解密后传入。
+     */
+    "privateKeyPassphrase"?: string;
+
+    /**
      * JumpHost 跳板机配置（可选），通过跳板机建立到目标的 SSH 隧道
      */
     "jumpHost"?: JumpHostConfig | null;
@@ -161,6 +238,43 @@ export class SSHConnectionConfig {
      * AgentForwarding 启用 SSH Agent 认证与转发（可选）
      */
     "agentForwarding"?: boolean;
+
+    /**
+     * KeyboardInteractive 启用 keyboard-interactive 认证（MFA/OTP）。
+     * 服务器发起的任意问答都会推送到前端弹窗填写；未开启时，
+     * 只有纯密码问题会静默使用已保存的密码回答。
+     */
+    "keyboardInteractive"?: boolean;
+
+    /**
+     * Certificate 是 OpenSSH 用户证书内容（*-cert.pub 文件），
+     * 必须与 PrivateKey 配对使用，由 CA 签发后服务器才接受该私钥。
+     */
+    "certificate"?: string;
+
+    /**
+     * ── 会话高级参数 ──────────────────────────────────────────
+     * TermType 是请求 PTY 时上报的终端类型；空值使用 xterm-256color。
+     * 少数老旧设备只识别 vt100/ansi 等传统类型。
+     */
+    "termType"?: string;
+
+    /**
+     * ConnectTimeout 是建立连接的总超时秒数（含跳板与代理握手）。
+     * 0 使用默认值 15 秒，上限 120 秒。
+     */
+    "connectTimeout"?: number;
+
+    /**
+     * KeepAlive 是连接保活间隔秒数：0 使用默认 30 秒，负数关闭保活。
+     */
+    "keepAlive"?: number;
+
+    /**
+     * Encoding 是远端字符编码（如 gbk、big5）；空值/utf-8 表示 UTF-8。
+     * 仅影响键盘输入转码与前端输出解码，不改变 SSH 协议本身。
+     */
+    "encoding"?: string;
 
     /** Creates a new SSHConnectionConfig instance. */
     constructor($$source: Partial<SSHConnectionConfig> = {}) {
@@ -184,10 +298,10 @@ export class SSHConnectionConfig {
      * Creates a new SSHConnectionConfig instance from a string or object.
      */
     static createFrom($$source: any = {}): SSHConnectionConfig {
-        const $$createField6_0 = $$createType1;
+        const $$createField7_0 = $$createType3;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("jumpHost" in $$parsedSource) {
-            $$parsedSource["jumpHost"] = $$createField6_0($$parsedSource["jumpHost"]);
+            $$parsedSource["jumpHost"] = $$createField7_0($$parsedSource["jumpHost"]);
         }
         return new SSHConnectionConfig($$parsedSource as Partial<SSHConnectionConfig>);
     }
@@ -339,5 +453,7 @@ export class SystemStats {
 }
 
 // Private type creation functions
-const $$createType0 = JumpHostConfig.createFrom;
-const $$createType1 = $Create.Nullable($$createType0);
+const $$createType0 = ConnectionTestStep.createFrom;
+const $$createType1 = $Create.Array($$createType0);
+const $$createType2 = JumpHostConfig.createFrom;
+const $$createType3 = $Create.Nullable($$createType2);

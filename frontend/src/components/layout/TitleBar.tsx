@@ -1,14 +1,26 @@
-import { PanelLeftClose, PanelLeftOpen, FolderOpen, PanelRightClose, Radio, Columns2, Rows2, X, SquareTerminal } from "lucide-react";
+import { PanelLeftClose, PanelLeftOpen, FolderOpen, PanelRightClose, Radio, Columns2, Rows2, X, SquareTerminal, Plus, Zap, Server } from "lucide-react";
 import { useSessionStore } from "@/store/sessionStore";
 import { useUIStore, ViewType } from "@/store/uiStore";
 import { WindowControls } from "@/components/layout/WindowControls";
-import { LatencyBadge, SystemStatsButton } from "@/components/layout/SessionStatusIndicators";
+import { SystemStatsButton } from "@/components/layout/SessionStatusIndicators";
 import { TerminalTab } from "@/components/layout/TerminalTab";
 import { Button } from "@/components/ui/button";
+import { ConfirmModal } from "@/components/ui/confirm-modal";
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
+import { MAX_PANES, countPanes, firstPaneSession, isPaneSession } from "@/lib/paneLayout";
+import { isSshKind } from "@/lib/sessionBackend";
+import { popOutSession } from "@/lib/floatingWindows";
 import { useAuthStore } from "@/store/authStore.ts";
+import { useTransferStore } from "@/store/transferStore";
 import { useTranslation } from "react-i18next";
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import type { TerminalSession } from "@/store/sessionStore";
 
 export function TitleBar() {
     const sessions = useSessionStore((s) => s.sessions);
@@ -17,10 +29,15 @@ export function TitleBar() {
     const removeSession = useSessionStore((s) => s.removeSession);
     const reorderSessionsByIds = useSessionStore((s) => s.reorderSessionsByIds);
     const addLocalSession = useSessionStore((s) => s.addLocalSession);
-    const split = useSessionStore((s) => s.split);
+    const layout = useSessionStore((s) => s.layout);
     const splitActiveSession = useSessionStore((s) => s.splitActiveSession);
     const closeSplit = useSessionStore((s) => s.closeSplit);
     const setSessionColor = useSessionStore((s) => s.setSessionColor);
+    const renameSession = useSessionStore((s) => s.renameSession);
+    const duplicateSession = useSessionStore((s) => s.duplicateSession);
+    const closeOtherSessions = useSessionStore((s) => s.closeOtherSessions);
+    const closeSessionsToRight = useSessionStore((s) => s.closeSessionsToRight);
+    const reconnectSession = useSessionStore((s) => s.reconnectSession);
     const broadcastMode = useSessionStore((s) => s.broadcastMode);
     const toggleBroadcastMode = useSessionStore((s) => s.toggleBroadcastMode);
     const broadcastEnabled = useUIStore((s) => s.broadcastEnabled);
@@ -29,9 +46,20 @@ export function TitleBar() {
     const toggleSidebar = useUIStore((s) => s.toggleSidebar);
     const isFilePanelVisible = useUIStore((s) => s.isFilePanelVisible);
     const toggleFilePanel = useUIStore((s) => s.toggleFilePanel);
+    const setQuickConnectOpen = useUIStore((s) => s.setQuickConnectOpen);
+    const setActiveView = useUIStore((s) => s.setActiveView);
 
     const isTerminalView = activeView === ViewType.Terminal;
-    const showSidebarStyling = isTerminalView ? isSidebarVisible : true;
+    const isSettingsView = activeView === ViewType.Settings;
+    // 设置页隐藏主侧栏后，标题栏品牌区与设置分类导航同宽，
+    // 保证两条竖线在视觉上连续，而不是留下一条错位的空白。
+    const showSidebarStyling = isTerminalView ? isSidebarVisible : !isSettingsView;
+    const brandIsRail = showSidebarStyling || isSettingsView;
+    const brandWidth = isSettingsView
+        ? "var(--settings-nav-width)"
+        : showSidebarStyling
+            ? "var(--sidebar-width)"
+            : "calc(48px * var(--spaciness))";
 
     const {isUnlocked} = useAuthStore();
     const {t: tSftp} = useTranslation("sftp");
@@ -42,19 +70,40 @@ export function TitleBar() {
     const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
     // 标签条两端是否还有未显示的标签，用于渐隐提示可继续滚动
     const [tabOverflow, setTabOverflow] = useState({ start: false, end: false });
+    // 关闭前待确认的标签：开启"关闭标签页前确认"且有活跃连接/传输时使用
+    const [pendingClose, setPendingClose] = useState<TerminalSession | null>(null);
 
-    // 分屏副窗格不进入标签栏；焦点落在副窗格时高亮其主窗格的标签
+    /**
+     * 关闭标签
+     * 仅在会话仍处于连接状态（或有活跃文件传输）且用户开启了关闭确认时弹窗，
+     * 已断开的标签直接关闭，避免每次关闭都多一步点击。
+     */
+    const requestClose = (session: TerminalSession) => {
+        const hasActiveTransfer = useTransferStore.getState().transfers.some(
+            (transfer) => transfer.sessionId === session.id && transfer.status === "active",
+        );
+        const needsConfirm = session.status === "connected" || hasActiveTransfer;
+        if (!useUIStore.getState().closeTabConfirm || !needsConfirm) {
+            removeSession(session.id);
+            return;
+        }
+        setPendingClose(session);
+    };
+
+    // 分屏副窗格不进入标签栏；焦点落在任一窗格时高亮该组布局的代表标签
     const visibleSessions = sessions.filter((s) => !s.isSplitPane);
-    const activeTabId = split &&
-        (activeSessionId === split.primaryId || activeSessionId === split.secondaryId)
-        ? split.primaryId
-        : activeSessionId;
+    const paneInLayout = !!layout && !!activeSessionId && isPaneSession(layout, activeSessionId);
+    const activeTabId = paneInLayout ? firstPaneSession(layout) ?? activeSessionId : activeSessionId;
     const activeSession = sessions.find((s) => s.id === activeSessionId);
-    // 本地终端没有延迟、资源面板与 SFTP 文件管理
-    const activeIsLocal = activeSession?.kind === "local";
-    const canSplit = !!activeSession && !activeSession.disconnected && !activeSession.isSplitPane;
+    // 延迟与资源采样依赖 SSH 会话；本地 / Telnet / 串口均不提供
+    const activeIsSsh = isSshKind(activeSession?.kind);
+    // 布局内任一窗格都可继续拆分；布局外的标签暂不支持（同一时间只维护一组布局）
+    const paneCount = layout ? countPanes(layout) : 0;
+    const paneLimitReached = paneCount >= MAX_PANES;
+    const canSplit = !!activeSession && !activeSession.disconnected
+        && (!layout || paneInLayout) && !paneLimitReached;
     // 延迟与资源采样都依赖后端已建立的 SSH 会话，连接中/断开时不显示
-    const sessionConnected = activeSession?.status === "connected" && !activeIsLocal;
+    const sessionConnected = activeSession?.status === "connected" && activeIsSsh;
 
     const updateTabOverflow = useCallback(() => {
         const el = scrollRef.current;
@@ -113,15 +162,11 @@ export function TitleBar() {
                 <div
                     className={cn(
                         "relative flex h-full shrink-0 items-center",
-                        showSidebarStyling
+                        brandIsRail
                             ? "bg-sidebar border-r border-[var(--hairline)]"
                             : "bg-transparent"
                     )}
-                    style={{
-                        width: showSidebarStyling
-                            ? "var(--sidebar-width)"
-                            : "calc(48px * var(--spaciness))",
-                    }}
+                    style={{width: brandWidth}}
                 >
                     {isTerminalView ? (
                         <div className="flex h-full w-full min-w-0 items-center gap-2 pl-3">
@@ -137,6 +182,8 @@ export function TitleBar() {
                                 variant="ghost"
                                 size="icon"
                                 onClick={toggleSidebar}
+                                title={tTerm("toggle_sidebar")}
+                                aria-label={tTerm("toggle_sidebar")}
                                 className="wails-no-drag ml-auto mr-1 shrink-0 text-[var(--fg-muted)] hover:text-[var(--fg-strong)]"
                             >
                                 {isSidebarVisible
@@ -174,7 +221,13 @@ export function TitleBar() {
                                 : undefined
                         }
                         onClick={() => setActiveSession(session.id)}
-                        onClose={() => removeSession(session.id)}
+                        onClose={() => requestClose(session)}
+                        onRename={(title) => renameSession(session.id, title)}
+                        onDuplicate={() => duplicateSession(session.id)}
+                        onReconnect={() => reconnectSession(session.id)}
+                        onFloat={() => void popOutSession(session)}
+                        onCloseOthers={() => closeOtherSessions(session.id)}
+                        onCloseRight={() => closeSessionsToRight(session.id)}
                         onSetColor={(color) => setSessionColor(session.id, color)}
                         onDragStart={(i) => setDragIndex(i)}
                         onDragOver={(i) => setDragOverIndex(i)}
@@ -195,21 +248,48 @@ export function TitleBar() {
                         }}
                     />
                 ))}
+                    {/* 新建标签入口：终端用户的"下一步动作"就近放在标签末尾（Termius / Tabby 习惯） */}
+                    <DropdownMenu modal={false}>
+                        <DropdownMenuTrigger asChild>
+                            <button
+                                type="button"
+                                className="terminal-tab-new wails-no-drag"
+                                title={tTerm("new_tab")}
+                                aria-label={tTerm("new_tab")}
+                            >
+                                <Plus className="size-3.5"/>
+                            </button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="start" className="w-52">
+                            <DropdownMenuItem onClick={() => addLocalSession(tTerm("local_terminal_title"))}>
+                                <SquareTerminal className="mr-2 size-4"/>
+                                {tTerm("new_tab_local")}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => setQuickConnectOpen(true)}>
+                                <Zap className="mr-2 size-4"/>
+                                {tTerm("new_tab_quick")}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => { setActiveView(ViewType.Hosts); }}>
+                                <Server className="mr-2 size-4"/>
+                                {tTerm("new_tab_hosts")}
+                            </DropdownMenuItem>
+                        </DropdownMenuContent>
+                    </DropdownMenu>
                 </div>
                 {/* 两端渐隐：仅当对应方向还有未显示的标签时出现 */}
                 <div className={cn("terminal-tab-fade is-left", tabOverflow.start && "is-visible")}/>
                 <div className={cn("terminal-tab-fade is-right", tabOverflow.end && "is-visible")}/>
             </div>
 
-            {/* 文件管理面板切换按钮 + 窗口控制按钮 */}
-            <div className="flex h-full items-center gap-1 pr-1">
+            {/* 会话状态与操作区：状态（资源）｜分屏｜广播/文件/本地终端｜窗口控制 */}
+            <div className="flex h-full items-center gap-0.5 pr-0">
                 {isTerminalView && sessionConnected && (
-                    <>
-                        <LatencyBadge sessionId={activeSessionId}/>
-                        <SystemStatsButton sessionId={activeSessionId}/>
-                    </>
+                    <SystemStatsButton sessionId={activeSessionId}/>
                 )}
-                {isTerminalView && activeSessionId && !split && (
+                {isTerminalView && sessionConnected && (
+                    <div className="shell-titlebar-sep"/>
+                )}
+                {isTerminalView && activeSessionId && (
                     <>
                         <Button
                             variant="ghost"
@@ -217,7 +297,8 @@ export function TitleBar() {
                             disabled={!canSplit}
                             onClick={() => splitActiveSession("row")}
                             className="wails-no-drag text-[var(--fg-muted)] hover:text-[var(--fg-strong)]"
-                            title={tTerm("split_vertical")}
+                            title={paneLimitReached ? tTerm("split_limit") : tTerm("split_vertical")}
+                            aria-label={paneLimitReached ? tTerm("split_limit") : tTerm("split_vertical")}
                         >
                             <Columns2 className="size-4"/>
                         </Button>
@@ -227,22 +308,27 @@ export function TitleBar() {
                             disabled={!canSplit}
                             onClick={() => splitActiveSession("column")}
                             className="wails-no-drag text-[var(--fg-muted)] hover:text-[var(--fg-strong)]"
-                            title={tTerm("split_horizontal")}
+                            title={paneLimitReached ? tTerm("split_limit") : tTerm("split_horizontal")}
+                            aria-label={paneLimitReached ? tTerm("split_limit") : tTerm("split_horizontal")}
                         >
                             <Rows2 className="size-4"/>
                         </Button>
+                        {paneInLayout && (
+                            <Button
+                                variant="ghost"
+                                size="icon-sm"
+                                onClick={closeSplit}
+                                className="wails-no-drag text-[var(--fg-muted)] hover:text-[var(--fg-strong)]"
+                                title={tTerm("split_close")}
+                                aria-label={tTerm("split_close")}
+                            >
+                                <X className="size-4"/>
+                            </Button>
+                        )}
                     </>
                 )}
-                {isTerminalView && split && (
-                    <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        onClick={closeSplit}
-                        className="wails-no-drag text-[var(--fg-muted)] hover:text-[var(--fg-strong)]"
-                        title={tTerm("split_close")}
-                    >
-                        <X className="size-4"/>
-                    </Button>
+                {isTerminalView && activeSessionId && (
+                    <div className="shell-titlebar-sep"/>
                 )}
                 {isTerminalView && activeSessionId && broadcastEnabled && (
                     <Button
@@ -251,17 +337,19 @@ export function TitleBar() {
                         onClick={toggleBroadcastMode}
                         className={cn("wails-no-drag", broadcastMode ? "text-primary" : "text-[var(--fg-muted)] hover:text-[var(--fg-strong)]")}
                         title={broadcastMode ? tTerm("broadcast_on") : tTerm("broadcast_off")}
+                        aria-label={broadcastMode ? tTerm("broadcast_on") : tTerm("broadcast_off")}
                     >
                         <Radio className="size-4"/>
                     </Button>
                 )}
-                {isTerminalView && activeSessionId && !activeIsLocal && (
+                {isTerminalView && activeSessionId && activeIsSsh && (
                     <Button
                         variant="ghost"
                         size="icon-sm"
                         onClick={toggleFilePanel}
                         className="wails-no-drag text-[var(--fg-muted)] hover:text-[var(--fg-strong)]"
                         title={tSftp("toggle_panel")}
+                        aria-label={tSftp("toggle_panel")}
                     >
                         {isFilePanelVisible
                             ? <PanelRightClose className="size-4"/>
@@ -276,13 +364,26 @@ export function TitleBar() {
                         onClick={() => addLocalSession(tTerm("local_terminal_title"))}
                         className="wails-no-drag text-[var(--fg-muted)] hover:text-[var(--fg-strong)]"
                         title={tTerm("open_local_terminal")}
+                        aria-label={tTerm("open_local_terminal")}
                     >
                         <SquareTerminal className="size-4"/>
                     </Button>
                 )}
+                <div className="shell-titlebar-sep mr-1"/>
                 <WindowControls/>
             </div>
 
+            <ConfirmModal
+                isOpen={!!pendingClose}
+                onClose={() => setPendingClose(null)}
+                onConfirm={() => {
+                    if (pendingClose) removeSession(pendingClose.id);
+                    setPendingClose(null);
+                }}
+                title={tTerm("close_tab_confirm_title")}
+                description={tTerm("close_tab_confirm_body", {title: pendingClose?.title ?? ""})}
+                confirmText={tTerm("close_tab_confirm_action")}
+            />
         </header>
     );
 }

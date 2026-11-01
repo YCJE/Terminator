@@ -25,7 +25,7 @@ func Validation(msg string) *AppError {
 	return &AppError{
 		Code:        CodeValidationFailed,
 		Message:     msg,
-		Err:         errors.New(fmt.Sprintf("validation failed: %s", msg)),
+		Err:         fmt.Errorf("validation failed: %s", msg),
 		ErrorString: msg,
 	}
 }

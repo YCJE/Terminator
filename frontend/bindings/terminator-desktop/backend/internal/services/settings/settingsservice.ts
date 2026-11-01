@@ -17,10 +17,37 @@ export function ClearLogs(): $CancellablePromise<void> {
 }
 
 /**
+ * ClearRecentHosts 清空最近连接记录。
+ */
+export function ClearRecentHosts(): $CancellablePromise<void> {
+    return $Call.ByID(3625344390);
+}
+
+/**
+ * GetAutoStart 查询当前用户是否已启用开机自启。
+ * 
+ * 判断标准是注册表项存在且指向当前可执行文件：升级或更改安装目录后，
+ * 旧路径残留的启动项会让程序"看起来已启用"却启动失败，这里视为未启用，
+ * 用户重新打开开关即可写入新路径。
+ */
+export function GetAutoStart(): $CancellablePromise<boolean> {
+    return $Call.ByID(145691262);
+}
+
+/**
  * GetLogs 读取日志文件内容，返回最后 maxLines 行
  */
 export function GetLogs(maxLines: number): $CancellablePromise<string> {
     return $Call.ByID(3313034702, maxLines);
+}
+
+/**
+ * GetRecentHosts 返回最近连接的主机 ID 列表（最新的在前）。
+ */
+export function GetRecentHosts(): $CancellablePromise<$models.RecentHost[]> {
+    return $Call.ByID(3339419945).then(($result: any) => {
+        return $$createType1($result);
+    });
 }
 
 /**
@@ -32,8 +59,15 @@ export function GetLogs(maxLines: number): $CancellablePromise<string> {
  */
 export function GetSettings(): $CancellablePromise<$models.AppSettings> {
     return $Call.ByID(1855091376).then(($result: any) => {
-        return $$createType0($result);
+        return $$createType2($result);
     });
+}
+
+/**
+ * RecordHostUsed 记录一次连接：把该主机移到最前面并更新时间戳。
+ */
+export function RecordHostUsed(hostID: string): $CancellablePromise<void> {
+    return $Call.ByID(410619273, hostID);
 }
 
 export function SaveSettings(settings: $models.AppSettings): $CancellablePromise<void> {
@@ -57,5 +91,14 @@ export function SessionLogRetentionDays(): $CancellablePromise<number> {
     return $Call.ByID(1147169322);
 }
 
+/**
+ * SetAutoStart 开启或关闭开机自启（写当前用户的 Run 键）。
+ */
+export function SetAutoStart(enabled: boolean): $CancellablePromise<void> {
+    return $Call.ByID(4111462610, enabled);
+}
+
 // Private type creation functions
-const $$createType0 = $models.AppSettings.createFrom;
+const $$createType0 = $models.RecentHost.createFrom;
+const $$createType1 = $Create.Array($$createType0);
+const $$createType2 = $models.AppSettings.createFrom;

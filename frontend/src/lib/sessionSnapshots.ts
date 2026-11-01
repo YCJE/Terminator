@@ -5,7 +5,8 @@
 
 import { HostService, KeyService } from "../../bindings/terminator-desktop/backend/internal/services/blob";
 import { buildSessionParams } from "@/lib/hostConnection";
-import type { WorkspaceSplitSnapshot } from "@/lib/workspace";
+import { capturePaneShape, countPanes, firstPaneSession, isPaneSession } from "@/lib/paneLayout";
+import { parsePanesSnapshot, type WorkspacePanesSnapshot, type WorkspaceSplitSnapshot } from "@/lib/workspace";
 import { useSessionStore } from "@/store/sessionStore";
 import { useUIStore, ViewType } from "@/store/uiStore";
 
@@ -15,13 +16,16 @@ export interface SessionSnapshot {
     /** 标签顺序（主机 ID 列表） */
     sessions: string[];
     activeHostId: string | null;
+    /** 旧版单一分屏快照：仅为兼容历史数据保留 */
     split: WorkspaceSplitSnapshot | null;
+    /** 多窗格布局快照；未分屏时为 null */
+    panes: WorkspacePanesSnapshot | null;
     /** 保存时间戳（覆盖保存时更新） */
     savedAt: number;
 }
 
 /** 从当前会话状态提取可持久化的布局（不含名称与 ID） */
-export function captureCurrentLayout(): Pick<SessionSnapshot, "sessions" | "activeHostId" | "split"> {
+export function captureCurrentLayout(): Pick<SessionSnapshot, "sessions" | "activeHostId" | "split" | "panes"> {
     const state = useSessionStore.getState();
     const normal = state.sessions.filter((s) => !s.isSplitPane);
     const hostIds: string[] = [];
@@ -31,20 +35,25 @@ export function captureCurrentLayout(): Pick<SessionSnapshot, "sessions" | "acti
         }
     }
 
+    // 焦点在任一窗格时，激活标签对应布局代表会话
     const activeSession = state.sessions.find((s) => s.id === state.activeSessionId);
-    const activeNormal = activeSession?.isSplitPane
-        ? normal.find((s) => s.id === state.split?.primaryId)
-        : normal.find((s) => s.id === state.activeSessionId);
+    const activePaneId = state.layout && activeSession
+        && isPaneSession(state.layout, activeSession.id)
+        ? firstPaneSession(state.layout)
+        : activeSession?.id;
+    const activeNormal = normal.find((s) => s.id === activePaneId);
 
-    const splitPrimary = state.split
-        ? state.sessions.find((s) => s.id === state.split?.primaryId)
+    const layoutRoot = state.layout
+        ? state.sessions.find((s) => s.id === firstPaneSession(state.layout))
         : undefined;
+    const shape = state.layout ? capturePaneShape(state.layout) : null;
 
     return {
         sessions: hostIds,
         activeHostId: activeNormal?.hostId ?? null,
-        split: state.split && splitPrimary?.hostId
-            ? { hostId: splitPrimary.hostId, orientation: state.split.orientation }
+        split: null,
+        panes: state.layout && layoutRoot?.hostId && shape && countPanes(state.layout) >= 2
+            ? { hostId: layoutRoot.hostId, shape }
             : null,
     };
 }
@@ -72,7 +81,13 @@ export async function openSessionSnapshot(snapshot: SessionSnapshot): Promise<nu
 
     if (restored.size === 0) return 0;
 
-    if (snapshot.split) {
+    // 新版：按形状重建整组窗格；旧版快照仍按单一分屏恢复
+    if (snapshot.panes) {
+        const rootId = restored.get(snapshot.panes.hostId);
+        if (rootId) {
+            useSessionStore.getState().restorePaneLayout(rootId, snapshot.panes.shape);
+        }
+    } else if (snapshot.split) {
         const primaryId = restored.get(snapshot.split.hostId);
         if (primaryId) {
             useSessionStore.getState().setActiveSession(primaryId);
@@ -111,12 +126,14 @@ export function loadSessionSnapshots(): SessionSnapshot[] {
                 && (value.split.orientation === "row" || value.split.orientation === "column")
                 ? { hostId: value.split.hostId, orientation: value.split.orientation }
                 : null;
+            const panes = parsePanesSnapshot(value.panes);
             return [{
                 id: value.id,
                 name: value.name,
                 sessions,
                 activeHostId: typeof value.activeHostId === "string" ? value.activeHostId : null,
-                split,
+                split: panes ? null : split,
+                panes,
                 savedAt: typeof value.savedAt === "number" ? value.savedAt : 0,
             }];
         });

@@ -105,7 +105,16 @@ func (s *SyncService) ResolveConflict(ctx context.Context, blobID string, keepLo
 	s.syncGate.Lock()
 	defer s.syncGate.Unlock()
 
-	conflict, err := s.q.GetConflict(ctx, blobID)
+	// 读取快照与写回必须原子：UpsertBlob 与 DeleteConflict 只要成功一半，
+	// 选 keepRemote 的用户就会因本地副本已变成远端值而永远无法再次通过校验。
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	qtx := s.q.WithTx(tx)
+
+	conflict, err := qtx.GetConflict(ctx, blobID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return apperror.NotFound("conflict not found", err)
@@ -116,9 +125,11 @@ func (s *SyncService) ResolveConflict(ctx context.Context, blobID string, keepLo
 	// 校验当前本地副本仍与冲突快照一致：冲突产生后用户可能又编辑过该条目
 	// （或对端已有第三个版本）。若不一致，用旧快照写回会静默丢弃较新的修改，
 	// 因此拒绝并要求用户重新查看冲突后再选择。
-	current, err := s.q.GetBlobByID(ctx, blobID)
+	current, err := qtx.GetBlobByID(ctx, blobID)
 	switch {
 	case err == nil:
+		// 两步写回已在同一事务内完成，不会出现「时间戳已改而冲突未删」的半成功
+		// 状态，因此恢复严格校验：任一字段与快照不一致都拒绝。
 		if current.Blob != conflict.LocalBlob ||
 			current.UpdatedAt != conflict.LocalUpdatedAt ||
 			current.IsDeleted != conflict.LocalDeleted {
@@ -142,10 +153,13 @@ func (s *SyncService) ResolveConflict(ctx context.Context, blobID string, keepLo
 		chosen.IsDeleted = conflict.RemoteDeleted
 	}
 
-	if err := s.q.UpsertBlob(ctx, chosen); err != nil {
+	if err := qtx.UpsertBlob(ctx, chosen); err != nil {
 		return err
 	}
-	if err := s.q.DeleteConflict(ctx, blobID); err != nil {
+	if err := qtx.DeleteConflict(ctx, blobID); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
 		return err
 	}
 

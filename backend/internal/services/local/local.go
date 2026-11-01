@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
@@ -54,6 +55,10 @@ func (s *LocalShellService) Start(sessionID string, shell string) error {
 		return errors.New("本地终端会话 ID 不能为空")
 	}
 	if strings.TrimSpace(shell) == "" {
+		shell = detectShell()
+	} else if !isAllowedShell(shell) {
+		// shell 来自前端绑定调用：若接受任意路径，渲染进程被注入后可借
+		// Start 启动任意本地程序。只允许系统 shell，其余回退平台默认值。
 		shell = detectShell()
 	}
 
@@ -197,6 +202,19 @@ func (s *LocalShellService) teardown(sessionID string, current *session) {
 			s.emitter.EmitClosed(sessionID)
 		}
 	})
+}
+
+// isAllowedShell 判断 shell 路径是否为受支持的系统 shell。
+// 只做名称白名单，避免把任意可执行文件路径交给 PTY 启动。
+func isAllowedShell(shell string) bool {
+	switch strings.ToLower(filepath.Base(shell)) {
+	case "pwsh.exe", "pwsh", "powershell.exe", "powershell",
+		"cmd.exe", "cmd", "bash.exe", "bash", "zsh.exe", "zsh",
+		"sh.exe", "sh", "fish.exe", "fish", "dash":
+		return true
+	}
+	// 允许与平台默认 shell 完全一致的路径（例如自定义安装位置的 pwsh）
+	return strings.EqualFold(shell, detectShell())
 }
 
 func detectShell() string {

@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 )
 
 type AppSettings struct {
@@ -32,6 +33,9 @@ type AppSettings struct {
 	// 口令、令牌、连接串等敏感内容，因此默认关闭，开启后按保留期回收。
 	SessionLogEnabled       bool `json:"session_log_enabled"`        // 默认 false
 	SessionLogRetentionDays int  `json:"session_log_retention_days"` // 默认 7 天
+
+	// CloseToTray 关闭窗口时隐藏到系统托盘而不是退出程序（默认 false）
+	CloseToTray bool `json:"close_to_tray"`
 }
 
 // sessionLogRetentionMin/Max 限定保留期取值范围。
@@ -107,6 +111,7 @@ func (s *SettingsService) loadSettings() (AppSettings, error) {
 	if raw.SessionLogRetentionDays != 0 {
 		def.SessionLogRetentionDays = raw.SessionLogRetentionDays
 	}
+	def.CloseToTray = raw.CloseToTray
 
 	return def, nil
 }
@@ -194,6 +199,7 @@ func (s *SettingsService) SaveSettings(settings AppSettings) error {
 		TerminalColorLink:       settings.TerminalColorLink,
 		SessionLogEnabled:       settings.SessionLogEnabled,
 		SessionLogRetentionDays: settings.SessionLogRetentionDays,
+		CloseToTray:             settings.CloseToTray,
 	}
 	// 如果调用方传入空字符串/零值，保留现有值
 	if merged.Language == "" && existing.Language != "" {
@@ -294,6 +300,9 @@ func (s *SettingsService) SaveSettings(settings AppSettings) error {
 	if merged.SessionLogRetentionDays != def.SessionLogRetentionDays {
 		sanitized.SessionLogRetentionDays = merged.SessionLogRetentionDays
 	}
+	if merged.CloseToTray != def.CloseToTray {
+		sanitized.CloseToTray = merged.CloseToTray
+	}
 
 	data, err := json.MarshalIndent(sanitized, "", "  ")
 	if err != nil {
@@ -373,4 +382,198 @@ func (s *SettingsService) GetLogs(maxLines int) (string, error) {
 // ClearLogs 清空日志文件
 func (s *SettingsService) ClearLogs() error {
 	return os.WriteFile(s.logPath, []byte{}, 0600)
+}
+
+// WindowState 保存主窗口的尺寸、位置与最大化状态，用于下次启动恢复。
+//
+// 它单独存放在 window-state.json，而不是并入 settings.json：窗口拖动/缩放
+// 事件频率很高，而 settings.json 内含 WebDAV 明文凭据且合并逻辑较重，
+// 不该因为拖窗口被反复重写。
+type WindowState struct {
+	Width     int  `json:"width"`
+	Height    int  `json:"height"`
+	X         int  `json:"x"`
+	Y         int  `json:"y"`
+	HasPos    bool `json:"has_pos"`    // 是否已记录过位置（0,0 是合法坐标，不能靠零值判断）
+	Maximised bool `json:"maximised"` // 上次关闭时是否处于最大化
+}
+
+// 窗口尺寸/坐标合法性边界。越界值一律视为"未保存"，避免恢复出超小窗口
+// 或落在已拔除显示器上的窗口。
+const (
+	windowWidthMin   = 800
+	windowHeightMin  = 600
+	windowWidthMax   = 10000
+	windowHeightMax  = 10000
+	windowCoordLimit = 32000
+)
+
+// windowStatePath 返回窗口状态文件路径（与 settings.json 同目录）。
+func (s *SettingsService) windowStatePath() string {
+	return filepath.Join(filepath.Dir(s.configPath), "window-state.json")
+}
+
+// LoadWindowState 读取窗口状态。
+// 文件缺失、损坏或数值异常时返回零值，调用方按默认尺寸居中显示——
+// 窗口状态只是便利数据，读取失败绝不能影响启动。
+//
+//wails:ignore 仅供后端启动流程使用，不对前端开放
+func (s *SettingsService) LoadWindowState() WindowState {
+	s.mutex.RLock()
+	defer s.mutex.RUnlock()
+
+	data, err := os.ReadFile(s.windowStatePath())
+	if err != nil {
+		return WindowState{}
+	}
+	var st WindowState
+	if err := json.Unmarshal(data, &st); err != nil {
+		return WindowState{}
+	}
+	if st.Width < windowWidthMin || st.Width > windowWidthMax ||
+		st.Height < windowHeightMin || st.Height > windowHeightMax {
+		st.Width, st.Height = 0, 0
+	}
+	if st.X < -windowCoordLimit || st.X > windowCoordLimit ||
+		st.Y < -windowCoordLimit || st.Y > windowCoordLimit {
+		st.HasPos = false
+		st.X, st.Y = 0, 0
+	}
+	return st
+}
+
+// SaveWindowState 原子写入窗口状态。失败只影响下次启动的恢复。
+//
+//wails:ignore 仅供后端窗口事件使用，不对前端开放
+func (s *SettingsService) SaveWindowState(st WindowState) error {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	data, err := json.Marshal(st)
+	if err != nil {
+		return err
+	}
+	p := s.windowStatePath()
+	tmp := p + ".tmp"
+	if err := os.WriteFile(tmp, data, 0600); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	if err := os.Rename(tmp, p); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return nil
+}
+
+// ---- 最近连接 ----
+
+// RecentHost 一条最近连接记录。只存在本地，不参与云端同步：
+// 连接行为属于使用习惯，同步出去会让"谁在什么时候连了哪台机器"
+// 泄露到其他设备甚至服务器上。
+type RecentHost struct {
+	HostID     string `json:"host_id"`
+	LastUsedAt string `json:"last_used_at"` // RFC3339（UTC）
+}
+
+// recentHostsLimit 限制记录条数，避免文件无限增长。
+const recentHostsLimit = 20
+
+// recentHostsPath 返回最近连接记录文件路径（与 settings.json 同目录）。
+func (s *SettingsService) recentHostsPath() string {
+	return filepath.Join(filepath.Dir(s.configPath), "recent-hosts.json")
+}
+
+// loadRecentHostsLocked 读取并规范化记录，调用方需已持有锁。
+// 文件缺失或损坏时返回空列表：这只是便利数据，不能影响启动。
+func (s *SettingsService) loadRecentHostsLocked() []RecentHost {
+	data, err := os.ReadFile(s.recentHostsPath())
+	if err != nil {
+		return nil
+	}
+	var raw []RecentHost
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil
+	}
+	out := make([]RecentHost, 0, len(raw))
+	seen := make(map[string]struct{}, len(raw))
+	for _, h := range raw {
+		if h.HostID == "" {
+			continue
+		}
+		// 手工编辑过的文件可能出现重复项，去重后只保留第一条（即最新的一条）
+		if _, dup := seen[h.HostID]; dup {
+			continue
+		}
+		seen[h.HostID] = struct{}{}
+		out = append(out, h)
+		if len(out) >= recentHostsLimit {
+			break
+		}
+	}
+	return out
+}
+
+// saveRecentHostsLocked 原子写入记录，调用方需已持有锁。
+func (s *SettingsService) saveRecentHostsLocked(list []RecentHost) error {
+	data, err := json.Marshal(list)
+	if err != nil {
+		return err
+	}
+	p := s.recentHostsPath()
+	tmp := p + ".tmp"
+	if err := os.WriteFile(tmp, data, 0600); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	if err := os.Rename(tmp, p); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return nil
+}
+
+// GetRecentHosts 返回最近连接的主机 ID 列表（最新的在前）。
+func (s *SettingsService) GetRecentHosts() []RecentHost {
+	s.mutex.RLock()
+	defer s.mutex.RUnlock()
+	list := s.loadRecentHostsLocked()
+	if list == nil {
+		return []RecentHost{}
+	}
+	return list
+}
+
+// RecordHostUsed 记录一次连接：把该主机移到最前面并更新时间戳。
+func (s *SettingsService) RecordHostUsed(hostID string) error {
+	hostID = strings.TrimSpace(hostID)
+	if hostID == "" {
+		return nil
+	}
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	list := s.loadRecentHostsLocked()
+	next := make([]RecentHost, 0, len(list)+1)
+	next = append(next, RecentHost{
+		HostID:     hostID,
+		LastUsedAt: time.Now().UTC().Format(time.RFC3339),
+	})
+	for _, h := range list {
+		if h.HostID == hostID {
+			continue
+		}
+		next = append(next, h)
+		if len(next) >= recentHostsLimit {
+			break
+		}
+	}
+	return s.saveRecentHostsLocked(next)
+}
+
+// ClearRecentHosts 清空最近连接记录。
+func (s *SettingsService) ClearRecentHosts() error {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	return s.saveRecentHostsLocked([]RecentHost{})
 }

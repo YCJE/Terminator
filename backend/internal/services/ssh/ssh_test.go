@@ -307,17 +307,17 @@ func TestHostKeyCallbackFailsClosedWhenPersistFails(t *testing.T) {
 func TestBuildAuthMethods(t *testing.T) {
 	_, validKeyPEM := newTestKey(t)
 
-	if got := buildAuthMethods("", ""); len(got) != 0 {
-		t.Errorf("无密钥无口令时应返回空列表，实际 %d 项", len(got))
+	if got, err := buildAuthMethods("", "", "", ""); err != nil || len(got) != 0 {
+		t.Errorf("无密钥无口令时应返回空列表，实际 %d 项, err=%v", len(got), err)
 	}
-	if got := buildAuthMethods("not-a-valid-key", "secret"); len(got) != 1 {
-		t.Errorf("非法密钥应只保留口令认证，实际 %d 项", len(got))
+	if got, err := buildAuthMethods("not-a-valid-key", "", "secret", ""); err != nil || len(got) != 1 {
+		t.Errorf("非法密钥应只保留口令认证，实际 %d 项, err=%v", len(got), err)
 	}
-	if got := buildAuthMethods(validKeyPEM, ""); len(got) != 1 {
-		t.Errorf("仅有密钥时应返回 1 项，实际 %d 项", len(got))
+	if got, err := buildAuthMethods(validKeyPEM, "", "", ""); err != nil || len(got) != 1 {
+		t.Errorf("仅有密钥时应返回 1 项，实际 %d 项, err=%v", len(got), err)
 	}
-	if got := buildAuthMethods(validKeyPEM, "secret"); len(got) != 2 {
-		t.Errorf("密钥与口令应同时作为候选，实际 %d 项", len(got))
+	if got, err := buildAuthMethods(validKeyPEM, "", "secret", ""); err != nil || len(got) != 2 {
+		t.Errorf("密钥与口令应同时作为候选，实际 %d 项, err=%v", len(got), err)
 	}
 }
 

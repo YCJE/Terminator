@@ -22,5 +22,15 @@
   "section_key_details": "Key Details",
   "key_type": "Type {{type}}",
   "key_type_label": "Key type",
-  "no_search_results": "No keys match your search"
+  "no_search_results": "No keys match your search",
+  "passphrase_label": "Private key passphrase",
+  "passphrase_placeholder": "Required only for encrypted private keys",
+  "passphrase_hint": "Encrypted private keys (such as passphrase-protected id_rsa / id_ed25519) need their passphrase. It is stored with the key in the local encrypted vault and never uploaded.",
+  "show_passphrase": "Show passphrase",
+  "hide_passphrase": "Hide passphrase",
+  "verify_key": "Verify key",
+  "validate_key_failed": "Key verification failed",
+  "key_encrypted": "Encrypted",
+  "key_unencrypted": "Unencrypted",
+  "key_fingerprint": "Fingerprint"
 }

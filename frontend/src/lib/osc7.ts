@@ -34,10 +34,10 @@ export function createOsc7Parser(onPath: (path: string) => void) {
 
         let uri = "";
         for (let i = 4; i < end; i++) uri += String.fromCharCode(segment[i]);
-        // 只接受 file:// 形式的 URI；其他 scheme 忽略
-        const prefix = uri.indexOf("://");
-        if (prefix < 0) return { path: "", rest: end + skip };
-        const slash = uri.indexOf("/", prefix + 3);
+        // 只接受 file:// 形式的 URI；其他 scheme（http:// 等）忽略。
+        // 原实现只查 "://"，注释与行为不一致，且任意 scheme 都能改写 cwd。
+        if (!uri.startsWith("file://")) return { path: "", rest: end + skip };
+        const slash = uri.indexOf("/", 7);
         if (slash < 0) return { path: "", rest: end + skip };
 
         let path = uri.slice(slash);
@@ -45,6 +45,10 @@ export function createOsc7Parser(onPath: (path: string) => void) {
             path = decodeURIComponent(path);
         } catch {
             // 非法百分号编码时保留原样
+        }
+        // 解码后必须是绝对路径且不含控制字符：该值会直接驱动文件面板导航。
+        if (!path.startsWith("/") || /[\x00-\x1f\x7f]/.test(path)) {
+            return { path: "", rest: end + skip };
         }
         return { path, rest: end + skip };
     };

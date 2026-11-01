@@ -10,14 +10,25 @@ import type { Events } from "@wailsio/runtime";
 import type * as emitters$0 from "../../../../../terminator-desktop/backend/cmd/terminator-desktop/emitters/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
+import type * as floating$0 from "../../../../../terminator-desktop/backend/internal/services/floating/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
+import type * as monitor$0 from "../../../../../terminator-desktop/backend/internal/services/monitor/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
 import type * as sync$0 from "../../../../../terminator-desktop/backend/internal/services/sync/models.js";
 
 declare module "@wailsio/runtime" {
     namespace Events {
         interface CustomEvents {
             "app:file-drop": emitters$0.FileDropPayload;
+            "editor:saved": emitters$0.EditorSavedPayload;
+            "floating:dock-request": floating$0.DockPayload;
+            "monitor:error": emitters$0.MonitorErrorPayload;
+            "monitor:sample": monitor$0.MonitorSample;
             "sftp:complete": emitters$0.SFTPTransferCompletePayload;
             "sftp:progress": emitters$0.SFTPTransferProgressPayload;
+            "ssh:auth-prompt": emitters$0.SSHAuthPromptPayload;
             "ssh:closed": emitters$0.SSHClosedPayload;
             "ssh:data": emitters$0.SSHDataPayload;
             "sync:error": emitters$0.SyncErrorPayload;

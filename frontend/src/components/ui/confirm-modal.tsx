@@ -18,6 +18,8 @@ interface ConfirmModalProps {
     title: string;
     description: string;
     confirmText?: string;
+    /** 取消按钮文案，默认"取消"。用于取消语义是"跳过"等场景 */
+    cancelText?: string;
     isDestructive?: boolean;
     confirmDisabled?: boolean;
 }
@@ -29,6 +31,7 @@ export function ConfirmModal({
     title,
     description,
     confirmText = undefined,
+    cancelText = undefined,
     isDestructive = true,
     confirmDisabled = false,
 }: ConfirmModalProps) {
@@ -46,7 +49,7 @@ export function ConfirmModal({
                     <AlertDialogDescription>{description}</AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
-                    <AlertDialogCancel onClick={onClose}>{t("cancel")}</AlertDialogCancel>
+                    <AlertDialogCancel onClick={onClose}>{cancelText ?? t("cancel")}</AlertDialogCancel>
                     <AlertDialogAction
                         onClick={(e) => {
                             e.preventDefault();

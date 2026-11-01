@@ -11,8 +11,10 @@ require (
 	github.com/stretchr/testify v1.11.1
 	github.com/wailsapp/wails/v3 v3.0.0-alpha.78
 	github.com/xanzy/ssh-agent v0.3.3
+	go.bug.st/serial v1.6.2
 	golang.org/x/crypto v0.54.0
 	golang.org/x/net v0.57.0
+	golang.org/x/sys v0.47.0
 	modernc.org/sqlite v1.44.3
 )
 
@@ -24,6 +26,7 @@ require (
 	github.com/bep/debounce v1.2.1 // indirect
 	github.com/cloudflare/circl v1.6.3 // indirect
 	github.com/coder/websocket v1.8.14 // indirect
+	github.com/creack/goselect v0.1.2 // indirect
 	github.com/creack/pty v1.1.24 // indirect
 	github.com/cyphar/filepath-securejoin v0.6.1 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
@@ -58,7 +61,6 @@ require (
 	github.com/u-root/u-root v0.16.0 // indirect
 	github.com/wailsapp/go-webview2 v1.0.23 // indirect
 	golang.org/x/exp v0.0.0-20260112195511-716be5621a96 // indirect
-	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/text v0.40.0 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect

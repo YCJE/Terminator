@@ -16,11 +16,47 @@ import { Call as $Call, CancellablePromise as $CancellablePromise, Create as $Cr
 import * as $models from "./models.js";
 
 /**
+ * CancelTransfer 取消进行中的传输。
+ * 传输结束后会推送一次失败完成事件（错误为"传输已取消"），
+ * 未在传输中的数据块不会落盘，已写入的续传临时文件保留供下次续传。
+ */
+export function CancelTransfer(transferID: string): $CancellablePromise<void> {
+    return $Call.ByID(423887850, transferID);
+}
+
+/**
  * Chmod 修改远程文件/目录的权限位。
  * mode 为标准的 os.FileMode 权限位（如 0755），传入时为 uint32。
  */
 export function Chmod(sessionID: string, path: string, mode: number): $CancellablePromise<void> {
     return $Call.ByID(1505661080, sessionID, path, mode);
+}
+
+/**
+ * CopyBetweenSessions 把源会话上的文件/目录复制到目标会话的指定路径。
+ * 
+ * srcPath 为源端路径；dstPath 为目标端路径：源是文件时为目标文件完整路径
+ * （父目录自动创建），源是目录时为目标目录根（目录内容按原结构复制进去）。
+ * transferID 用于进度事件关联与取消；进度事件挂在源会话上。
+ */
+export function CopyBetweenSessions(srcSessionID: string, srcPath: string, dstSessionID: string, dstPath: string, transferID: string): $CancellablePromise<void> {
+    return $Call.ByID(3344579555, srcSessionID, srcPath, dstSessionID, dstPath, transferID);
+}
+
+/**
+ * Download 下载远程文件或目录到本地路径。
+ * 目标是目录时递归下载：localPath 即为目标目录本身（不存在时自动创建）。
+ */
+export function Download(sessionID: string, transferID: string, remotePath: string, localPath: string): $CancellablePromise<void> {
+    return $Call.ByID(168208795, sessionID, transferID, remotePath, localPath);
+}
+
+/**
+ * DownloadArchive 将多个远程文件/目录打包成 ZIP 保存到本地。
+ * remotePaths 支持混合选择；目录会递归包含，空目录保留。
+ */
+export function DownloadArchive(sessionID: string, transferID: string, remotePaths: string[], localPath: string): $CancellablePromise<void> {
+    return $Call.ByID(1931850083, sessionID, transferID, remotePaths, localPath);
 }
 
 /**
@@ -30,6 +66,22 @@ export function Chmod(sessionID: string, path: string, mode: number): $Cancellab
  */
 export function DownloadFile(sessionID: string, transferID: string, remotePath: string, localPath: string): $CancellablePromise<void> {
     return $Call.ByID(3219845717, sessionID, transferID, remotePath, localPath);
+}
+
+/**
+ * Exists 判断远程路径是否已存在，供上传前做同名冲突确认。
+ * "不存在"必须与"检查失败"区分开：前者说明可以安全上传，后者要继续上报，
+ * 否则一个网络抖动会被当成"文件不存在"从而静默覆盖已有文件。
+ */
+export function Exists(sessionID: string, path: string): $CancellablePromise<boolean> {
+    return $Call.ByID(4169475823, sessionID, path);
+}
+
+/**
+ * ExtractArchive 在远端解压一个压缩包到 remoteDir（自动创建目录）。
+ */
+export function ExtractArchive(sessionID: string, remoteArchivePath: string, remoteDir: string): $CancellablePromise<void> {
+    return $Call.ByID(3451728018, sessionID, remoteArchivePath, remoteDir);
 }
 
 /**
@@ -51,6 +103,19 @@ export function ListDir(sessionID: string, path: string): $CancellablePromise<$m
 }
 
 /**
+ * LocalExistingPaths 返回 localPaths 中已存在于本机的子集，供下载前确认覆盖。
+ * 
+ * 一次调用完成批量检查：批量下载可能选中上百个条目，逐个发起 IPC 调用代价过高。
+ * 检查失败（权限不足等）按"不存在"处理，不在下载前阻塞用户：
+ * 真正的写入错误会由传输队列如实上报。
+ */
+export function LocalExistingPaths(localPaths: string[]): $CancellablePromise<string[]> {
+    return $Call.ByID(4055237969, localPaths).then(($result: any) => {
+        return $$createType2($result);
+    });
+}
+
+/**
  * Mkdir 在远程创建单个目录。父目录必须已存在。
  */
 export function Mkdir(sessionID: string, path: string): $CancellablePromise<void> {
@@ -63,6 +128,15 @@ export function Mkdir(sessionID: string, path: string): $CancellablePromise<void
  */
 export function ReadFile(sessionID: string, path: string): $CancellablePromise<string> {
     return $Call.ByID(872684653, sessionID, path);
+}
+
+/**
+ * ReadFileTail 读取远程常规文件末尾最多 maxBytes 字节，用于 shell 历史这类
+ * 可能超过 ReadFile 上限的大文件。maxBytes 会被限制在 [4KB, 8MB]。
+ * 截断位置落在行中间时丢弃第一行残片，保证返回内容从完整行开始。
+ */
+export function ReadFileTail(sessionID: string, path: string, maxBytes: number): $CancellablePromise<string> {
+    return $Call.ByID(1496409355, sessionID, path, maxBytes);
 }
 
 /**
@@ -89,8 +163,26 @@ export function Rename(sessionID: string, oldPath: string, newPath: string): $Ca
  */
 export function SearchFiles(sessionID: string, searchPath: string, query: string, maxResults: number): $CancellablePromise<$models.SearchResultEntry[]> {
     return $Call.ByID(2705080646, sessionID, searchPath, query, maxResults).then(($result: any) => {
-        return $$createType3($result);
+        return $$createType4($result);
     });
+}
+
+/**
+ * Upload 上传本地文件或目录到 remotePath。
+ * 目标是目录时递归上传：remotePath 即为目标目录本身（不存在时自动创建），
+ * 内部目录结构按本地相对路径还原；符号链接会被跳过，避免目录环或把
+ * 目录外的内容传到服务器。
+ */
+export function Upload(sessionID: string, transferID: string, localPath: string, remotePath: string): $CancellablePromise<void> {
+    return $Call.ByID(1963088530, sessionID, transferID, localPath, remotePath);
+}
+
+/**
+ * UploadDirArchive 把本地文件/目录打包上传到 remoteDir 并立即解压。
+ * remoteDir 不存在时自动创建；临时压缩包在解压后删除（失败时也尽力清理）。
+ */
+export function UploadDirArchive(sessionID: string, transferID: string, localPath: string, remoteDir: string): $CancellablePromise<void> {
+    return $Call.ByID(718928049, sessionID, transferID, localPath, remoteDir);
 }
 
 /**
@@ -114,8 +206,20 @@ export function WriteFile(sessionID: string, path: string, content: string): $Ca
     return $Call.ByID(1521240084, sessionID, path, content);
 }
 
+/**
+ * WriteLocalFileToRemote 用一个本地文件的完整内容覆盖远端文件（供外部编辑器保存回传）。
+ * 
+ * 与 Upload 不同：这里不需要进度事件与断点续传，但依然先写临时文件再原子重命名，
+ * 保证保存过程中远端不会出现半截文件；写入后恢复原文件权限。
+ * 只允许覆盖已存在的常规文件，避免误写目录或特殊文件。
+ */
+export function WriteLocalFileToRemote(sessionID: string, localPath: string, remotePath: string): $CancellablePromise<void> {
+    return $Call.ByID(459104352, sessionID, localPath, remotePath);
+}
+
 // Private type creation functions
 const $$createType0 = $models.FileEntry.createFrom;
 const $$createType1 = $Create.Array($$createType0);
-const $$createType2 = $models.SearchResultEntry.createFrom;
-const $$createType3 = $Create.Array($$createType2);
+const $$createType2 = $Create.Array($Create.Any);
+const $$createType3 = $models.SearchResultEntry.createFrom;
+const $$createType4 = $Create.Array($$createType3);

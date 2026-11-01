@@ -135,6 +135,50 @@ func (s *SshService) ReadSessionLog(name string, maxLines int) (string, error) {
 	return strings.Join(lines, "\n"), nil
 }
 
+// ExportSessionLog 把指定会话日志另存到 destPath（用户选择的本地路径）。
+// 导出的是磁盘上的原始日志（含 ANSI 控制序列），而不是界面展示的剥色版本：
+// 用户导出通常是为了归档或转交排查，保留原始字节更可靠。
+func (s *SshService) ExportSessionLog(name string, destPath string) error {
+	dir, err := s.sessionLogDir()
+	if err != nil {
+		return err
+	}
+	src, err := safeSessionLogPath(dir, name)
+	if err != nil {
+		return err
+	}
+	if destPath == "" {
+		return fmt.Errorf("导出路径不能为空")
+	}
+
+	in, err := os.Open(src)
+	if err != nil {
+		return fmt.Errorf("打开日志文件失败: %w", err)
+	}
+	defer func() { _ = in.Close() }()
+
+	// 先写临时文件再改名：导出中断不会留下半截文件覆盖用户原文件
+	tmp := destPath + ".terminator-tmp"
+	out, err := os.Create(tmp)
+	if err != nil {
+		return fmt.Errorf("创建导出文件失败: %w", err)
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		_ = out.Close()
+		_ = os.Remove(tmp)
+		return fmt.Errorf("写入导出文件失败: %w", err)
+	}
+	if err := out.Close(); err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("写入导出文件失败: %w", err)
+	}
+	if err := os.Rename(tmp, destPath); err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("保存导出文件失败: %w", err)
+	}
+	return nil
+}
+
 // SearchSessionLogs 在所有会话日志中检索关键字（不区分大小写），返回命中行。
 func (s *SshService) SearchSessionLogs(query string, limit int) ([]SessionLogMatch, error) {
 	q := strings.TrimSpace(query)

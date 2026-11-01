@@ -58,6 +58,11 @@ export class AppSettings {
      */
     "session_log_retention_days": number;
 
+    /**
+     * CloseToTray 关闭窗口时隐藏到系统托盘而不是退出程序（默认 false）
+     */
+    "close_to_tray": boolean;
+
     /** Creates a new AppSettings instance. */
     constructor($$source: Partial<AppSettings> = {}) {
         if (!("language" in $$source)) {
@@ -96,6 +101,9 @@ export class AppSettings {
         if (!("session_log_retention_days" in $$source)) {
             this["session_log_retention_days"] = 0;
         }
+        if (!("close_to_tray" in $$source)) {
+            this["close_to_tray"] = false;
+        }
 
         Object.assign(this, $$source);
     }
@@ -106,5 +114,39 @@ export class AppSettings {
     static createFrom($$source: any = {}): AppSettings {
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         return new AppSettings($$parsedSource as Partial<AppSettings>);
+    }
+}
+
+/**
+ * RecentHost 一条最近连接记录。只存在本地，不参与云端同步：
+ * 连接行为属于使用习惯，同步出去会让"谁在什么时候连了哪台机器"
+ * 泄露到其他设备甚至服务器上。
+ */
+export class RecentHost {
+    "host_id": string;
+
+    /**
+     * RFC3339（UTC）
+     */
+    "last_used_at": string;
+
+    /** Creates a new RecentHost instance. */
+    constructor($$source: Partial<RecentHost> = {}) {
+        if (!("host_id" in $$source)) {
+            this["host_id"] = "";
+        }
+        if (!("last_used_at" in $$source)) {
+            this["last_used_at"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new RecentHost instance from a string or object.
+     */
+    static createFrom($$source: any = {}): RecentHost {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new RecentHost($$parsedSource as Partial<RecentHost>);
     }
 }

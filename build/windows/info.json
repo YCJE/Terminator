@@ -1,12 +1,12 @@
 {
 	"fixed": {
-		"file_version": "0.8.10",
-		"product_version": "0.8.10"
+		"file_version": "0.8.11",
+		"product_version": "0.8.11"
 	},
 	"info": {
 		"0000": {
-			"FileVersion": "0.8.10",
-			"ProductVersion": "0.8.10",
+			"FileVersion": "0.8.11",
+			"ProductVersion": "0.8.11",
 			"CompanyName": "Terminator",
 			"FileDescription": "Terminator",
 			"LegalCopyright": "(c) now, Terminator",

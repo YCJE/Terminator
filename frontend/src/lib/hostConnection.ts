@@ -30,9 +30,13 @@ export function resolveJumpHostChain(
     visited.add(host.id);
 
     let jhKey: string | undefined = undefined;
+    let jhPassphrase: string | undefined = undefined;
     if (jh.keyId && keys) {
         const foundJhKey = keys.find((k) => k.id === jh.keyId);
-        if (foundJhKey) jhKey = foundJhKey.privateKey;
+        if (foundJhKey) {
+            jhKey = foundJhKey.privateKey;
+            jhPassphrase = foundJhKey.passphrase || undefined;
+        }
     }
 
     return new JumpHostConfig({
@@ -41,6 +45,8 @@ export function resolveJumpHostChain(
         username: jh.username,
         password: jh.password || undefined,
         privateKey: jhKey,
+        privateKeyPassphrase: jhPassphrase,
+        certificate: jh.certificate || undefined,
         jumpHost: resolveJumpHostChain(jh, hosts, keys, visited),
     });
 }
@@ -53,9 +59,13 @@ export function buildSessionParams(
     password?: string,
 ): CreateSessionParams {
     let keyString: string | undefined = undefined;
+    let keyPassphrase: string | undefined = undefined;
     if (host.keyId && keys) {
         const foundKey = keys.find((k) => k.id === host.keyId);
-        if (foundKey) keyString = foundKey.privateKey;
+        if (foundKey) {
+            keyString = foundKey.privateKey;
+            keyPassphrase = foundKey.passphrase || undefined;
+        }
     }
 
     return {
@@ -65,6 +75,9 @@ export function buildSessionParams(
         hostId: host.id,
         password: password || host.password,
         privateKey: keyString,
+        privateKeyPassphrase: keyPassphrase,
+        keyboardInteractive: host.keyboardInteractive,
+        certificate: host.certificate,
         title: host.name || host.host,
         jumpHost: hosts ? resolveJumpHostChain(host, hosts, keys) : undefined,
         proxyType: host.proxyType,
@@ -74,5 +87,9 @@ export function buildSessionParams(
         proxyPassword: host.proxyPassword,
         agentForwarding: host.agentForwarding,
         onConnect: host.onConnect,
+        termType: host.termType,
+        connectTimeout: host.connectTimeout,
+        keepAlive: host.keepAlive,
+        encoding: host.encoding,
     };
 }

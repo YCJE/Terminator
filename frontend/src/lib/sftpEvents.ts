@@ -19,3 +19,15 @@ export interface SftpCompleteData {
     success: boolean;
     error?: string;
 }
+
+/**
+ * 判断错误是否来自用户主动取消传输。
+ * 后端取消时返回 errTransferCanceled（文案"传输已取消"），
+ * 这里按文案识别：取消属于预期操作，不应弹出错误提示或计入失败数。
+ */
+export function isTransferCanceled(err: unknown): boolean {
+    const message = typeof err === "string"
+        ? err
+        : String((err as { message?: unknown })?.message ?? err ?? "");
+    return message.includes("传输已取消");
+}

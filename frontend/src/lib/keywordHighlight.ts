@@ -26,6 +26,28 @@ export interface KeywordRule {
 /** ANSI 重置序列，清除所有文本属性 */
 const ANSI_RESET = '\x1b[0m';
 
+/** 自定义规则数量上限，避免大量正则在每块输出上重复执行 */
+const MAX_CUSTOM_RULES = 50;
+/** 单条正则源码长度上限 */
+const MAX_PATTERN_LENGTH = 200;
+/** 单块文本超过该长度时跳过自定义正则（内置关键词仍生效） */
+const MAX_CUSTOM_HIGHLIGHT_TEXT = 100_000;
+
+/**
+ * 粗略识别可能引发灾难性回溯的正则（如 `(a+)+`、`(a|aa)+`）。
+ *
+ * JS 正则一旦进入指数级回溯无法中断，会卡死渲染线程。SSH 输出完全由远端
+ * 控制（`printf 'a%.0s' {1..50000}` 再接一个不匹配字符即可触发），因此这类
+ * 模式必须在编译前拒绝，不能寄希望于运行时中断。
+ */
+function isRiskyPattern(source: string): boolean {
+    // 括号内已有量词，括号外再叠加量词："(a+)+"、"(a{1,5}){1,5}"
+    if (/\([^()]*[+*?{][^()]*\)[+*{]/.test(source)) return true;
+    // 括号内含交替且括号外有量词："(a|aa)+"
+    if (/\([^()]*\|[^()]*\)[+*{]/.test(source)) return true;
+    return false;
+}
+
 /**
  * 默认关键词高亮规则
  *
@@ -108,8 +130,13 @@ export function createKeywordHighlighter(
         lastRules = rules;
 
         const result: { re: RegExp; sgr: string }[] = [];
-        for (const rule of rules) {
+        for (const rule of rules.slice(0, MAX_CUSTOM_RULES)) {
             if (!rule.enabled || !rule.pattern) continue;
+            // 用户自定义正则的语法校验在设置页，但 "(a+)+" 这类写法语法合法、
+            // 引擎却会指数回溯，必须在编译前拒绝。
+            if (rule.regex && (rule.pattern.length > MAX_PATTERN_LENGTH || isRiskyPattern(rule.pattern))) {
+                continue;
+            }
             const source = rule.regex ? rule.pattern : escapeRegExp(rule.pattern);
             try {
                 // 跳过可匹配空字符串的规则，避免在每个字符之间插入颜色序列
@@ -134,8 +161,12 @@ export function createKeywordHighlighter(
         // 先应用自定义规则，再应用内置关键词：内置规则优先级更高，
         // 例如用户高亮了普通文本，而其中含有 ERROR 时仍显示为错误色。
         let result = text;
-        for (const { re, sgr } of compileCustomRules()) {
-            result = result.replace(re, (match) => `${sgr}${match}${ANSI_RESET}`);
+        // 超长分片（如 cat 大文件）跳过自定义正则：同步回溯会卡死 UI。
+        // 内置关键词由单个有界正则处理，仍继续执行。
+        if (text.length <= MAX_CUSTOM_HIGHLIGHT_TEXT) {
+            for (const { re, sgr } of compileCustomRules()) {
+                result = result.replace(re, (match) => `${sgr}${match}${ANSI_RESET}`);
+            }
         }
         if (!pattern) return result;
         return result.replace(pattern, (match) => {

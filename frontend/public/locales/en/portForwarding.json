@@ -21,5 +21,6 @@
   "desc_remote": "Forward remote host port traffic to the local machine through the SSH tunnel",
   "forward_active": "Active",
   "forward_stopped": "Stopped",
+  "list_title": "Forwarding rules",
   "invalid_port": "Invalid port number, please enter a number between 1 and 65535"
 }

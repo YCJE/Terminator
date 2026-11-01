@@ -69,6 +69,13 @@ export class ReleaseAsset {
     "browser_download_url": string;
     "size": number;
 
+    /**
+     * ID GitHub 资产 ID。部分网络环境下 github.com 下载域名不可达，
+     * 而 api.github.com 及其重定向到的 release-assets.githubusercontent.com 可达，
+     * 因此下载优先走 API 资产端点，browser_download_url 仅作兜底。
+     */
+    "id": number;
+
     /** Creates a new ReleaseAsset instance. */
     constructor($$source: Partial<ReleaseAsset> = {}) {
         if (!("name" in $$source)) {
@@ -79,6 +86,9 @@ export class ReleaseAsset {
         }
         if (!("size" in $$source)) {
             this["size"] = 0;
+        }
+        if (!("id" in $$source)) {
+            this["id"] = 0;
         }
 
         Object.assign(this, $$source);

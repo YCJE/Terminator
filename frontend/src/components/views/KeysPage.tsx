@@ -88,6 +88,7 @@ export function KeysPage() {
                                 <Input
                                     autoFocus
                                     placeholder={t("search_keys")}
+                                    aria-label={t("search_keys")}
                                     className="h-8 border-transparent bg-[var(--surface-2)] pl-8 text-[12.5px]"
                                     value={searchQuery}
                                     onChange={(e) => setSearchQuery(e.target.value)}

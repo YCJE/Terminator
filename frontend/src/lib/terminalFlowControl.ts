@@ -5,7 +5,10 @@ import type { Terminal } from "@xterm/xterm";
 
 // 流控参数
 const MAX_CHAIN_DEPTH = 20; // 待处理写入超过此数时背压等待
-const MAX_PENDING_WRITES = 200; // 挂起的 write 调用上限，超过时丢弃最旧的数据
+const MAX_PENDING_WRITES = 1000; // 挂起的 write 调用上限，超过时丢弃本次（最新）分片
+// 挂起数据的总字节预算：只按调用数限制时，单个分片可达 128KiB，1000 个
+// 挂起调用最坏可占 128MB，故再叠加字节上限约束内存。
+const MAX_PENDING_BYTES = 32 * 1024 * 1024;
 
 /**
  * 创建带背压控制的写入器
@@ -21,14 +24,20 @@ export function createFlowControlledWriter(term: Terminal) {
     let writeChain: Promise<void> = Promise.resolve();
     let chainDepth = 0;
     let pendingCount = 0;
+    let pendingBytes = 0;
     let generation = 0;
 
     async function write(data: string | Uint8Array): Promise<void> {
-        // 有界队列保护：挂起的 write 调用过多时，丢弃本次数据
-        if (pendingCount >= MAX_PENDING_WRITES) {
+        const size = typeof data === "string" ? data.length : data.byteLength;
+        // 有界队列保护：挂起调用数或字节数超限时丢弃本次数据（即最新分片）。
+        // 这是内存有界的取舍：渲染跟不上时宁可少显示尾部输出，也不让事件
+        // 回调无限堆积。上限已放大到 1000 条 + 32MB，正常交互与普通大文件
+        // 输出不会再触发。
+        if (pendingCount >= MAX_PENDING_WRITES || pendingBytes + size > MAX_PENDING_BYTES) {
             return;
         }
         pendingCount++;
+        pendingBytes += size;
         const myGen = generation;
 
         // 背压：链深度超过阈值时等待前面的写入完成
@@ -40,11 +49,13 @@ export function createFlowControlledWriter(term: Terminal) {
         if (myGen !== generation) {
             // 使用 Math.max 防止 reset() 已归零后变为负数
             pendingCount = Math.max(0, pendingCount - 1);
+            pendingBytes = Math.max(0, pendingBytes - size);
             return;
         }
 
         chainDepth++;
         pendingCount--;
+        pendingBytes = Math.max(0, pendingBytes - size);
         writeChain = writeChain
             .then(
                 () =>
@@ -78,6 +89,7 @@ export function createFlowControlledWriter(term: Terminal) {
         // 若在此清零会让计数变为负数并使背压（chainDepth >= MAX_CHAIN_DEPTH）永久失效。
         // 让旧写入的增减自然抵消，chainDepth 始终等于未完成写入数。
         pendingCount = 0;
+        pendingBytes = 0;
         writeChain = Promise.resolve();
     }
 

@@ -36,6 +36,7 @@ type SyncEmitter interface {
 
 type SyncService struct {
 	q            *dbgen.Queries
+	db           *sql.DB
 	client       *api.Client
 	vault        *vault.Vault
 	emitter      SyncEmitter
@@ -56,6 +57,7 @@ type SyncService struct {
 
 func NewSyncService(
 	q *dbgen.Queries,
+	db *sql.DB,
 	client *api.Client,
 	v *vault.Vault,
 	emitter SyncEmitter,
@@ -76,6 +78,7 @@ func NewSyncService(
 
 	return &SyncService{
 		q:            q,
+		db:           db,
 		client:       client,
 		vault:        v,
 		emitter:      emitter,

@@ -21,6 +21,10 @@ type ReleaseAsset struct {
 	Name        string `json:"name"`
 	DownloadURL string `json:"browser_download_url"`
 	Size        int64  `json:"size"`
+	// ID GitHub 资产 ID。部分网络环境下 github.com 下载域名不可达，
+	// 而 api.github.com 及其重定向到的 release-assets.githubusercontent.com 可达，
+	// 因此下载优先走 API 资产端点，browser_download_url 仅作兜底。
+	ID int64 `json:"id"`
 }
 
 // githubRelease releases/latest 接口返回字段的子集。
@@ -132,9 +136,39 @@ func findInstallerAsset(assets []ReleaseAsset, version string) *ReleaseAsset {
 	return nil
 }
 
+// assetURLs 返回资产的候选下载地址，按成功率从高到低排列。
+// API 资产端点（Accept: application/octet-stream）会 302 到 GitHub 的对象存储，
+// 在 github.com 被限速或阻断的网络里通常仍可用；没有资产 ID 时才只能走原地址。
+func (s *UpdaterService) assetURLs(asset ReleaseAsset) []string {
+	urls := make([]string, 0, 2)
+	if asset.ID > 0 {
+		urls = append(urls, fmt.Sprintf("https://api.github.com/repos/%s/releases/assets/%d", s.githubRepo, asset.ID))
+	}
+	if asset.DownloadURL != "" {
+		urls = append(urls, asset.DownloadURL)
+	}
+	return urls
+}
+
 // fetchChecksums 下载并解析校验和清单，返回 文件名 → 小写 SHA256 的映射。
 // 清单格式为 sha256sum 输出：<64 位十六进制>  <文件名>，兼容二进制的 "*文件名" 形式。
-func (s *UpdaterService) fetchChecksums(url string) (map[string]string, error) {
+// 依次尝试候选地址，任一成功即返回。
+func (s *UpdaterService) fetchChecksums(asset ReleaseAsset) (map[string]string, error) {
+	var lastErr error
+	for _, url := range s.assetURLs(asset) {
+		sums, err := s.fetchChecksumsFrom(url)
+		if err == nil {
+			return sums, nil
+		}
+		lastErr = err
+	}
+	if lastErr == nil {
+		return nil, fmt.Errorf("校验和资产缺少可用的下载地址")
+	}
+	return nil, lastErr
+}
+
+func (s *UpdaterService) fetchChecksumsFrom(url string) (map[string]string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
@@ -142,6 +176,8 @@ func (s *UpdaterService) fetchChecksums(url string) (map[string]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	// 走 API 端点时该头表示「下载资产内容」；走原地址时会被忽略
+	req.Header.Set("Accept", "application/octet-stream")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, err
@@ -221,7 +257,7 @@ func (s *UpdaterService) DownloadAndVerifyUpdate() (string, error) {
 		return "", fmt.Errorf("发布中缺少校验和文件 %s，无法验证安装包完整性", checksumAssetName())
 	}
 
-	sums, err := s.fetchChecksums(checksumAsset.DownloadURL)
+	sums, err := s.fetchChecksums(*checksumAsset)
 	if err != nil {
 		return "", fmt.Errorf("获取校验和失败: %w", err)
 	}
@@ -243,7 +279,7 @@ func (s *UpdaterService) DownloadAndVerifyUpdate() (string, error) {
 	// 先写 .part，校验通过后再改名，避免半成品被误当作可用安装包
 	tmp := dst + ".part"
 
-	actual, err := s.downloadWithProgress(installer.DownloadURL, tmp)
+	actual, err := s.downloadFromCandidates(*installer, tmp)
 	if err != nil {
 		_ = os.Remove(tmp)
 		return "", fmt.Errorf("下载安装包失败: %w", err)
@@ -266,6 +302,23 @@ func (s *UpdaterService) DownloadAndVerifyUpdate() (string, error) {
 	return dst, nil
 }
 
+// downloadFromCandidates 依次尝试候选地址下载安装包，任一成功即返回摘要。
+// 失败时保留 .part 会被下一个地址以 O_TRUNC 覆盖，不会残留半成品。
+func (s *UpdaterService) downloadFromCandidates(asset ReleaseAsset, dst string) (string, error) {
+	var lastErr error
+	for _, url := range s.assetURLs(asset) {
+		sum, err := s.downloadWithProgress(url, dst)
+		if err == nil {
+			return sum, nil
+		}
+		lastErr = err
+	}
+	if lastErr == nil {
+		return "", fmt.Errorf("安装包资产缺少可用的下载地址")
+	}
+	return "", lastErr
+}
+
 // downloadWithProgress 将 url 下载到 dst，边下载边计算 SHA256，返回十六进制摘要。
 // 通过 emitter 上报百分比；服务器未返回内容长度时不报进度。
 func (s *UpdaterService) downloadWithProgress(url, dst string) (string, error) {
@@ -277,6 +330,8 @@ func (s *UpdaterService) downloadWithProgress(url, dst string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	// 走 API 端点时该头表示「下载资产内容」；走原地址时会被忽略
+	req.Header.Set("Accept", "application/octet-stream")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return "", err

@@ -1,17 +1,26 @@
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Events } from "@wailsio/runtime";
 import { useTranslation } from "react-i18next";
-import { Code2, ChevronUp, ChevronDown, SquarePen } from "lucide-react";
+import { Code2, ChevronUp, ChevronDown, SquarePen, Zap, Server, SquareTerminal, Gauge } from "lucide-react";
 import { useSessionStore } from "@/store/sessionStore";
-import { useUIStore } from "@/store/uiStore";
+import { useUIStore, ViewType } from "@/store/uiStore";
 import { useTransferStore } from "@/store/transferStore";
 import { TerminalInstance } from "@/components/terminal/TerminalInstance";
 import { ComposeBar } from "@/components/terminal/ComposeBar";
 import { SnippetPanel } from "@/components/terminal/SnippetPanel";
+import { MonitorPanel } from "@/components/terminal/MonitorPanel";
 import { FilePanel } from "@/components/sftp/FilePanel";
+import { StatusBar } from "@/components/layout/StatusBar";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
 import { cn } from "@/lib/utils";
+import { isSshKind } from "@/lib/sessionBackend";
 import { SFTP_PROGRESS_EVENT, SFTP_COMPLETE_EVENT } from "@/lib/sftpEvents";
+import {
+    computePaneLayout,
+    isPaneSession,
+    type PaneDivider,
+    type PaneRect,
+} from "@/lib/paneLayout";
 
 interface TerminalStackProps {
     isVisible: boolean;
@@ -23,86 +32,100 @@ export function TerminalStack({isVisible}: TerminalStackProps) {
     const activeSessionKind = useSessionStore(
         (s) => s.sessions.find((x) => x.id === s.activeSessionId)?.kind
     );
-    const split = useSessionStore((s) => s.split);
+    // SFTP / 监控 / 端口转发依赖 SSH 客户端，本地/Telnet/串口均不提供
+    const activeIsSsh = isSshKind(activeSessionKind);
+    const layout = useSessionStore((s) => s.layout);
+    const setPaneRatio = useSessionStore((s) => s.setPaneRatio);
     const isFilePanelVisible = useUIStore((s) => s.isFilePanelVisible);
+    const isMonitorPanelVisible = useUIStore((s) => s.isMonitorPanelVisible);
+    const toggleMonitorPanel = useUIStore((s) => s.toggleMonitorPanel);
     const isSnippetPanelVisible = useUIStore((s) => s.isSnippetPanelVisible);
     const toggleSnippetPanel = useUIStore((s) => s.toggleSnippetPanel);
     const isComposePanelVisible = useUIStore((s) => s.isComposePanelVisible);
     const toggleComposePanel = useUIStore((s) => s.toggleComposePanel);
+    const setQuickConnectOpen = useUIStore((s) => s.setQuickConnectOpen);
+    const setActiveView = useUIStore((s) => s.setActiveView);
+    const addLocalSession = useSessionStore((s) => s.addLocalSession);
     // 只订阅 updateTransfer 函数引用（不会随传输进度变化），避免高频重渲染
     const updateTransfer = useTransferStore((s) => s.updateTransfer);
     const { t } = useTranslation("terminal");
 
-    // 仅当焦点落在分屏的两个窗格之一时，才以分屏布局显示该组窗格。
-    // 切换到其他标签后分屏关系保留，回到任一窗格即恢复双栏。
-    const isSplitView = !!split &&
-        (activeSessionId === split.primaryId || activeSessionId === split.secondaryId);
+    // 仅当焦点落在当前布局的任一窗格时，才以多窗格布局渲染该组窗格。
+    // 切换到其他标签后布局保留，回到该组任一窗格即恢复多窗格显示。
+    const isPaneView = !!layout && !!activeSessionId && isPaneSession(layout, activeSessionId);
+    const {leaves, dividers} = useMemo(
+        () => computePaneLayout(isPaneView ? layout : null),
+        [layout, isPaneView],
+    );
 
-    // 分屏比例与拖拽状态：分隔条拖动时实时更新主窗格占比
     const splitContainerRef = useRef<HTMLDivElement>(null);
-    const [splitRatio, setSplitRatio] = useState(0.5);
-    const [splitDragging, setSplitDragging] = useState(false);
+    const [draggingNodeId, setDraggingNodeId] = useState<string | null>(null);
+    // 拖动分隔条时记录目标节点与其矩形（百分比），移动事件按容器尺寸换算比例
+    const dragStateRef = useRef<{
+        nodeId: string;
+        orientation: "row" | "column";
+        rect: PaneRect;
+    } | null>(null);
 
-    // 分屏对象变化（换窗格/换方向）时回到 1:1
-    useEffect(() => {
-        setSplitRatio(0.5);
-    }, [split?.primaryId, split?.secondaryId, split?.orientation]);
-
-    // 分屏进入动效：在布局阶段挂上动画类，保证首帧就是淡入起点而不会先闪一下；
-    // 动画结束后摘掉类名，避免影响拖拽时逐帧写比例。
-    const splitViewKey = split ? `${split.primaryId}|${split.secondaryId}|${split.orientation}` : "";
-    const prevSplitViewKeyRef = useRef(splitViewKey);
+    // 布局从无到有时播放一次淡入，避免窗格突然弹出
+    const prevPaneViewRef = useRef(isPaneView);
     const [splitEntering, setSplitEntering] = useState(false);
-
-    useLayoutEffect(() => {
-        if (prevSplitViewKeyRef.current === splitViewKey) return;
-        prevSplitViewKeyRef.current = splitViewKey;
-        if (!splitViewKey) {
+    useEffect(() => {
+        if (prevPaneViewRef.current === isPaneView) return;
+        prevPaneViewRef.current = isPaneView;
+        if (!isPaneView) {
             setSplitEntering(false);
             return;
         }
         setSplitEntering(true);
         const timer = setTimeout(() => setSplitEntering(false), 260);
         return () => clearTimeout(timer);
-    }, [splitViewKey]);
+    }, [isPaneView]);
 
-    // 主窗格按比例占据一侧，副窗格占据剩余空间；分隔条单独绘制
-    const paneStyle = (id: string): CSSProperties | undefined => {
-        if (!isSplitView || !split) return undefined;
-        const percent = `${splitRatio * 100}%`;
-        if (split.orientation === "row") {
-            return id === split.primaryId
-                ? { right: "auto", width: percent }
-                : { left: percent };
-        }
-        return id === split.primaryId
-            ? { bottom: "auto", height: percent }
-            : { top: percent };
-    };
-
-    const handleSplitPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-        if (!split) return;
+    const handleDividerPointerDown = (e: React.PointerEvent<HTMLDivElement>, divider: PaneDivider) => {
         e.preventDefault();
+        e.stopPropagation();
         e.currentTarget.setPointerCapture(e.pointerId);
-        setSplitDragging(true);
+        dragStateRef.current = {
+            nodeId: divider.nodeId,
+            orientation: divider.orientation,
+            rect: divider.rect,
+        };
+        setDraggingNodeId(divider.nodeId);
     };
 
-    const handleSplitPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-        if (!splitDragging || !split) return;
-        const rect = splitContainerRef.current?.getBoundingClientRect();
-        if (!rect || rect.width === 0 || rect.height === 0) return;
-        const next = split.orientation === "row"
-            ? (e.clientX - rect.left) / rect.width
-            : (e.clientY - rect.top) / rect.height;
-        // 两侧各留 18% 最小宽度，避免窗格被拖成不可用尺寸
-        setSplitRatio(Math.min(0.82, Math.max(0.18, next)));
+    const handleDividerPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+        const drag = dragStateRef.current;
+        if (!drag) return;
+        const container = splitContainerRef.current?.getBoundingClientRect();
+        if (!container || container.width === 0 || container.height === 0) return;
+        const fractionX = (e.clientX - container.left) / container.width;
+        const fractionY = (e.clientY - container.top) / container.height;
+        // 换算到分隔条所属子树的局部比例，嵌套分屏也能正确拖动
+        const ratio = drag.orientation === "row"
+            ? (fractionX - drag.rect.left / 100) / (drag.rect.width / 100)
+            : (fractionY - drag.rect.top / 100) / (drag.rect.height / 100);
+        setPaneRatio(drag.nodeId, ratio);
     };
 
-    const handleSplitPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
-        setSplitDragging(false);
+    const handleDividerPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+        dragStateRef.current = null;
+        setDraggingNodeId(null);
         if (e.currentTarget.hasPointerCapture(e.pointerId)) {
             e.currentTarget.releasePointerCapture(e.pointerId);
         }
+    };
+
+    // 每个窗格的绝对定位样式（百分比）：不参与布局的会话仍挂载但不可见
+    const paneStyle = (sessionId: string): CSSProperties | undefined => {
+        const rect = leaves.get(sessionId);
+        if (!rect) return undefined;
+        return {
+            left: `${rect.left}%`,
+            top: `${rect.top}%`,
+            width: `${rect.width}%`,
+            height: `${rect.height}%`,
+        };
     };
 
     // 全局监听 SFTP 传输进度与完成事件，实时更新传输队列状态
@@ -134,65 +157,117 @@ export function TerminalStack({isVisible}: TerminalStackProps) {
         };
     }, [updateTransfer]);
 
+    // 没有任何会话时展示工作区"海报位"：给出三条最常用入口，
+    // 而不是留一块纯黑画布让用户自己找动作。
+    if (sessions.length === 0) {
+        return (
+            <div className={cn("absolute inset-0 flex-col", isVisible ? "flex" : "hidden")}>
+                <div className="terminal-empty">
+                    <div className="terminal-empty__mark">
+                        <img src="/appicon.png" alt="" className="size-6"/>
+                    </div>
+                    <h2 className="terminal-empty__title">{t("empty_title")}</h2>
+                    <p className="terminal-empty__desc">{t("empty_desc")}</p>
+                    <div className="terminal-empty__actions">
+                        <button
+                            type="button"
+                            className="terminal-empty__primary"
+                            onClick={() => setQuickConnectOpen(true)}
+                        >
+                            <Zap className="size-3.5"/>
+                            {t("empty_quick_connect")}
+                        </button>
+                        <button
+                            type="button"
+                            className="terminal-empty__secondary"
+                            onClick={() => setActiveView(ViewType.Hosts)}
+                        >
+                            <Server className="size-3.5"/>
+                            {t("empty_browse_hosts")}
+                        </button>
+                        <button
+                            type="button"
+                            className="terminal-empty__secondary"
+                            onClick={() => addLocalSession(t("local_terminal_title"))}
+                        >
+                            <SquareTerminal className="size-3.5"/>
+                            {t("local_terminal_title")}
+                        </button>
+                    </div>
+                    <div className="terminal-empty__hint">{t("empty_hint")}</div>
+                </div>
+            </div>
+        );
+    }
+
     return (
         <div className={cn("absolute inset-0 flex-col", isVisible ? "flex" : "hidden")}>
             {/* 终端区域 + 文件管理面板 */}
             <div className="relative flex min-h-0 flex-1 overflow-hidden">
                 {/* 终端区域（草稿栏作为其下方同列面板，不覆盖文件面板） */}
-                <div className="flex min-w-0 flex-1 flex-col">
+                <div className="relative flex min-w-0 flex-1 flex-col">
                     <div
                         ref={splitContainerRef}
                         className={cn(
                             "terminal-split-container relative min-h-0 flex-1 overflow-hidden",
-                            splitDragging && "is-split-dragging",
+                            draggingNodeId !== null && "is-split-dragging",
                             splitEntering && "is-split-enter"
                         )}
                     >
                         {sessions.map((session) => {
-                            const paneVisible = isSplitView
-                                ? session.id === split?.primaryId || session.id === split?.secondaryId
-                                : session.id === activeSessionId;
+                            const paneRect = leaves.get(session.id);
+                            // 布局内的窗格全部可见；不在布局内时只显示当前标签
+                            const paneVisible = paneRect !== undefined
+                                || (!isPaneView && session.id === activeSessionId);
                             return (
                                 <TerminalInstance
                                     key={session.id}
                                     sessionId={session.id}
                                     config={session.config}
                                     sessionKind={session.kind}
+                                    netConn={session.netConn}
                                     isVisible={paneVisible}
                                     isFocused={session.id === activeSessionId}
                                     disconnected={session.disconnected}
                                     onConnect={session.onConnect}
                                     reconnectNonce={session.reconnectNonce}
-                                    className={cn(
-                                        "inset-0",
-                                        paneStyle(session.id) !== undefined && "terminal-split-pane"
-                                    )}
-                                    style={paneStyle(session.id)}
+                                    attachOnMount={session.attached}
+                                    className={paneRect ? "terminal-split-pane" : "inset-0"}
+                                    style={paneRect ? paneStyle(session.id) : undefined}
                                 />
                             );
                         })}
 
-                        {/* 可拖拽分隔条：1px 发丝线 + 9px 命中区，悬停/拖动时变为强调色 */}
-                        {isSplitView && split && (
+                        {/* 可拖拽分隔条：1px 发丝线 + 9px 命中区；嵌套布局逐层渲染 */}
+                        {isPaneView && dividers.map((divider) => (
                             <div
-                                // 换方向时重新挂载，重放分隔条淡入
-                                key={`${split.primaryId}|${split.secondaryId}|${split.orientation}`}
+                                key={divider.nodeId}
                                 role="separator"
-                                aria-orientation={split.orientation === "row" ? "vertical" : "horizontal"}
+                                aria-orientation={divider.orientation === "row" ? "vertical" : "horizontal"}
                                 className={cn(
                                     "terminal-split-divider",
-                                    split.orientation === "row" ? "is-vertical" : "is-horizontal",
-                                    splitDragging && "is-dragging"
+                                    divider.orientation === "row" ? "is-vertical" : "is-horizontal",
+                                    draggingNodeId === divider.nodeId && "is-dragging"
                                 )}
-                                style={split.orientation === "row"
-                                    ? { left: `${splitRatio * 100}%` }
-                                    : { top: `${splitRatio * 100}%` }}
-                                onPointerDown={handleSplitPointerDown}
-                                onPointerMove={handleSplitPointerMove}
-                                onPointerUp={handleSplitPointerUp}
-                                onLostPointerCapture={() => setSplitDragging(false)}
+                                style={divider.orientation === "row"
+                                    ? {
+                                        left: `${divider.rect.left + divider.rect.width * divider.ratio}%`,
+                                        top: `${divider.rect.top}%`,
+                                        height: `${divider.rect.height}%`,
+                                        bottom: "auto",
+                                    }
+                                    : {
+                                        top: `${divider.rect.top + divider.rect.height * divider.ratio}%`,
+                                        left: `${divider.rect.left}%`,
+                                        width: `${divider.rect.width}%`,
+                                        right: "auto",
+                                    }}
+                                onPointerDown={(e) => handleDividerPointerDown(e, divider)}
+                                onPointerMove={handleDividerPointerMove}
+                                onPointerUp={handleDividerPointerUp}
+                                onLostPointerCapture={() => setDraggingNodeId(null)}
                             />
-                        )}
+                        ))}
                     </div>
                     {isComposePanelVisible && (
                         <div className="shrink-0" style={{height: "9.5rem"}}>
@@ -201,12 +276,69 @@ export function TerminalStack({isVisible}: TerminalStackProps) {
                             <ComposeBar key={activeSessionId ?? "none"} sessionId={activeSessionId}/>
                         </div>
                     )}
+
+                    {/* 草稿栏 / 代码片段面板切换按钮：锚定在终端列内，
+                        避免文件面板展开时浮到 SFTP 列表上方 */}
+                    <div
+                        className="absolute right-2 z-10 flex flex-col items-end gap-2"
+                        style={{bottom: isComposePanelVisible ? "calc(9.5rem + 8px)" : "8px"}}
+                    >
+                        <button
+                            type="button"
+                            onClick={toggleComposePanel}
+                            className={cn(
+                                "terminal-overlay-btn px-2.5 py-1.5 text-xs",
+                                isComposePanelVisible && "is-active"
+                            )}
+                            title={t("compose_toggle")}
+                        >
+                            <SquarePen className="size-3.5"/>
+                            {t("compose_title")}
+                        </button>
+                        <button
+                            type="button"
+                            onClick={toggleSnippetPanel}
+                            className={cn(
+                                "terminal-overlay-btn px-2.5 py-1.5 text-xs",
+                                isSnippetPanelVisible && "is-active"
+                            )}
+                            title={t("snippet_toggle")}
+                        >
+                            <Code2 className="size-3.5"/>
+                            {t("snippet_title")}
+                            {isSnippetPanelVisible
+                                ? <ChevronDown className="size-3"/>
+                                : <ChevronUp className="size-3"/>
+                            }
+                        </button>
+                        {activeIsSsh && (
+                            <button
+                                type="button"
+                                onClick={toggleMonitorPanel}
+                                className={cn(
+                                    "terminal-overlay-btn px-2.5 py-1.5 text-xs",
+                                    isMonitorPanelVisible && "is-active"
+                                )}
+                                title={t("monitor_toggle")}
+                            >
+                                <Gauge className="size-3.5"/>
+                                {t("monitor_title")}
+                            </button>
+                        )}
+                    </div>
                 </div>
 
-                {/* 文件管理侧边面板（本地终端没有 SFTP） */}
-                {isFilePanelVisible && activeSessionId && activeSessionKind !== "local" && (
+                {/* 文件管理侧边面板（仅 SSH 会话提供 SFTP） */}
+                {isFilePanelVisible && activeSessionId && activeIsSsh && (
                     <ErrorBoundary>
                         <FilePanel sessionId={activeSessionId}/>
+                    </ErrorBoundary>
+                )}
+
+                {/* 服务器监控侧边面板：与文件面板互斥，共用同一条侧栏位置 */}
+                {isMonitorPanelVisible && activeSessionId && activeIsSsh && (
+                    <ErrorBoundary>
+                        <MonitorPanel sessionId={activeSessionId}/>
                     </ErrorBoundary>
                 )}
             </div>
@@ -220,44 +352,8 @@ export function TerminalStack({isVisible}: TerminalStackProps) {
                 </div>
             )}
 
-            {/* 草稿栏 / 代码片段面板切换按钮（浮动在终端区域右下角） */}
-            <div
-                className="absolute right-2 z-10 flex flex-col items-end gap-2"
-                style={{
-                    bottom: `calc(${isSnippetPanelVisible ? "var(--snippet-panel-height)" : "0px"} + ${
-                        isComposePanelVisible ? "9.5rem" : "0px"
-                    } + 8px)`,
-                }}
-            >
-                <button
-                    type="button"
-                    onClick={toggleComposePanel}
-                    className={cn(
-                        "terminal-overlay-btn px-2.5 py-1.5 text-xs",
-                        isComposePanelVisible && "is-active"
-                    )}
-                    title={t("compose_toggle")}
-                >
-                    <SquarePen className="size-3.5"/>
-                    {t("compose_title")}
-                </button>
-                <button
-                    type="button"
-                    onClick={toggleSnippetPanel}
-                    className={cn(
-                        "terminal-overlay-btn px-2.5 py-1.5 text-xs",
-                        isSnippetPanelVisible && "is-active"
-                    )}
-                    title={t("snippet_toggle")}
-                >
-                    <Code2 className="size-3.5"/>
-                    {t("snippet_title")}
-                    {isSnippetPanelVisible
-                        ? <ChevronDown className="size-3"/>
-                        : <ChevronUp className="size-3"/>
-                    }
-                </button>
-            </div>
+            {/* 底部状态条：连接状态 / 端点 / 延迟 / 传输 / 终端属性 */}
+            <StatusBar/>
         </div>
     );
 }

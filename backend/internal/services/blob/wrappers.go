@@ -45,6 +45,11 @@ func NewKeyService(q *dbgen.Queries, v *vault.Vault) *KeyService {
 }
 
 func (s *KeyService) Save(ctx context.Context, key SavedKey) (string, error) {
+	// 保存前强制校验：加密私钥必须带正确口令，损坏或格式不支持的私钥
+	// 不允许进入保险库，避免用户到连接时才发现密钥不可用。
+	if _, err := s.ValidateKey(key.PrivateKey, key.Passphrase); err != nil {
+		return "", err
+	}
 	if key.ID == "" {
 		key.ID = uuid.New().String()
 	}

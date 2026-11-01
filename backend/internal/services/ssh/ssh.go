@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -18,7 +19,9 @@ import (
 	"strings"
 	"sync"
 	"terminator-desktop/backend/internal/apperror"
+	"terminator-desktop/backend/internal/services/charset"
 	"time"
+	"unicode/utf8"
 
 	"github.com/pkg/sftp"
 	sshagent "github.com/xanzy/ssh-agent"
@@ -45,6 +48,9 @@ type SSHConnectionConfig struct {
 	Username   string `json:"username"`
 	Password   string `json:"password,omitempty"`
 	PrivateKey string `json:"privateKey,omitempty"`
+	// PrivateKeyPassphrase 是加密私钥的解密口令（可选）。
+	// 只在私钥带口令时需要，随会话参数由前端从保险库中解密后传入。
+	PrivateKeyPassphrase string `json:"privateKeyPassphrase,omitempty"`
 	// JumpHost 跳板机配置（可选），通过跳板机建立到目标的 SSH 隧道
 	JumpHost *JumpHostConfig `json:"jumpHost,omitempty"`
 
@@ -57,19 +63,86 @@ type SSHConnectionConfig struct {
 
 	// AgentForwarding 启用 SSH Agent 认证与转发（可选）
 	AgentForwarding bool `json:"agentForwarding,omitempty"`
+
+	// KeyboardInteractive 启用 keyboard-interactive 认证（MFA/OTP）。
+	// 服务器发起的任意问答都会推送到前端弹窗填写；未开启时，
+	// 只有纯密码问题会静默使用已保存的密码回答。
+	KeyboardInteractive bool `json:"keyboardInteractive,omitempty"`
+	// Certificate 是 OpenSSH 用户证书内容（*-cert.pub 文件），
+	// 必须与 PrivateKey 配对使用，由 CA 签发后服务器才接受该私钥。
+	Certificate string `json:"certificate,omitempty"`
+
+	// ── 会话高级参数 ──────────────────────────────────────────
+	// TermType 是请求 PTY 时上报的终端类型；空值使用 xterm-256color。
+	// 少数老旧设备只识别 vt100/ansi 等传统类型。
+	TermType string `json:"termType,omitempty"`
+	// ConnectTimeout 是建立连接的总超时秒数（含跳板与代理握手）。
+	// 0 使用默认值 15 秒，上限 120 秒。
+	ConnectTimeout int `json:"connectTimeout,omitempty"`
+	// KeepAlive 是连接保活间隔秒数：0 使用默认 30 秒，负数关闭保活。
+	KeepAlive int `json:"keepAlive,omitempty"`
+	// Encoding 是远端字符编码（如 gbk、big5）；空值/utf-8 表示 UTF-8。
+	// 仅影响键盘输入转码与前端输出解码，不改变 SSH 协议本身。
+	Encoding string `json:"encoding,omitempty"`
 }
 
 // JumpHostConfig 跳板机配置。
 // JumpHost 支持嵌套，用于多级链式跳转：config.JumpHost 为最外层跳板
 // （由本机直接连接），其 JumpHost 字段指向再往内一层的跳板，依此类推。
+// 跳板机的 keyboard-interactive 暂不支持：跳板阶段没有可交互的会话上下文。
 type JumpHostConfig struct {
-	Host       string          `json:"host"`
-	Port       int             `json:"port"`
-	Username   string          `json:"username"`
-	Password   string          `json:"password,omitempty"`
-	PrivateKey string          `json:"privateKey,omitempty"`
-	JumpHost   *JumpHostConfig `json:"jumpHost,omitempty"`
+	Host                 string          `json:"host"`
+	Port                 int             `json:"port"`
+	Username             string          `json:"username"`
+	Password             string          `json:"password,omitempty"`
+	PrivateKey           string          `json:"privateKey,omitempty"`
+	PrivateKeyPassphrase string          `json:"privateKeyPassphrase,omitempty"`
+	Certificate          string          `json:"certificate,omitempty"`
+	JumpHost             *JumpHostConfig `json:"jumpHost,omitempty"`
 }
+
+// AuthPrompt 交互式认证中的一条问答。
+type AuthPrompt struct {
+	Prompt string `json:"prompt"`
+	// Echo 为 true 表示服务器允许明文回显（如用户名），前端用普通输入框。
+	Echo bool `json:"echo"`
+}
+
+// AuthPromptRequest 是等待用户填写的交互式认证请求。
+// RequestID 在每次问答时唯一，SubmitAuthResponses/CancelAuthPrompt 按它定位。
+type AuthPromptRequest struct {
+	RequestID   string       `json:"requestId"`
+	SessionID   string       `json:"sessionId"`
+	Host        string       `json:"host"`
+	Username    string       `json:"username"`
+	Instruction string       `json:"instruction"`
+	Prompts     []AuthPrompt `json:"prompts"`
+}
+
+// AuthPrompter 由桌面层实现：把交互式认证问答推送到前端。
+// 收到 EmitAuthPrompt 后，前端调用 SubmitAuthResponses 或 CancelAuthPrompt。
+type AuthPrompter interface {
+	EmitAuthPrompt(request AuthPromptRequest)
+}
+
+// authAnswer 是交互式认证等待结果：responses 为各问题的回答，canceled 表示用户取消。
+type authAnswer struct {
+	responses []string
+	canceled  bool
+}
+
+// 交互式认证问答的限制：提示语数量与长度都来自服务器，
+// 截断可避免异常服务端用超长内容撑爆 IPC 与弹窗渲染。
+const (
+	maxAuthQuestions    = 10
+	maxAuthPromptLen    = 256
+	maxAuthResponseLen  = 4096
+	maxAuthInstruction  = 512
+	defaultAuthPromptTO = 120 * time.Second
+)
+
+// authPromptTimeout 是等待用户回答的总时长。作为变量保留，便于测试缩短。
+var authPromptTimeout = defaultAuthPromptTO
 
 // maxJumpHops 跳板机链的最大层级，防止异常配置导致建链过程长时间挂起。
 const maxJumpHops = 8
@@ -96,17 +169,24 @@ type activeSession struct {
 	logFile     *os.File             // 会话日志文件（可选）
 	logMu       sync.Mutex           // 保护 logFile 的并发写入
 	agentCloser io.Closer            // SSH Agent 转发连接（可选，清理时关闭）
+	encoding    charset.Spec         // 键盘输入的目标编码（零值 = UTF-8）
 }
 
-// closeLogFile 关闭会话日志文件。
+// closeLogFile 关闭会话日志文件（幂等）。
 // 与 writeLog 共用 logMu：Close 若与在途 Write 交叉，会静默丢掉最后一段日志。
+// 关闭后把句柄置空，后续到达的输出按"未开启日志"直接忽略，
+// 避免向已关闭的文件写入而产生无意义的错误日志。
 func (a *activeSession) closeLogFile() {
-	if a == nil || a.logFile == nil {
+	if a == nil {
 		return
 	}
 	a.logMu.Lock()
+	defer a.logMu.Unlock()
+	if a.logFile == nil {
+		return
+	}
 	_ = a.logFile.Close()
-	a.logMu.Unlock()
+	a.logFile = nil
 }
 
 type SshService struct {
@@ -153,6 +233,12 @@ type SshService struct {
 	logDir string
 	// logConfig 会话日志开关，为 nil 时视为关闭
 	logConfig SessionLogConfig
+
+	// authPrompter 交互式认证问答的前端通道；为 nil 时只能自动回答密码类问题
+	authPrompter AuthPrompter
+	// authMu 保护 authWaiters（key = request ID）
+	authMu      sync.Mutex
+	authWaiters map[string]chan authAnswer
 }
 
 // pooledConn 池化 SSH 连接，引用计数管理生命周期
@@ -163,6 +249,64 @@ type pooledConn struct {
 }
 
 const timeout = 15 * time.Second
+
+const (
+	// defaultTermType 是请求 PTY 时的默认终端类型。
+	defaultTermType = "xterm-256color"
+	// maxTermTypeLen 限制 TERM 长度：该值会进入 SSH 协议报文。
+	maxTermTypeLen = 40
+	// maxConnectTimeout 限制连接超时上限，避免误填超大值使断开操作长时间无响应。
+	maxConnectTimeout = 120
+	// defaultKeepAlive 是未指定保活间隔时使用的默认值。
+	defaultKeepAlive = 30 * time.Second
+	// maxKeepAlive 限制保活间隔上限。
+	maxKeepAlive = 300 * time.Second
+)
+
+// terminalType 返回请求 PTY 时使用的终端类型。
+// 允许字母、数字与常见分隔符；非法值回退默认，避免把控制字符带进协议。
+func terminalType(config *SSHConnectionConfig) string {
+	term := strings.TrimSpace(config.TermType)
+	if term == "" || len(term) > maxTermTypeLen {
+		return defaultTermType
+	}
+	for _, r := range term {
+		ok := (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') ||
+			(r >= '0' && r <= '9') || r == '-' || r == '_' || r == '.' || r == '/'
+		if !ok {
+			return defaultTermType
+		}
+	}
+	return term
+}
+
+// connectionTimeout 返回建立连接（含跳板/代理握手）的超时。
+func connectionTimeout(config *SSHConnectionConfig) time.Duration {
+	secs := config.ConnectTimeout
+	if secs <= 0 {
+		return timeout
+	}
+	if secs > maxConnectTimeout {
+		secs = maxConnectTimeout
+	}
+	return time.Duration(secs) * time.Second
+}
+
+// keepAliveInterval 返回保活间隔：0 表示关闭。
+// 负值显式关闭；0 使用默认 30 秒，避免旧配置丢失保活能力。
+func keepAliveInterval(config *SSHConnectionConfig) time.Duration {
+	if config.KeepAlive < 0 {
+		return 0
+	}
+	if config.KeepAlive == 0 {
+		return defaultKeepAlive
+	}
+	interval := time.Duration(config.KeepAlive) * time.Second
+	if interval > maxKeepAlive {
+		return maxKeepAlive
+	}
+	return interval
+}
 
 const batchRatePerSecond = 60
 
@@ -178,6 +322,7 @@ func NewSshService(emitter SSHEmitter, logDir string) *SshService {
 		sessionForwards: make(map[string][]string),
 		forwardConns:    make(map[string]map[net.Conn]struct{}),
 		logDir:          logDir,
+		authWaiters:     make(map[string]chan authAnswer),
 	}
 }
 
@@ -290,6 +435,11 @@ func (s *SshService) Connect(config *SSHConnectionConfig) error {
 	if strings.TrimSpace(config.ID) == "" {
 		return apperror.Validation("session id is required")
 	}
+	// 编码在连接阶段校验：非法值不应等到用户敲键盘时才报错。
+	encodingSpec, err := charset.Parse(config.Encoding)
+	if err != nil {
+		return apperror.Validation(err.Error())
+	}
 
 	client, err := s.acquireClient(config)
 	if err != nil {
@@ -319,7 +469,7 @@ func (s *SshService) Connect(config *SSHConnectionConfig) error {
 		ssh.TTY_OP_OSPEED: 115200,
 	}
 
-	if err = session.RequestPty("xterm-256color", 24, 80, modes); err != nil {
+	if err = session.RequestPty(terminalType(config), 24, 80, modes); err != nil {
 		_ = pw.Close()
 		_ = pr.Close()
 		_ = session.Close()
@@ -388,28 +538,31 @@ func (s *SshService) Connect(config *SSHConnectionConfig) error {
 		// 注意：keepalive 失败时只关闭 session/pw，不关闭共享 client
 		// client 的生命周期由连接池 refCount 管理
 		keepaliveDone := make(chan struct{})
-		go func() {
-			defer func() {
-				if r := recover(); r != nil {
-					slog.Error("keepalive goroutine panic", "panic", r, "stack", string(debug.Stack()))
-				}
-			}()
-			ticker := time.NewTicker(30 * time.Second)
-			defer ticker.Stop()
-			for {
-				select {
-				case <-keepaliveDone:
-					return
-				case <-ticker.C:
-					if !s.isConnectionAlive(client) {
-						slog.Warn("SSH keepalive failed, closing session", "session", config.ID)
-						_ = session.Close()
-						_ = pw.Close()
+		// 保活间隔来自会话高级参数：负值关闭，0 使用默认 30 秒
+		if interval := keepAliveInterval(config); interval > 0 {
+			go func() {
+				defer func() {
+					if r := recover(); r != nil {
+						slog.Error("keepalive goroutine panic", "panic", r, "stack", string(debug.Stack()))
+					}
+				}()
+				ticker := time.NewTicker(interval)
+				defer ticker.Stop()
+				for {
+					select {
+					case <-keepaliveDone:
 						return
+					case <-ticker.C:
+						if !s.isConnectionAlive(client) {
+							slog.Warn("SSH keepalive failed, closing session", "session", config.ID)
+							_ = session.Close()
+							_ = pw.Close()
+							return
+						}
 					}
 				}
-			}
-		}()
+			}()
+		}
 
 		// 使用 defer 确保 panic 时 keepaliveDone 和 pw 也被正确清理
 		defer close(keepaliveDone)
@@ -426,6 +579,7 @@ func (s *SshService) Connect(config *SSHConnectionConfig) error {
 		stdout:      pr,
 		pipeCloser:  pw,
 		connConfig:  config,
+		encoding:    encodingSpec,
 		logFile:     logFile,
 		agentCloser: agentCloser,
 	}
@@ -433,7 +587,12 @@ func (s *SshService) Connect(config *SSHConnectionConfig) error {
 	s.mu.Unlock()
 
 	if old != nil {
-		old.closeLogFile()
+		// 旧会话的端口转发依赖已被替换的连接：客户端关闭后 listener 仍存活，
+		// 会继续占用本地端口却无法转发，重连后同一端口会报"已被占用"。
+		s.cleanupForwards(config.ID)
+		// 旧会话的日志不在这里关闭：其 streamOutput 可能还有一批输出待落盘，
+		// 提前关闭会丢掉会话结束前的最后一段内容。日志由 streamOutput 在
+		// 管道 EOF 后自行关闭，两个句柄短暂并发追加同名文件是安全的。
 		if old.agentCloser != nil {
 			_ = old.agentCloser.Close()
 		}
@@ -497,11 +656,20 @@ func credentialFingerprint(config *SSHConnectionConfig) string {
 
 	write(config.Password)
 	write(config.PrivateKey)
+	write(config.PrivateKeyPassphrase)
+	// 证书决定服务器看到的身份：配置了不同证书的连接不能复用同一认证结果
+	write(config.Certificate)
 	write(config.ProxyUsername)
 	write(config.ProxyPassword)
 	for jh := config.JumpHost; jh != nil; jh = jh.JumpHost {
 		write(jh.Password)
 		write(jh.PrivateKey)
+		write(jh.PrivateKeyPassphrase)
+		write(jh.Certificate)
+	}
+	if config.KeyboardInteractive {
+		hasCredential = true
+		b.WriteString("ki|")
 	}
 	if config.AgentForwarding {
 		hasCredential = true
@@ -709,7 +877,10 @@ func (s *SshService) releaseClient(config *SSHConnectionConfig, client *ssh.Clie
 
 // dialSSH 建立 SSH 连接，支持直连、代理和 Jump Host
 func (s *SshService) dialSSH(config *SSHConnectionConfig) (*ssh.Client, error) {
-	authMethods := buildAuthMethods(config.PrivateKey, config.Password)
+	authMethods, err := s.authMethods(config)
+	if err != nil {
+		return nil, apperror.SSHConnectionFailed("failed to prepare authentication", err)
+	}
 
 	// Agent 认证：如果启用 AgentForwarding，尝试从 SSH agent 获取密钥并作为首选认证方式
 	if config.AgentForwarding {
@@ -728,7 +899,7 @@ func (s *SshService) dialSSH(config *SSHConnectionConfig) (*ssh.Client, error) {
 		User:            config.Username,
 		Auth:            authMethods,
 		HostKeyCallback: hostKeyCallback,
-		Timeout:         timeout,
+		Timeout:         connectionTimeout(config),
 	}
 
 	targetAddr := fmt.Sprintf("%s:%d", config.Host, config.Port)
@@ -773,11 +944,16 @@ func (s *SshService) dialThroughJumpHost(config *SSHConnectionConfig, targetConf
 	// 第一跳：本机（或经代理）直连最外层跳板机
 	first := chain[0]
 	firstAddr := fmt.Sprintf("%s:%d", first.Host, first.Port)
+	firstAuth, authErr := buildAuthMethods(first.PrivateKey, first.PrivateKeyPassphrase, first.Password, first.Certificate)
+	if authErr != nil {
+		return nil, apperror.SSHConnectionFailed(
+			fmt.Sprintf("invalid credentials for jump host %s", firstAddr), authErr)
+	}
 	firstClient, err := dialWithProxy("tcp", firstAddr, &ssh.ClientConfig{
 		User:            first.Username,
-		Auth:            buildAuthMethods(first.PrivateKey, first.Password),
+		Auth:            firstAuth,
 		HostKeyCallback: s.makeHostKeyCallback(first.Host, first.Port),
-		Timeout:         timeout,
+		Timeout:         connectionTimeout(config),
 	}, config)
 	if err != nil {
 		return nil, apperror.SSHConnectionFailed(fmt.Sprintf("failed to connect to jump host %s", firstAddr), err)
@@ -788,6 +964,12 @@ func (s *SshService) dialThroughJumpHost(config *SSHConnectionConfig, targetConf
 	cur := firstClient
 	for _, jh := range chain[1:] {
 		nextAddr := fmt.Sprintf("%s:%d", jh.Host, jh.Port)
+		nextAuth, authErr := buildAuthMethods(jh.PrivateKey, jh.PrivateKeyPassphrase, jh.Password, jh.Certificate)
+		if authErr != nil {
+			cleanup()
+			return nil, apperror.SSHConnectionFailed(
+				fmt.Sprintf("invalid credentials for jump host %s", nextAddr), authErr)
+		}
 		conn, err := cur.Dial("tcp", nextAddr)
 		if err != nil {
 			cleanup()
@@ -796,9 +978,9 @@ func (s *SshService) dialThroughJumpHost(config *SSHConnectionConfig, targetConf
 
 		ncc, chans, reqs, err := ssh.NewClientConn(conn, nextAddr, &ssh.ClientConfig{
 			User:            jh.Username,
-			Auth:            buildAuthMethods(jh.PrivateKey, jh.Password),
+			Auth:            nextAuth,
 			HostKeyCallback: s.makeHostKeyCallback(jh.Host, jh.Port),
-			Timeout:         timeout,
+			Timeout:         connectionTimeout(config),
 		})
 		if err != nil {
 			_ = conn.Close()
@@ -850,6 +1032,7 @@ func dialWithProxy(network, addr string, sshConfig *ssh.ClientConfig, config *SS
 	}
 
 	proxyAddr := fmt.Sprintf("%s:%d", config.ProxyHost, config.ProxyPort)
+	dialTimeout := connectionTimeout(config)
 	var conn net.Conn
 
 	switch strings.ToLower(config.ProxyType) {
@@ -858,12 +1041,12 @@ func dialWithProxy(network, addr string, sshConfig *ssh.ClientConfig, config *SS
 		if config.ProxyUsername != "" {
 			auth = &proxy.Auth{User: config.ProxyUsername, Password: config.ProxyPassword}
 		}
-		d, err := proxy.SOCKS5("tcp", proxyAddr, auth, &netDialer{timeout: timeout})
+		d, err := proxy.SOCKS5("tcp", proxyAddr, auth, &netDialer{timeout: dialTimeout})
 		if err != nil {
 			return nil, fmt.Errorf("failed to create SOCKS5 dialer: %w", err)
 		}
 		// SOCKS5 拨号无内置超时，用 context 限制总时间
-		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		ctx, cancel := context.WithTimeout(context.Background(), dialTimeout)
 		defer cancel()
 		// proxy.SOCKS5 返回的 dialer 实现了 ContextDialer 接口
 		if cd, ok := d.(proxy.ContextDialer); ok {
@@ -879,6 +1062,7 @@ func dialWithProxy(network, addr string, sshConfig *ssh.ClientConfig, config *SS
 			proxyAddr:     proxyAddr,
 			proxyUsername: config.ProxyUsername,
 			proxyPassword: config.ProxyPassword,
+			timeout:       dialTimeout,
 		}
 		var err error
 		conn, err = hd.Dial(network, addr)
@@ -912,16 +1096,17 @@ type httpConnectDialer struct {
 	proxyAddr     string
 	proxyUsername string
 	proxyPassword string
+	timeout       time.Duration
 }
 
 func (d *httpConnectDialer) Dial(network, addr string) (net.Conn, error) {
-	conn, err := net.DialTimeout(network, d.proxyAddr, timeout)
+	conn, err := net.DialTimeout(network, d.proxyAddr, d.timeout)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to HTTP proxy %s: %w", d.proxyAddr, err)
 	}
 
 	// 设置读写超时，防止代理无响应时无限阻塞
-	_ = conn.SetDeadline(time.Now().Add(timeout))
+	_ = conn.SetDeadline(time.Now().Add(d.timeout))
 
 	// 使用 bufio.Reader 读取 HTTP 响应，避免 http.ReadResponse 读到 SSH 握手数据
 	br := bufio.NewReader(conn)
@@ -967,15 +1152,39 @@ func (b *bufferedConn) Read(p []byte) (int, error) {
 	return b.r.Read(p)
 }
 
-// buildAuthMethods 构建认证方法列表
-func buildAuthMethods(privateKey, password string) []ssh.AuthMethod {
+// buildAuthMethods 构建认证方法列表。
+// certificate 为 OpenSSH 用户证书内容：提供时先尝试「证书 + 私钥」签名，
+// 再保留原始私钥作为后备（服务器不要求证书时仍可登录）。
+func buildAuthMethods(privateKey, passphrase, password, certificate string) ([]ssh.AuthMethod, error) {
 	var authMethods []ssh.AuthMethod
+	cert := strings.TrimSpace(certificate)
+	if cert != "" && privateKey == "" {
+		return nil, errors.New("使用 SSH 证书时必须同时配置私钥")
+	}
+
 	if privateKey != "" {
 		signer, err := ssh.ParsePrivateKey([]byte(privateKey))
-		if err == nil {
-			authMethods = append(authMethods, ssh.PublicKeys(signer))
-		} else {
+		if err != nil && passphrase != "" {
+			// 加密私钥：用口令再解析一次。口令错误时保持 err，
+			// 仍允许口令认证作为后备（服务器可能同时接受密码）。
+			signer, err = ssh.ParsePrivateKeyWithPassphrase([]byte(privateKey), []byte(passphrase))
+		}
+		if err != nil {
+			// 显式配置了证书时，私钥不可用意味着必然无法认证，
+			// 直接报错比静默降级为密码更能暴露配置问题。
+			if cert != "" {
+				return nil, fmt.Errorf("解析私钥失败: %w", err)
+			}
 			slog.Warn("private key parse failed, falling back to password if available", "error", err)
+		} else {
+			if cert != "" {
+				certSigner, certErr := parseCertificateSigner(signer, cert)
+				if certErr != nil {
+					return nil, certErr
+				}
+				authMethods = append(authMethods, ssh.PublicKeys(certSigner))
+			}
+			authMethods = append(authMethods, ssh.PublicKeys(signer))
 		}
 	}
 	// 密码作为备选认证方式：即使密钥解析成功也添加，
@@ -983,7 +1192,213 @@ func buildAuthMethods(privateKey, password string) []ssh.AuthMethod {
 	if password != "" {
 		authMethods = append(authMethods, ssh.Password(password))
 	}
-	return authMethods
+	return authMethods, nil
+}
+
+// parseCertificateSigner 把用户证书与私钥签名者包装成证书签名者。
+// NewCertSigner 会校验证书公钥与私钥是否配对，不匹配时返回错误。
+func parseCertificateSigner(key ssh.Signer, certificate string) (ssh.Signer, error) {
+	pub, _, _, _, err := ssh.ParseAuthorizedKey([]byte(certificate))
+	if err != nil {
+		return nil, fmt.Errorf("解析 SSH 证书失败: %w", err)
+	}
+	cert, ok := pub.(*ssh.Certificate)
+	if !ok {
+		return nil, errors.New("证书文件内容不是 SSH 用户证书（应以 ssh-*-cert-v01@openssh.com 开头）")
+	}
+	signer, err := ssh.NewCertSigner(cert, key)
+	if err != nil {
+		return nil, fmt.Errorf("证书与私钥不匹配: %w", err)
+	}
+	return signer, nil
+}
+
+// authMethods 组装一次连接可用的全部认证方式。
+func (s *SshService) authMethods(config *SSHConnectionConfig) ([]ssh.AuthMethod, error) {
+	methods, err := buildAuthMethods(config.PrivateKey, config.PrivateKeyPassphrase, config.Password, config.Certificate)
+	if err != nil {
+		return nil, err
+	}
+	// keyboard-interactive：部分服务器（尤其是开启 MFA 的）只开放该认证方式，
+	// 因此只要存在密码或用户显式开启就加入候选；是否真正弹窗由问题内容决定。
+	if config.KeyboardInteractive || config.Password != "" {
+		methods = append(methods, s.keyboardInteractiveAuth(config))
+	}
+	return methods, nil
+}
+
+// SetAuthPrompter 注入交互式认证问答通道。
+//
+//wails:ignore 仅由后端装配（main.go）调用，参数是接口类型无法 JSON 序列化
+func (s *SshService) SetAuthPrompter(p AuthPrompter) {
+	s.authMu.Lock()
+	defer s.authMu.Unlock()
+	s.authPrompter = p
+}
+
+// SubmitAuthResponses 提交前端填写的交互式认证回答。
+// 问答已超时/取消时返回错误，前端据此提示"请求已失效"。
+func (s *SshService) SubmitAuthResponses(requestID string, responses []string) error {
+	waiter, ok := s.takeAuthWaiter(requestID)
+	if !ok {
+		return errors.New("交互式认证请求已失效")
+	}
+	if len(responses) > maxAuthQuestions {
+		responses = responses[:maxAuthQuestions]
+	}
+	trimmed := make([]string, len(responses))
+	for i, answer := range responses {
+		if len(answer) > maxAuthResponseLen {
+			answer = answer[:maxAuthResponseLen]
+		}
+		trimmed[i] = answer
+	}
+	// waiter 带缓冲，无接收者（已被超时逻辑放弃）时直接丢弃，避免阻塞调用方。
+	select {
+	case waiter <- authAnswer{responses: trimmed}:
+	default:
+	}
+	return nil
+}
+
+// CancelAuthPrompt 用户取消交互式认证，使在途连接尽快失败而不是等到超时。
+func (s *SshService) CancelAuthPrompt(requestID string) error {
+	waiter, ok := s.takeAuthWaiter(requestID)
+	if !ok {
+		return errors.New("交互式认证请求已失效")
+	}
+	select {
+	case waiter <- authAnswer{canceled: true}:
+	default:
+	}
+	return nil
+}
+
+// takeAuthWaiter 取出并移除等待者：同一请求只允许一次性回答/取消。
+func (s *SshService) takeAuthWaiter(requestID string) (chan authAnswer, bool) {
+	s.authMu.Lock()
+	defer s.authMu.Unlock()
+	waiter, ok := s.authWaiters[requestID]
+	if ok {
+		delete(s.authWaiters, requestID)
+	}
+	return waiter, ok
+}
+
+// keyboardInteractiveAuth 构造 keyboard-interactive 认证方法。
+func (s *SshService) keyboardInteractiveAuth(config *SSHConnectionConfig) ssh.AuthMethod {
+	return ssh.KeyboardInteractive(s.keyboardInteractiveChallenge(config))
+}
+
+// keyboardInteractiveChallenge 返回处理服务器问答的回调。
+// 纯密码问题优先用已保存密码自动回答；其余问题推送到前端弹窗。
+func (s *SshService) keyboardInteractiveChallenge(config *SSHConnectionConfig) ssh.KeyboardInteractiveChallenge {
+	return func(_ string, instruction string, questions []string, echos []bool) ([]string, error) {
+		if len(questions) > maxAuthQuestions {
+			questions = questions[:maxAuthQuestions]
+		}
+		if len(questions) == 0 {
+			// 只有提示语、没有输入项：无需用户操作
+			return nil, nil
+		}
+
+		prompts := make([]AuthPrompt, len(questions))
+		for i, question := range questions {
+			echo := false
+			if i < len(echos) {
+				echo = echos[i]
+			}
+			prompts[i] = AuthPrompt{Prompt: truncatePromptText(question, maxAuthPromptLen), Echo: echo}
+		}
+
+		// 单个密码问题：直接复用已保存密码，避免无 MFA 的服务器在仅开
+		// keyboard-interactive 时也要用户重复输入一次。
+		if len(prompts) == 1 && !prompts[0].Echo && isPasswordPrompt(prompts[0].Prompt) && config.Password != "" {
+			return []string{config.Password}, nil
+		}
+
+		s.authMu.Lock()
+		prompter := s.authPrompter
+		s.authMu.Unlock()
+		if prompter == nil {
+			// 无 UI 通道（如纯后端集成测试）：全部是密码类问题时可用保存的密码回答
+			if config.Password != "" && allPasswordPrompts(prompts) {
+				answers := make([]string, len(prompts))
+				for i := range answers {
+					answers[i] = config.Password
+				}
+				return answers, nil
+			}
+			return nil, errors.New("服务器要求交互式认证，但当前环境无法显示问答输入")
+		}
+
+		requestID := fmt.Sprintf("%s-%d", config.ID, time.Now().UnixNano())
+		waiter := make(chan authAnswer, 1)
+		s.authMu.Lock()
+		s.authWaiters[requestID] = waiter
+		s.authMu.Unlock()
+		defer func() {
+			s.authMu.Lock()
+			delete(s.authWaiters, requestID)
+			s.authMu.Unlock()
+		}()
+
+		prompter.EmitAuthPrompt(AuthPromptRequest{
+			RequestID:   requestID,
+			SessionID:   config.ID,
+			Host:        config.Host,
+			Username:    config.Username,
+			Instruction: truncatePromptText(instruction, maxAuthInstruction),
+			Prompts:     prompts,
+		})
+
+		select {
+		case answer := <-waiter:
+			if answer.canceled {
+				return nil, errors.New("用户取消了交互式认证")
+			}
+			// 前端可能少填（例如关闭了某个输入框），按问题数补齐空串，
+			// 服务器通常要求回答数量与问题数量一致。
+			responses := make([]string, len(prompts))
+			for i := 0; i < len(prompts) && i < len(answer.responses); i++ {
+				responses[i] = answer.responses[i]
+			}
+			return responses, nil
+		case <-time.After(authPromptTimeout):
+			return nil, fmt.Errorf("交互式认证等待输入超时（%s）", authPromptTimeout)
+		}
+	}
+}
+
+// isPasswordPrompt 判断提示语是否在询问密码/口令。
+func isPasswordPrompt(prompt string) bool {
+	lower := strings.ToLower(prompt)
+	return strings.Contains(lower, "password") ||
+		strings.Contains(lower, "passphrase") ||
+		strings.Contains(prompt, "密码") ||
+		strings.Contains(prompt, "口令")
+}
+
+func allPasswordPrompts(prompts []AuthPrompt) bool {
+	for _, prompt := range prompts {
+		if prompt.Echo || !isPasswordPrompt(prompt.Prompt) {
+			return false
+		}
+	}
+	return true
+}
+
+// truncatePromptText 按字节截断并保证 UTF-8 合法：
+// 服务器返回的提示语可能含中文，直接按字节截断会切坏最后一个字符。
+func truncatePromptText(text string, limit int) string {
+	if len(text) <= limit {
+		return text
+	}
+	cut := limit
+	for cut > 0 && !utf8.RuneStart(text[cut]) {
+		cut--
+	}
+	return text[:cut]
 }
 
 // buildAgentAuthMethod 连接本地 SSH agent 并返回基于 agent 的认证方法和 closer。
@@ -1209,7 +1624,40 @@ func (s *SshService) Input(sessionID string, data string) error {
 		return apperror.SSHSessionNotFound()
 	}
 
-	_, err := active.stdin.Write([]byte(data))
+	// 前端键盘输入始终是 UTF-8；按会话编码转成远端期望的字节序列。
+	payload, err := active.encoding.Encode([]byte(data))
+	if err != nil {
+		return apperror.Validation("failed to encode terminal input")
+	}
+	_, err = active.stdin.Write(payload)
+	return err
+}
+
+// maxInputBase64Bytes 单次二进制输入的解析上限（16MB）。
+// ZMODEM 等协议按 8KB 左右的子包发送，正常调用远低于该上限；
+// 限制可避免异常调用方一次提交过大内容占用内存。
+const maxInputBase64Bytes = 16 << 20
+
+// InputBase64 发送原始字节（ZMODEM 等二进制协议使用）。
+// Wails 的字符串参数按 UTF-8 传输，直接把二进制转成字符串会被转码破坏，
+// 因此前端先把字节数组编码为 base64，这里解码后原样写入 SSH 通道。
+func (s *SshService) InputBase64(sessionID string, dataBase64 string) error {
+	s.mu.RLock()
+	active, exists := s.sessions[sessionID]
+	s.mu.RUnlock()
+
+	if !exists {
+		return apperror.SSHSessionNotFound()
+	}
+
+	raw, err := base64.StdEncoding.DecodeString(dataBase64)
+	if err != nil {
+		return apperror.Validation("invalid base64 payload")
+	}
+	if len(raw) > maxInputBase64Bytes {
+		return apperror.Validation("binary input exceeds limit")
+	}
+	_, err = active.stdin.Write(raw)
 	return err
 }
 
@@ -1236,7 +1684,9 @@ func (s *SshService) Disconnect(sessionID string) {
 	if exists {
 		// 清理该会话的所有端口转发监听器
 		s.cleanupForwards(sessionID)
-		active.closeLogFile()
+		// 日志文件不由这里关闭：streamOutput 在管道 EOF 后还要把最后一批输出
+		// 落盘，提前关闭会让这段内容静默丢失。关闭管道后 streamOutput 会自行
+		// 结束并关闭日志。
 		if active.agentCloser != nil {
 			_ = active.agentCloser.Close()
 		}
@@ -1455,9 +1905,15 @@ func (s *SshService) AddPortForward(spec *PortForwardSpec) error {
 func (s *SshService) startLocalForward(spec *PortForwardSpec, client *ssh.Client) error {
 	// 安全加固：LocalHost 为空时默认绑定回环地址 127.0.0.1，
 	// 避免 net.Listen("tcp", ":port") 绑定 0.0.0.0 将所有网卡暴露到局域网。
+	// 通配地址（0.0.0.0 / ::）明确拒绝：隧道内没有任何鉴权，一旦监听所有网卡，
+	// 同网段任何主机都能直通远端服务。需要对外暴露时填写具体网卡地址，
+	// 让暴露范围与意图明确（等价于 ssh -g -L 的替代写法）。
 	localHost := strings.TrimSpace(spec.LocalHost)
 	if localHost == "" {
 		localHost = "127.0.0.1"
+	}
+	if localHost == "0.0.0.0" || localHost == "::" || localHost == "[::]" {
+		return fmt.Errorf("本地监听地址 %s 会把隧道暴露给局域网且无鉴权，请填写具体网卡地址（如 192.168.1.10）", localHost)
 	}
 	localAddr := fmt.Sprintf("%s:%d", localHost, spec.LocalPort)
 	listener, err := net.Listen("tcp", localAddr)
@@ -1540,7 +1996,13 @@ func (s *SshService) startLocalForward(spec *PortForwardSpec, client *ssh.Client
 }
 
 func (s *SshService) startRemoteForward(spec *PortForwardSpec, client *ssh.Client) error {
-	remoteAddr := fmt.Sprintf("%s:%d", spec.RemoteHost, spec.RemotePort)
+	// 空 RemoteHost 会拼成 ":port"，让 SSH 服务端在 0.0.0.0 上监听，
+	// 把端口暴露给远端整个网络。与本地转发一致，默认绑定远端回环地址。
+	remoteHost := strings.TrimSpace(spec.RemoteHost)
+	if remoteHost == "" {
+		remoteHost = "127.0.0.1"
+	}
+	remoteAddr := fmt.Sprintf("%s:%d", remoteHost, spec.RemotePort)
 	listener, err := client.Listen("tcp", remoteAddr)
 	if err != nil {
 		return fmt.Errorf("failed to listen on remote %s: %w", remoteAddr, err)
@@ -1765,6 +2227,9 @@ func (s *SshService) streamOutput(sessionID string, stdout io.Reader, current *a
 					s.emitter.EmitData(sessionID, batch)
 					s.writeLog(current, batch)
 				}
+				// 先关闭日志再清理会话：Disconnect/替换会话时不再提前关闭日志，
+				// 否则最后一批（最多 128KB）输出会因写入已关闭的文件而丢失。
+				current.closeLogFile()
 				s.cleanupSession(sessionID, current)
 				return
 			}
@@ -1788,14 +2253,21 @@ func (s *SshService) streamOutput(sessionID string, stdout io.Reader, current *a
 }
 
 // writeLog 将会话输出写入日志文件（如果已启用）。
-// 使用 activeSession.logMu 保护并发写入。
+// 句柄的读取与关闭都必须持有 logMu：closeLogFile 会把 logFile 置空，
+// 无锁读取该字段与并发关闭构成数据竞争。
 func (s *SshService) writeLog(active *activeSession, data []byte) {
-	if active == nil || active.logFile == nil {
+	if active == nil {
 		return
 	}
 	active.logMu.Lock()
-	defer active.logMu.Unlock()
-	if _, err := active.logFile.Write(data); err != nil {
+	f := active.logFile
+	if f == nil {
+		active.logMu.Unlock()
+		return
+	}
+	_, err := f.Write(data)
+	active.logMu.Unlock()
+	if err != nil {
 		slog.Debug("failed to write to session log", "error", err)
 	}
 }

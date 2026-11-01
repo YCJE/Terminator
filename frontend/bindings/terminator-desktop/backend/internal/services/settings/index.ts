@@ -7,5 +7,6 @@ export {
 };
 
 export {
-    AppSettings
+    AppSettings,
+    RecentHost
 } from "./models.js";

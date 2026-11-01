@@ -183,7 +183,10 @@ export function LockScreen() {
 
     return (
         <div className="absolute inset-0 z-50 flex h-full w-full items-center justify-center bg-[var(--surface-0)]">
-            <div className="lazy-fade-in relative w-full max-w-sm rounded-[var(--radius-xl)] border border-[var(--hairline)] bg-[var(--surface-1)] p-7 shadow-[var(--shadow-modal)]">
+            {/* 氛围层：点阵底纹 + 中心光晕，与终端空态同一套视觉语言 */}
+            <div className="lock-atmosphere" aria-hidden/>
+            <div className="lock-glow" aria-hidden/>
+            <div className="lazy-fade-in relative w-full max-w-[380px] rounded-[var(--radius-xl)] border border-[var(--hairline)] bg-[var(--surface-1)] p-7 shadow-[var(--shadow-modal)]">
 
                 {mode !== "select" && mode !== "login" && (
                     <Button

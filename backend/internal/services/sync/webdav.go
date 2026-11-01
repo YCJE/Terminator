@@ -25,9 +25,6 @@ type WebDAVConfig struct {
 // syncFileName WebDAV 上存放同步数据的文件名
 const syncFileName = "syncdata.enc"
 
-// maxSyncFileSize 同步文件最大允许大小（10MB），防止恶意服务器返回超大响应导致 OOM
-const maxSyncFileSize = 10 * 1024 * 1024
-
 // webdavBlob 是 WebDAV 同步数据包中单个 blob 的结构
 type webdavBlob struct {
 	ID        string `json:"id"`

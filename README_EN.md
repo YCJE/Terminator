@@ -30,6 +30,7 @@ Terminator is a cross-platform SSH client built with [Wails v3](https://v3.wails
   - [Security and backup](#security-and-backup)
   - [Logs and session search](#logs-and-session-search)
   - [Settings](#settings)
+- [UI & interaction guide](docs/ui-guide.en.md)
 - [Features](#features)
 - [Security](#security)
 - [Self-hosted server](#self-hosted-server)
@@ -51,6 +52,8 @@ Grab the latest Windows build from the [Releases](https://github.com/YCJE/Termin
 > Windows needs the [WebView2 runtime](https://developer.microsoft.com/microsoft-edge/webview2/) on first launch (already present on most recent systems). Linux and macOS builds (AppImage / `pkg`) are published on the same Releases page.
 
 ## Screenshots
+
+> Window structure, status semantics and common workflows are documented in the [UI & interaction guide](docs/ui-guide.en.md).
 
 ### Hosts
 
@@ -363,7 +366,7 @@ Sync consistency and conflict handling:
 - [x] Termius-style UI overhaul (unified cards / lists / detail panels)
 - [x] Draggable split divider + tab overflow scrolling and drag feedback
 - [x] Unified motion rhythm (160–220ms + three overlay shadows)
-- [ ] Zmodem / trzsz file transfer
+- [x] Zmodem in-terminal file transfer (trzsz still pending)
 - [ ] Multiple profiles (teams)
 - [ ] Android client
 - [ ] CLI client

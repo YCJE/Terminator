@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useRef } from "react";
+import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -12,6 +12,8 @@ import {
     LayoutGrid,
     MoreHorizontal,
     Trash2,
+    Clock3,
+    Search,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -31,6 +33,7 @@ import { useHosts, useSaveHost, useDeleteHost } from "@/hooks/useHosts";
 import { useKeys } from "@/hooks/useKeys";
 import { useSessionStore } from "@/store/sessionStore";
 import { HostService, Host, ItemType, SSHConfigHost } from "../../../bindings/terminator-desktop/backend/internal/services/blob";
+import { SettingsService, type RecentHost } from "../../../bindings/terminator-desktop/backend/internal/services/settings";
 import { buildSessionParams, fallbackHostName } from "@/lib/hostConnection";
 import { parseAppError } from "@/lib/error";
 import { cn } from "@/lib/utils";
@@ -64,6 +67,17 @@ export function HostsPage() {
 
     // 交互式密码输入状态
     const [passwordPromptHost, setPasswordPromptHost] = useState<Host | null>(null);
+
+    // 最近连接记录（本地文件，不参与同步）
+    const [recentHosts, setRecentHosts] = useState<RecentHost[]>([]);
+    const loadRecentHosts = useCallback(() => {
+        SettingsService.GetRecentHosts()
+            .then((list) => setRecentHosts(Array.isArray(list) ? list : []))
+            .catch(() => setRecentHosts([]));
+    }, []);
+    useEffect(() => {
+        loadRecentHosts();
+    }, [loadRecentHosts]);
 
     // ~/.ssh/config 导入候选：确认弹窗展示条数与别名，确认后批量落库
     const [sshConfigCandidates, setSshConfigCandidates] = useState<SSHConfigHost[] | null>(null);
@@ -290,7 +304,9 @@ export function HostsPage() {
     // 实际建立连接（提取公共逻辑，与命令面板共用 hostConnection 的参数构建）
     const doConnect = useCallback((host: Host, password?: string) => {
         addSession(buildSessionParams(host, hosts, keys, password));
-    }, [keys, hosts, addSession]);
+        // 连接后立即刷新最近记录，返回主机列表时无需重新进入页面
+        loadRecentHosts();
+    }, [keys, hosts, addSession, loadRecentHosts]);
 
     // 连接主机：如果没有保存密码且没有密钥，弹出密码输入框
     const handleConnect = useCallback((host: Host) => {
@@ -347,14 +363,28 @@ export function HostsPage() {
         [hosts, selectedHostId]
     );
 
+    // 最近连接：只展示仍然存在的主机（主机被删后本地记录会残留）
+    const recentHostEntries = useMemo(() => {
+        const byId = new Map((hosts ?? []).map((h) => [h.id, h]));
+        const out: Host[] = [];
+        for (const item of recentHosts) {
+            const host = byId.get(item.host_id);
+            if (host) out.push(host);
+            if (out.length >= 6) break;
+        }
+        return out;
+    }, [hosts, recentHosts]);
+
     return (
         <div className="flex h-full w-full overflow-hidden">
             <div className="lazy-fade-in flex h-full min-w-0 flex-1 flex-col overflow-hidden">
                 {/* 搜索行：全宽搜索 + 右侧 Connect（Termius 结构） */}
                 <div className="page-header">
                     <div className="search-field">
+                        <Search className="pointer-events-none absolute left-3.5 size-4 text-[var(--fg-subtle)]"/>
                         <Input
                             placeholder={t("search_hosts")}
+                            aria-label={t("search_hosts")}
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
                         />
@@ -434,46 +464,53 @@ export function HostsPage() {
 
                     {!isLoading && (hosts?.length ?? 0) > 0 && (
                         <>
+                            {recentHostEntries.length > 0 && (
+                                <section>
+                                    <div className="section-head is-first">{t("sections_recent")}</div>
+                                    <div className="flex flex-wrap gap-2">
+                                        {/* 与下方分组胶囊共用同一套尺寸与间距，避免两排胶囊高低不一 */}
+                                        {recentHostEntries.map((host) => (
+                                            <button
+                                                key={host.id}
+                                                type="button"
+                                                title={`${host.username}@${host.host}:${host.port}`}
+                                                className="group-chip"
+                                                onClick={() => handleConnect(host)}
+                                            >
+                                                <Clock3 className="size-3.5 shrink-0"/>
+                                                <span className="max-w-40 truncate">
+                                                    {host.name || fallbackHostName(host.username, host.host)}
+                                                </span>
+                                            </button>
+                                        ))}
+                                    </div>
+                                </section>
+                            )}
+
                             {groupEntries.length > 0 && (
                                 <section>
-                                    <div className="section-head is-first">{t("sections_groups")}</div>
-                                    <div className="card-grid">
+                                    <div className={cn("section-head", recentHostEntries.length === 0 && "is-first")}>{t("sections_groups")}</div>
+                                    {/* 分组是筛选条件而非内容：用紧凑胶囊，避免与下方主机卡片争夺层级 */}
+                                    <div className="flex flex-wrap gap-1.5">
                                         {groupEntries.map(([group, count]) => (
-                                            <div
+                                            <button
                                                 key={group}
-                                                role="button"
-                                                tabIndex={0}
-                                                className={cn("card-tile", selectedGroup === group && "is-selected")}
+                                                type="button"
+                                                className={cn("group-chip", selectedGroup === group && "is-active")}
                                                 onClick={() => setSelectedGroup((prev) => prev === group ? null : group)}
-                                                onKeyDown={(e) => {
-                                                    if (e.key === "Enter" && e.target === e.currentTarget) {
-                                                        e.preventDefault();
-                                                        setSelectedGroup((prev) => prev === group ? null : group);
-                                                    }
-                                                }}
+                                                title={t("group_hosts", {count})}
                                             >
-                                                <span
-                                                    className="card-tile-icon is-tinted"
-                                                    style={{"--chip-tint": "var(--primary)"} as React.CSSProperties}
-                                                >
-                                                    <LayoutGrid className="size-4"/>
-                                                </span>
-                                                <span className="card-tile-main">
-                                                    <span className="card-tile-title">
-                                                        <span className="card-tile-name">{group}</span>
-                                                    </span>
-                                                    <span className="card-tile-meta">
-                                                        {t("group_hosts", {count})}
-                                                    </span>
-                                                </span>
-                                            </div>
+                                                <LayoutGrid className="size-3.5 shrink-0"/>
+                                                <span className="max-w-40 truncate">{group}</span>
+                                                <span className="group-chip-count">{count}</span>
+                                            </button>
                                         ))}
                                     </div>
                                 </section>
                             )}
 
                             <section>
-                                <div className={cn("section-head", groupEntries.length === 0 && "is-first")}>
+                                <div className={cn("section-head", groupEntries.length === 0 && recentHostEntries.length === 0 && "is-first")}>
                                     {t("sections_hosts")}
                                 </div>
                                 <div className="card-grid">

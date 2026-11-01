@@ -3,7 +3,7 @@ import { Events } from "@wailsio/runtime";
 import { AppEvent } from "@/lib/events";
 import { useTranslation } from "react-i18next";
 import { useQueryClient } from "@tanstack/react-query";
-import { User, Server, Lock, Trash2, AlertTriangle, Palette, Moon, Sun, Unplug, ScrollText, Download, ExternalLink, Loader2, CheckCircle2, Info, Keyboard, ShieldCheck, Plus, RotateCw, Camera, Play, type LucideIcon } from "lucide-react";
+import { User, Server, Lock, Trash2, AlertTriangle, Palette, Moon, Sun, Unplug, ScrollText, Download, ExternalLink, Loader2, CheckCircle2, Info, Keyboard, ShieldCheck, Plus, RotateCw, Camera, Play, Power, ChevronLeft, type LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SwitchServerModal } from "@/components/views/SwitchServerModal";
@@ -13,7 +13,7 @@ import { KnownHostsPanel } from "@/components/views/KnownHostsPanel";
 import { BackupPanel } from "@/components/views/BackupPanel";
 import { LogViewer } from "@/components/views/LogViewer";
 import { ConfirmModal } from "@/components/ui/confirm-modal";
-import { SettingsCard, SettingsRow, SettingsSwitch, SettingsSegmented } from "@/components/ui/settings-card";
+import { SettingsCard, SettingsRow, SettingsSwitch, SettingsSegmented, SettingsStepper } from "@/components/ui/settings-card";
 import { useCurrentUser } from "@/hooks/useAuth";
 import { useAuthStore } from "@/store/authStore";
 import { useSessionStore } from "@/store/sessionStore";
@@ -31,7 +31,7 @@ import {
     SelectValue,
 } from "@/components/ui/select";
 import { useSyncStore } from "@/store/syncStore.ts";
-import { useUIStore, Theme, ACCENT_PRESETS, SPACINESS_PRESETS, SKIN_PRESETS, type AccentColor, type Spaciness, type Skin, type SettingsCategory } from "@/store/uiStore.ts";
+import { useUIStore, Theme, ACCENT_PRESETS, SPACINESS_PRESETS, SKIN_PRESETS, TERMINAL_FONT_SIZE_MIN, TERMINAL_FONT_SIZE_MAX, TERMINAL_LINE_HEIGHT_MIN, TERMINAL_LINE_HEIGHT_MAX, type AccentColor, type Spaciness, type Skin, type SettingsCategory } from "@/store/uiStore.ts";
 import { HIGHLIGHT_COLORS } from "@/lib/highlightRules";
 import {
     comboFromEvent,
@@ -43,7 +43,7 @@ import {
     type ShortcutId,
     type ShortcutCombo,
 } from "@/lib/shortcuts";
-import { applyTerminalColorLink } from "@/lib/terminalTheme";
+import { applyTerminalColorLink, DEFAULT_TERMINAL_FONT_FAMILY, TERMINAL_COLOR_SCHEME_PRESETS, getTerminalSchemePreview, type TerminalColorScheme, type CustomTerminalColorKey } from "@/lib/terminalTheme";
 import {
     captureCurrentLayout,
     loadSessionSnapshots,
@@ -54,13 +54,51 @@ import {
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
-const NAV_ITEMS: { id: SettingsCategory; labelKey: string; icon: LucideIcon }[] = [
-    { id: "appearance", labelKey: "nav_appearance", icon: Palette },
-    { id: "terminal", labelKey: "nav_terminal", icon: ScrollText },
-    { id: "shortcuts", labelKey: "nav_shortcuts", icon: Keyboard },
-    { id: "sync", labelKey: "nav_sync", icon: Server },
-    { id: "security", labelKey: "nav_security", icon: Lock },
-    { id: "about", labelKey: "nav_about", icon: Download },
+/** 自定义配色的色块顺序：背景/前景/光标在前，随后是 ANSI 标准色与亮色 */
+const CUSTOM_COLOR_ITEMS: { key: CustomTerminalColorKey; label: string }[] = [
+    { key: "background", label: "Background" },
+    { key: "foreground", label: "Foreground" },
+    { key: "cursor", label: "Cursor" },
+    { key: "black", label: "Black" },
+    { key: "red", label: "Red" },
+    { key: "green", label: "Green" },
+    { key: "yellow", label: "Yellow" },
+    { key: "blue", label: "Blue" },
+    { key: "magenta", label: "Magenta" },
+    { key: "cyan", label: "Cyan" },
+    { key: "white", label: "White" },
+    { key: "brightBlack", label: "Bright Black" },
+    { key: "brightRed", label: "Bright Red" },
+    { key: "brightGreen", label: "Bright Green" },
+    { key: "brightYellow", label: "Bright Yellow" },
+    { key: "brightBlue", label: "Bright Blue" },
+    { key: "brightMagenta", label: "Bright Magenta" },
+    { key: "brightCyan", label: "Bright Cyan" },
+    { key: "brightWhite", label: "Bright White" },
+];
+
+const NAV_GROUPS: { labelKey?: string; items: { id: SettingsCategory; labelKey: string; icon: LucideIcon }[] }[] = [
+    {
+        labelKey: "nav_group_preferences",
+        items: [
+            { id: "appearance", labelKey: "nav_appearance", icon: Palette },
+            { id: "terminal", labelKey: "nav_terminal", icon: ScrollText },
+            { id: "shortcuts", labelKey: "nav_shortcuts", icon: Keyboard },
+        ],
+    },
+    {
+        labelKey: "nav_group_data",
+        items: [
+            { id: "sync", labelKey: "nav_sync", icon: Server },
+            { id: "security", labelKey: "nav_security", icon: Lock },
+            { id: "system", labelKey: "nav_system", icon: Power },
+        ],
+    },
+    {
+        items: [
+            { id: "about", labelKey: "nav_about", icon: Download },
+        ],
+    },
 ];
 
 /** 不可自定义的固定快捷键（可自定义项见 SHORTCUT_DEFS） */
@@ -105,9 +143,24 @@ export function SettingsPage() {
         broadcastEnabled, toggleBroadcastEnabled, tabColorEnabled, toggleTabColorEnabled,
         pasteProtection, setPasteProtection, autoReconnect, setAutoReconnect,
         sftpFollowCwd, setSftpFollowCwd,
+        commandSuggestions, setCommandSuggestions,
+        monitorAlertsEnabled, setMonitorAlertsEnabled,
+        monitorDesktopNotify, setMonitorDesktopNotify,
+        monitorCpuThreshold, setMonitorCpuThreshold,
+        monitorMemoryThreshold, setMonitorMemoryThreshold,
+        monitorDiskThreshold, setMonitorDiskThreshold,
+        monitorAlertStreak, setMonitorAlertStreak,
         workspaceRestore, setWorkspaceRestore,
         highlightRules, addHighlightRule, updateHighlightRule, removeHighlightRule,
         completionNotify, setCompletionNotify,
+        terminalFontSize, setTerminalFontSize, terminalFontFamily, setTerminalFontFamily,
+        terminalColorScheme, setTerminalColorScheme,
+        customTerminalColors, setCustomTerminalColor, resetCustomTerminalColors,
+        terminalCursorStyle, setTerminalCursorStyle, terminalCursorBlink, setTerminalCursorBlink,
+        terminalLineHeight, setTerminalLineHeight, terminalScrollback, setTerminalScrollback,
+        closeTabConfirm, setCloseTabConfirm,
+        copyOnSelect, setCopyOnSelect,
+        autoLockMinutes, setAutoLockMinutes,
         shortcuts, setShortcut, resetShortcut, resetAllShortcuts,
     } = useUIStore();
     const queryClient = useQueryClient();
@@ -158,10 +211,31 @@ export function SettingsPage() {
         return () => setShortcutRecording(false);
     }, [recordingShortcut]);
 
-    const {settingsCategory: activeCategory, setSettingsCategory: setActiveCategory} = useUIStore();
+    const {
+        settingsCategory: activeCategory,
+        settingsTarget,
+        clearSettingsTarget,
+        setSettingsCategory: setActiveCategory,
+        exitSettings,
+    } = useUIStore();
     // 皮肤对明暗有强制语义（HUD 恒暗、编辑纸感恒亮），色板预览必须与 App 的
     // effectiveDark 保持一致，否则在「浅色主题 + HUD」下会显示浅色版色块。
     const effectiveDark = skin === "hud" ? true : skin === "editorial" ? false : theme === "dark";
+    // 命令面板定位：分类切换完成后滚动到目标行并短暂高亮
+    useEffect(() => {
+        if (!settingsTarget) return;
+        const timer = setTimeout(() => {
+            const target = document.getElementById(settingsTarget);
+            if (target) {
+                target.scrollIntoView({block: "center", behavior: "smooth"});
+                target.classList.add("is-target");
+                setTimeout(() => target.classList.remove("is-target"), 1600);
+            }
+            clearSettingsTarget();
+        }, 80);
+        return () => clearTimeout(timer);
+    }, [settingsTarget, activeCategory, clearSettingsTarget]);
+
     const [isServerModalOpen, setIsServerModalOpen] = useState(false);
     const [isWipeModalOpen, setIsWipeModalOpen] = useState(false);
     const [isDisconnectModalOpen, setIsDisconnectModalOpen] = useState(false);
@@ -240,6 +314,11 @@ export function SettingsPage() {
     // 更新检查状态
     const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
     const [releaseInfo, setReleaseInfo] = useState<GitHubReleaseInfo | null>(null);
+    // 开机自启：状态以注册表为准，初始化时从后端读取
+    const [autoStart, setAutoStart] = useState(false);
+    const [autoStartBusy, setAutoStartBusy] = useState(false);
+    // 关闭到托盘：值保存在 settings.json，由后端在关闭窗口时读取
+    const [closeToTray, setCloseToTray] = useState(false);
     // 下载并校验状态
     const [isDownloading, setIsDownloading] = useState(false);
     const [downloadPercent, setDownloadPercent] = useState(0);
@@ -253,9 +332,17 @@ export function SettingsPage() {
                 setWebdavUrl(s.webdav_url || "");
                 setSessionLogEnabled(s.session_log_enabled);
                 setSessionLogRetentionDays(s.session_log_retention_days || 7);
+                setCloseToTray(s.close_to_tray);
             })
             .catch(() => {});
     }, [isWebDAVModalOpen, isServerModalOpen]);
+
+    // 读取开机自启状态。非 Windows 平台后端返回错误，此处静默按未启用展示
+    useEffect(() => {
+        SettingsService.GetAutoStart()
+            .then(setAutoStart)
+            .catch(() => setAutoStart(false));
+    }, []);
 
     // 挂载时将 store 中的强调色 / 密度同步到 DOM
     useEffect(() => {
@@ -336,11 +423,16 @@ export function SettingsPage() {
     };
 
     const handleOpenReleasePage = async () => {
-        if (releaseInfo?.htmlUrl) {
-            try {
-                await UpdaterService.OpenReleasePage(releaseInfo.htmlUrl);
-            } catch {
-                window.open(releaseInfo.htmlUrl, "_blank");
+        const url = releaseInfo?.htmlUrl;
+        if (!url) return;
+        try {
+            await UpdaterService.OpenReleasePage(url);
+        } catch {
+            // 后端拒绝打开时才退回浏览器。只允许 http(s)：window.open 接受
+            // file:// 与自定义协议，受损的渲染进程可借此启动本地程序，
+            // 因此不能把远端返回的链接原样交给它。
+            if (/^https?:\/\//i.test(url)) {
+                window.open(url, "_blank", "noopener,noreferrer");
             }
         }
     };
@@ -465,6 +557,49 @@ export function SettingsPage() {
         }
     };
 
+    // 开机自启：写当前用户注册表 Run 项，无需管理员权限
+    const handleAutoStartToggle = async (enabled: boolean) => {
+        const prev = autoStart;
+        setAutoStart(enabled);
+        setAutoStartBusy(true);
+        try {
+            await SettingsService.SetAutoStart(enabled);
+            toast.success(t(enabled ? "auto_start_enabled" : "auto_start_disabled"));
+        } catch (error) {
+            setAutoStart(prev);
+            handleAppError(error);
+        } finally {
+            setAutoStartBusy(false);
+        }
+    };
+
+    // 关闭到托盘：值写入 settings.json，后端在窗口关闭事件里读取后决定隐藏还是退出
+    const handleCloseToTrayToggle = async (enabled: boolean) => {
+        const prev = closeToTray;
+        setCloseToTray(enabled);
+        try {
+            const current = await SettingsService.GetSettings();
+            await SettingsService.SaveSettings(new AppSettings({
+                ...current,
+                close_to_tray: enabled,
+            }));
+            toast.success(t(enabled ? "close_to_tray_enabled" : "close_to_tray_disabled"));
+        } catch (error) {
+            setCloseToTray(prev);
+            handleAppError(error);
+        }
+    };
+
+    // 清空最近连接：记录只存在本地文件，清空不影响主机本身
+    const handleClearRecentHosts = async () => {
+        try {
+            await SettingsService.ClearRecentHosts();
+            toast.success(t("clear_recent_done"));
+        } catch (error) {
+            handleAppError(error);
+        }
+    };
+
     const handleSessionLogToggle = async (enabled: boolean) => {
         const prev = sessionLogEnabled;
         try {
@@ -497,35 +632,57 @@ export function SettingsPage() {
     };
 
     return (
-        <div className="lazy-fade-in flex h-full w-full">
+        <div className="lazy-fade-in settings-page flex h-full w-full">
 
-            {/* 左侧分类导航 */}
-            <nav className="flex w-52 shrink-0 flex-col border-r border-[var(--hairline)]">
-                <h1 className="px-5 pt-5 pb-3 text-[15px] tracking-tight text-[var(--fg-strong)]">
-                    {t("page_title")}
-                </h1>
-                <div className="settings-nav">
-                    {NAV_ITEMS.map((item) => (
-                        <button
-                            key={item.id}
-                            onClick={() => setActiveCategory(item.id)}
-                            className={cn("settings-nav-item", activeCategory === item.id && "is-active")}
-                        >
-                            <item.icon className="size-3.5 shrink-0"/>
-                            {t(item.labelKey)}
-                        </button>
-                    ))}
+            {/* 左侧分类导航：设置页占用完整内容区，标题栏品牌区与这条导航同宽 */}
+            <nav className="settings-rail">
+                <div className="settings-rail-head">
+                    <button
+                        type="button"
+                        onClick={exitSettings}
+                        className="settings-back-btn"
+                        title={t("back_workspace")}
+                        aria-label={t("back_workspace")}
+                    >
+                        <ChevronLeft className="size-4"/>
+                    </button>
+                    <h1 className="settings-rail-title">{t("page_title")}</h1>
+                </div>
+
+                <div className="settings-rail-scroll">
+                    <div className="settings-nav">
+                        {NAV_GROUPS.map((group, groupIndex) => (
+                            <div key={groupIndex} className="flex flex-col">
+                                {group.labelKey && (
+                                    <div className="settings-nav-label">{t(group.labelKey)}</div>
+                                )}
+                                {group.items.map((item) => (
+                                    <button
+                                        key={item.id}
+                                        type="button"
+                                        aria-current={activeCategory === item.id ? "page" : undefined}
+                                        onClick={() => setActiveCategory(item.id)}
+                                        className={cn("settings-nav-item", activeCategory === item.id && "is-active")}
+                                    >
+                                        <item.icon className="size-3.5 shrink-0"/>
+                                        <span className="min-w-0 truncate">{t(item.labelKey)}</span>
+                                    </button>
+                                ))}
+                            </div>
+                        ))}
+                    </div>
                 </div>
             </nav>
 
             {/* 右侧内容区 */}
-            <div className="flex-1 overflow-y-auto">
-                <div className="mx-auto flex w-full max-w-xl flex-col gap-4 px-8 py-6">
+            <div className="min-w-0 flex-1 overflow-y-auto">
+                <div className="settings-content">
 
                     {/* ============ 外观 ============ */}
                     {activeCategory === "appearance" && (
                         <SettingsCard title={t("preferences_title")}>
                             <SettingsRow
+                                id="setting-theme"
                                 title={t("theme_label")}
                                 desc={skin !== "default" ? t("theme_overridden_by_skin") : undefined}
                             >
@@ -551,7 +708,7 @@ export function SettingsPage() {
                                 </Select>
                             </SettingsRow>
 
-                            <SettingsRow title={t("skin_label")} desc={t("skin_desc")}>
+                            <SettingsRow id="setting-skin" title={t("skin_label")} desc={t("skin_desc")}>
                                 <SettingsSegmented
                                     value={skin}
                                     onChange={handleSkinChange}
@@ -562,7 +719,7 @@ export function SettingsPage() {
                                 />
                             </SettingsRow>
 
-                            <SettingsRow title={t("language_label")}>
+                            <SettingsRow id="setting-language" title={t("language_label")}>
                                 <Select
                                     value={(i18n.resolvedLanguage ?? i18n.language)?.startsWith("zh") ? "zh" : "en"}
                                     onValueChange={changeLanguage}
@@ -577,7 +734,7 @@ export function SettingsPage() {
                                 </Select>
                             </SettingsRow>
 
-                            <SettingsRow title={t("accent_color_label")} desc={t("accent_color_desc")}>
+                            <SettingsRow id="setting-accent" title={t("accent_color_label")} desc={t("accent_color_desc")}>
                                 <div className="flex items-center gap-2">
                                     {ACCENT_PRESETS.map((preset) => {
                                         // 使用有效的明暗状态（皮肤优先）而非原始 theme，
@@ -603,7 +760,7 @@ export function SettingsPage() {
                                 </div>
                             </SettingsRow>
 
-                            <SettingsRow title={t("density_label")} desc={t("density_desc")}>
+                            <SettingsRow id="setting-density" title={t("density_label")} desc={t("density_desc")}>
                                 <SettingsSegmented
                                     value={spaciness}
                                     onChange={handleSpacinessChange}
@@ -627,8 +784,175 @@ export function SettingsPage() {
                     {/* ============ 终端 ============ */}
                     {activeCategory === "terminal" && (
                         <>
+                        <SettingsCard title={t("terminal_appearance_title")} description={t("terminal_appearance_desc")}>
+                            <SettingsRow
+                                id="setting-terminal-scheme"
+                                title={t("terminal_scheme_label")}
+                                desc={t("terminal_scheme_desc")}
+                            >
+                                <div className="flex items-center gap-3">
+                                    {/* 配色小样：底色 + 红/绿/黄/蓝，随选中方案实时变化 */}
+                                    <div className="flex items-center gap-1" aria-hidden="true">
+                                        {getTerminalSchemePreview(
+                                            terminalColorScheme,
+                                            effectiveDark ? "dark" : "light",
+                                            accentColor,
+                                            skin,
+                                            customTerminalColors,
+                                        ).map((color, index) => (
+                                            <span
+                                                key={index}
+                                                className="size-3.5 rounded-sm ring-1 ring-[var(--hairline-strong)]"
+                                                style={{backgroundColor: color}}
+                                            />
+                                        ))}
+                                    </div>
+                                    <Select
+                                        value={terminalColorScheme}
+                                        onValueChange={(v) => setTerminalColorScheme(v as TerminalColorScheme)}
+                                    >
+                                        <SelectTrigger className="settings-control w-44 text-[12.5px]">
+                                            <SelectValue/>
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {TERMINAL_COLOR_SCHEME_PRESETS.map((preset) => (
+                                                <SelectItem key={preset.value} value={preset.value}>
+                                                    {t(preset.labelKey)}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                            </SettingsRow>
+
+                            {/* 自定义配色：仅在选择"自定义"时展开色块编辑器 */}
+                            {terminalColorScheme === "custom" && (
+                                <SettingsRow
+                                    title={t("terminal_custom_colors_label")}
+                                    desc={t("terminal_custom_colors_desc")}
+                                >
+                                    <div className="flex flex-col items-end gap-2">
+                                        <div className="flex max-w-[220px] flex-wrap justify-end gap-1.5">
+                                            {CUSTOM_COLOR_ITEMS.map(({key, label}) => (
+                                                <label
+                                                    key={key}
+                                                    title={label}
+                                                    className="relative size-4 cursor-pointer rounded-[3px] ring-1
+                                                               ring-[var(--hairline-strong)] transition-transform hover:scale-110"
+                                                    style={{backgroundColor: customTerminalColors[key]}}
+                                                >
+                                                    <input
+                                                        type="color"
+                                                        value={customTerminalColors[key]}
+                                                        onChange={(e) => setCustomTerminalColor(key, e.target.value)}
+                                                        aria-label={label}
+                                                        className="absolute inset-0 size-full cursor-pointer opacity-0"
+                                                    />
+                                                </label>
+                                            ))}
+                                        </div>
+                                        <Button
+                                            size="xs"
+                                            variant="ghost"
+                                            onClick={resetCustomTerminalColors}
+                                            className="h-6 px-2 text-[11px]"
+                                        >
+                                            <RotateCw className="size-3"/>
+                                            {t("terminal_custom_colors_reset")}
+                                        </Button>
+                                    </div>
+                                </SettingsRow>
+                            )}
+
+                            <SettingsRow id="setting-terminal-font-size" title={t("terminal_font_size_label")} desc={t("terminal_font_size_desc")}>
+                                <SettingsStepper
+                                    value={terminalFontSize}
+                                    min={TERMINAL_FONT_SIZE_MIN}
+                                    max={TERMINAL_FONT_SIZE_MAX}
+                                    onChange={setTerminalFontSize}
+                                    format={(v) => `${v}px`}
+                                    label={t("terminal_font_size_label")}
+                                />
+                            </SettingsRow>
+
+                            <SettingsRow id="setting-terminal-font-family" title={t("terminal_font_family_label")} desc={t("terminal_font_family_desc")}>
+                                <Input
+                                    value={terminalFontFamily}
+                                    onChange={(e) => setTerminalFontFamily(e.target.value)}
+                                    placeholder={DEFAULT_TERMINAL_FONT_FAMILY}
+                                    spellCheck={false}
+                                    aria-label={t("terminal_font_family_label")}
+                                    className="h-8 w-64 max-w-full font-mono text-xs"
+                                />
+                            </SettingsRow>
+
+                            <SettingsRow id="setting-terminal-line-height" title={t("terminal_line_height_label")} desc={t("terminal_line_height_desc")}>
+                                <SettingsStepper
+                                    value={terminalLineHeight}
+                                    min={TERMINAL_LINE_HEIGHT_MIN}
+                                    max={TERMINAL_LINE_HEIGHT_MAX}
+                                    step={0.1}
+                                    onChange={setTerminalLineHeight}
+                                    format={(v) => v.toFixed(1)}
+                                    label={t("terminal_line_height_label")}
+                                />
+                            </SettingsRow>
+
+                            <SettingsRow title={t("terminal_cursor_style_label")} desc={t("terminal_cursor_style_desc")}>
+                                <div className="flex flex-wrap items-center gap-3">
+                                    <SettingsSegmented
+                                        value={terminalCursorStyle}
+                                        onChange={setTerminalCursorStyle}
+                                        options={[
+                                            {value: "block", label: t("cursor_style_block")},
+                                            {value: "bar", label: t("cursor_style_bar")},
+                                            {value: "underline", label: t("cursor_style_underline")},
+                                        ]}
+                                    />
+                                    <SettingsSwitch
+                                        checked={terminalCursorBlink}
+                                        onChange={setTerminalCursorBlink}
+                                        label={t("terminal_cursor_blink_label")}
+                                    />
+                                    <span className="text-[11.5px] text-[var(--fg-muted)]">
+                                        {t("terminal_cursor_blink_label")}
+                                    </span>
+                                </div>
+                            </SettingsRow>
+
+                            <SettingsRow id="setting-terminal-scrollback" title={t("terminal_scrollback_label")} desc={t("terminal_scrollback_desc")}>
+                                <SettingsSegmented
+                                    value={terminalScrollback}
+                                    onChange={setTerminalScrollback}
+                                    options={[
+                                        {value: 1000, label: "1k"},
+                                        {value: 5000, label: "5k"},
+                                        {value: 10000, label: "10k"},
+                                        {value: 30000, label: "30k"},
+                                        {value: 50000, label: "50k"},
+                                    ]}
+                                />
+                            </SettingsRow>
+
+                            <SettingsRow title={t("close_tab_confirm_label")} desc={t("close_tab_confirm_desc")}>
+                                <SettingsSwitch
+                                    checked={closeTabConfirm}
+                                    onChange={setCloseTabConfirm}
+                                    label={t("close_tab_confirm_label")}
+                                />
+                            </SettingsRow>
+
+                            <SettingsRow title={t("copy_on_select_label")} desc={t("copy_on_select_desc")}>
+                                <SettingsSwitch
+                                    checked={copyOnSelect}
+                                    onChange={setCopyOnSelect}
+                                    label={t("copy_on_select_label")}
+                                />
+                            </SettingsRow>
+                        </SettingsCard>
+
                         <SettingsCard title={t("terminal_features_title")} description={t("terminal_features_desc")}>
-                            <SettingsRow title={t("keyword_highlight_label")} desc={t("keyword_highlight_desc")}>
+                            <SettingsRow id="setting-keyword-highlight" title={t("keyword_highlight_label")} desc={t("keyword_highlight_desc")}>
                                 <SettingsSwitch
                                     checked={keywordHighlight}
                                     onChange={setKeywordHighlight}
@@ -652,7 +976,7 @@ export function SettingsPage() {
                                 />
                             </SettingsRow>
 
-                            <SettingsRow title={t("paste_protection_label")} desc={t("paste_protection_desc")}>
+                            <SettingsRow id="setting-paste-protection" title={t("paste_protection_label")} desc={t("paste_protection_desc")}>
                                 <SettingsSwitch
                                     checked={pasteProtection}
                                     onChange={setPasteProtection}
@@ -660,7 +984,7 @@ export function SettingsPage() {
                                 />
                             </SettingsRow>
 
-                            <SettingsRow title={t("auto_reconnect_label")} desc={t("auto_reconnect_desc")}>
+                            <SettingsRow id="setting-auto-reconnect" title={t("auto_reconnect_label")} desc={t("auto_reconnect_desc")}>
                                 <SettingsSwitch
                                     checked={autoReconnect}
                                     onChange={setAutoReconnect}
@@ -668,11 +992,19 @@ export function SettingsPage() {
                                 />
                             </SettingsRow>
 
-                            <SettingsRow title={t("sftp_follow_cwd_label")} desc={t("sftp_follow_cwd_desc")}>
+                            <SettingsRow id="setting-sftp-follow-cwd" title={t("sftp_follow_cwd_label")} desc={t("sftp_follow_cwd_desc")}>
                                 <SettingsSwitch
                                     checked={sftpFollowCwd}
                                     onChange={setSftpFollowCwd}
                                     label={t("sftp_follow_cwd_label")}
+                                />
+                            </SettingsRow>
+
+                            <SettingsRow id="setting-command-suggestions" title={t("command_suggestions_label")} desc={t("command_suggestions_desc")}>
+                                <SettingsSwitch
+                                    checked={commandSuggestions}
+                                    onChange={setCommandSuggestions}
+                                    label={t("command_suggestions_label")}
                                 />
                             </SettingsRow>
 
@@ -689,6 +1021,71 @@ export function SettingsPage() {
                                     checked={completionNotify}
                                     onChange={setCompletionNotify}
                                     label={t("completion_notify_label")}
+                                />
+                            </SettingsRow>
+                        </SettingsCard>
+
+                        <SettingsCard title={t("monitor_alerts_title")} description={t("monitor_alerts_desc")}>
+                            <SettingsRow id="setting-monitor-alerts" title={t("monitor_alerts_enabled_label")} desc={t("monitor_alerts_enabled_desc")}>
+                                <SettingsSwitch
+                                    checked={monitorAlertsEnabled}
+                                    onChange={setMonitorAlertsEnabled}
+                                    label={t("monitor_alerts_enabled_label")}
+                                />
+                            </SettingsRow>
+
+                            <SettingsRow title={t("monitor_desktop_notify_label")} desc={t("monitor_desktop_notify_desc")}>
+                                <SettingsSwitch
+                                    checked={monitorDesktopNotify}
+                                    onChange={setMonitorDesktopNotify}
+                                    label={t("monitor_desktop_notify_label")}
+                                />
+                            </SettingsRow>
+
+                            <SettingsRow id="setting-monitor-cpu-threshold" title={t("monitor_cpu_threshold_label")} desc={t("monitor_threshold_desc")}>
+                                <SettingsStepper
+                                    value={monitorCpuThreshold}
+                                    min={1}
+                                    max={100}
+                                    step={5}
+                                    format={(value) => `${value}%`}
+                                    onChange={setMonitorCpuThreshold}
+                                    label={t("monitor_cpu_threshold_label")}
+                                />
+                            </SettingsRow>
+
+                            <SettingsRow id="setting-monitor-memory-threshold" title={t("monitor_memory_threshold_label")} desc={t("monitor_threshold_desc")}>
+                                <SettingsStepper
+                                    value={monitorMemoryThreshold}
+                                    min={1}
+                                    max={100}
+                                    step={5}
+                                    format={(value) => `${value}%`}
+                                    onChange={setMonitorMemoryThreshold}
+                                    label={t("monitor_memory_threshold_label")}
+                                />
+                            </SettingsRow>
+
+                            <SettingsRow id="setting-monitor-disk-threshold" title={t("monitor_disk_threshold_label")} desc={t("monitor_threshold_desc")}>
+                                <SettingsStepper
+                                    value={monitorDiskThreshold}
+                                    min={1}
+                                    max={100}
+                                    step={5}
+                                    format={(value) => `${value}%`}
+                                    onChange={setMonitorDiskThreshold}
+                                    label={t("monitor_disk_threshold_label")}
+                                />
+                            </SettingsRow>
+
+                            <SettingsRow id="setting-monitor-alert-streak" title={t("monitor_alert_streak_label")} desc={t("monitor_alert_streak_desc")}>
+                                <SettingsStepper
+                                    value={monitorAlertStreak}
+                                    min={1}
+                                    max={10}
+                                    step={1}
+                                    onChange={setMonitorAlertStreak}
+                                    label={t("monitor_alert_streak_label")}
                                 />
                             </SettingsRow>
                         </SettingsCard>
@@ -988,6 +1385,21 @@ export function SettingsPage() {
                                 </Button>
                             </SettingsRow>
 
+                            <SettingsRow title={t("auto_lock_label")} desc={t("auto_lock_desc")}>
+                                <SettingsSegmented
+                                    value={autoLockMinutes}
+                                    onChange={setAutoLockMinutes}
+                                    options={[
+                                        {value: 0, label: t("auto_lock_off")},
+                                        {value: 1, label: "1m"},
+                                        {value: 5, label: "5m"},
+                                        {value: 15, label: "15m"},
+                                        {value: 30, label: "30m"},
+                                        {value: 60, label: "1h"},
+                                    ]}
+                                />
+                            </SettingsRow>
+
                             <SettingsRow title={t("wipe_data_title")} desc={t("wipe_data_desc")} danger>
                                 <Button variant="destructive" className="settings-control"
                                         onClick={() => setIsWipeModalOpen(true)}>
@@ -1084,6 +1496,42 @@ export function SettingsPage() {
                         </SettingsCard>
                     )}
 
+                    {/* ============ 系统 ============ */}
+                    {activeCategory === "system" && (
+                        <SettingsCard title={t("system_title")} description={t("system_desc")}>
+                            <SettingsRow title={t("auto_start_label")} desc={t("auto_start_desc")}>
+                                <div className="flex items-center gap-2">
+                                    {autoStartBusy && (
+                                        <Loader2 className="size-3.5 animate-spin text-[var(--fg-muted)]"/>
+                                    )}
+                                    <SettingsSwitch
+                                        checked={autoStart}
+                                        onChange={handleAutoStartToggle}
+                                        disabled={autoStartBusy}
+                                        label={t("auto_start_label")}
+                                    />
+                                </div>
+                            </SettingsRow>
+                            <SettingsRow title={t("close_to_tray_label")} desc={t("close_to_tray_desc")}>
+                                <SettingsSwitch
+                                    checked={closeToTray}
+                                    onChange={handleCloseToTrayToggle}
+                                    label={t("close_to_tray_label")}
+                                />
+                            </SettingsRow>
+                            <SettingsRow title={t("clear_recent_label")} desc={t("clear_recent_desc")}>
+                                <Button
+                                    variant="outline"
+                                    className="settings-control"
+                                    onClick={handleClearRecentHosts}
+                                >
+                                    <Trash2 className="mr-1.5 size-3.5"/>
+                                    {t("clear_recent_btn")}
+                                </Button>
+                            </SettingsRow>
+                        </SettingsCard>
+                    )}
+
                     {/* ============ 关于 ============ */}
                     {activeCategory === "about" && (
                         <SettingsCard title={t("about_title")} description={t("about_desc")}>
@@ -1109,9 +1557,9 @@ export function SettingsPage() {
                                                 bg-[var(--surface-2)] p-3.5">
                                     {releaseInfo.hasUpdate ? (
                                         <>
-                                            <div className="mb-2 flex items-center gap-2">
-                                                <Download className="size-4 text-primary"/>
-                                                <span className="text-[13px] text-primary">
+                                            <div className="mb-2 flex items-start gap-2">
+                                                <Download className="mt-0.5 size-4 shrink-0 text-primary"/>
+                                                <span className="min-w-0 break-words text-[13px] text-primary">
                                                     {t("new_version_available", {version: releaseInfo.latestVersion})}
                                                 </span>
                                             </div>
@@ -1170,9 +1618,9 @@ export function SettingsPage() {
                                             )}
                                         </>
                                     ) : (
-                                        <div className="flex items-center gap-2">
-                                            <CheckCircle2 className="size-4 text-[var(--success)]"/>
-                                            <span className="text-[13px] text-[var(--fg-strong)]">
+                                        <div className="flex items-start gap-2">
+                                            <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-[var(--success)]"/>
+                                            <span className="min-w-0 break-words text-[13px] text-[var(--fg-strong)]">
                                                 {t("already_latest", {version: releaseInfo.currentVersion})}
                                             </span>
                                         </div>

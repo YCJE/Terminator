@@ -57,3 +57,27 @@ func TestCompareVersions(t *testing.T) {
 		}
 	}
 }
+
+// 下载地址应优先走 api.github.com 资产端点，github.com 原地址仅作兜底：
+// 前者在下载域名被阻断的网络下仍可用。
+func TestAssetURLsPrefersAPIAssetEndpoint(t *testing.T) {
+	s := NewUpdaterService("", "YCJE/Terminator", nil)
+
+	urls := s.assetURLs(ReleaseAsset{ID: 682413154, DownloadURL: "https://github.com/YCJE/Terminator/releases/download/v0.8.10/SHA256SUMS-windows.txt"})
+	if len(urls) != 2 {
+		t.Fatalf("应返回 2 个候选地址，实际 %d 个: %v", len(urls), urls)
+	}
+	wantAPI := "https://api.github.com/repos/YCJE/Terminator/releases/assets/682413154"
+	if urls[0] != wantAPI {
+		t.Errorf("首选地址应为 %q，实际 %q", wantAPI, urls[0])
+	}
+	if urls[1] == "" || urls[1] == urls[0] {
+		t.Errorf("兜底地址应保留 browser_download_url，实际 %q", urls[1])
+	}
+
+	// 没有资产 ID（例如旧版本发布）时只能退回原地址
+	urls = s.assetURLs(ReleaseAsset{DownloadURL: "https://github.com/a/b.exe"})
+	if len(urls) != 1 || urls[0] != "https://github.com/a/b.exe" {
+		t.Errorf("无 ID 时应只返回原地址，实际 %v", urls)
+	}
+}

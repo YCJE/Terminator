@@ -4,11 +4,16 @@
 package sftp
 
 import (
+	"context"
+	"crypto/rand"
+	"errors"
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/pkg/sftp"
@@ -43,6 +48,10 @@ const (
 	transferChunkSize = 256 * 1024
 	// maxReadFileSize ReadFile 允许读取的最大字节数（1MB），防止读取过大文件耗尽内存
 	maxReadFileSize = 1 << 20
+	// minTailBytes / maxTailBytes ReadFileTail 允许读取的尾部字节区间。
+	// 下限保证少量数据也能覆盖最近若干条命令，上限避免一次读回过多内容。
+	minTailBytes = 4 << 10
+	maxTailBytes = 8 << 20
 	// progressEmitInterval 进度事件最小发射间隔，避免高频事件淹没前端
 	progressEmitInterval = 200 * time.Millisecond
 	// partSuffix 续传临时文件后缀。传输过程始终写入该文件，全部完成后再
@@ -119,6 +128,18 @@ func openRemoteForResume(client *sftp.Client, part string, offset int64) (*sftp.
 type SftpService struct {
 	sshSvc  *ssh.SshService
 	emitter SFTPEmitter
+
+	// mu 保护 cancels：记录进行中的传输，供 CancelTransfer 中断。
+	mu      sync.Mutex
+	cancels map[string]*transferCancel
+}
+
+// transferCancel 是一次传输的取消句柄。
+// 用独立对象而非裸 CancelFunc 保存在 map 中：暂停后续传会复用同一 transferID，
+// 旧传输的清理函数需要能判断"当前登记的是否仍是自己"，否则会把新传输的句柄删掉，
+// 导致续传后的任务再也无法取消。
+type transferCancel struct {
+	cancel context.CancelFunc
 }
 
 // NewSftpService 创建 SFTP 文件管理服务。
@@ -127,6 +148,53 @@ func NewSftpService(sshSvc *ssh.SshService, emitter SFTPEmitter) *SftpService {
 	return &SftpService{
 		sshSvc:  sshSvc,
 		emitter: emitter,
+		cancels: make(map[string]*transferCancel),
+	}
+}
+
+// errTransferCanceled 表示用户主动取消了传输。
+// 前端按该文案识别并显示"已取消"而不是普通失败。
+var errTransferCanceled = errors.New("传输已取消")
+
+// registerTransfer 为一次传输注册取消句柄，返回上下文与注销函数。
+// 注销函数同时清除记录，避免 map 随传输次数无限增长。
+func (s *SftpService) registerTransfer(transferID string) (context.Context, func()) {
+	ctx, cancel := context.WithCancel(context.Background())
+	entry := &transferCancel{cancel: cancel}
+	s.mu.Lock()
+	s.cancels[transferID] = entry
+	s.mu.Unlock()
+	return ctx, func() {
+		cancel()
+		s.mu.Lock()
+		// 只删除本次注册的条目：续传会复用 transferID，若此时新传输已登记，
+		// 无条件 delete 会把新任务从 CancelTransfer 的索引里抹掉。
+		if current, ok := s.cancels[transferID]; ok && current == entry {
+			delete(s.cancels, transferID)
+		}
+		s.mu.Unlock()
+	}
+}
+
+// CancelTransfer 取消进行中的传输。
+// 传输结束后会推送一次失败完成事件（错误为"传输已取消"），
+// 未在传输中的数据块不会落盘，已写入的续传临时文件保留供下次续传。
+func (s *SftpService) CancelTransfer(transferID string) {
+	s.mu.Lock()
+	entry := s.cancels[transferID]
+	s.mu.Unlock()
+	if entry != nil {
+		entry.cancel()
+	}
+}
+
+// checkCanceled 在复制循环中检查取消信号。
+func checkCanceled(ctx context.Context) error {
+	select {
+	case <-ctx.Done():
+		return errTransferCanceled
+	default:
+		return nil
 	}
 }
 
@@ -179,6 +247,11 @@ func (s *SftpService) ListDir(sessionID string, path string) ([]FileEntry, error
 
 	entries := make([]FileEntry, 0, len(infos))
 	for _, info := range infos {
+		// 文件名参与前端拼接与后续下载路径：拒绝异常/恶意服务端返回的
+		// 含分隔符条目，避免下钻或下载时写到目录之外
+		if !isSafeEntryName(info.Name()) {
+			continue
+		}
 		mode := info.Mode()
 		entries = append(entries, FileEntry{
 			Name:      info.Name(),
@@ -190,6 +263,22 @@ func (s *SftpService) ListDir(sessionID string, path string) ([]FileEntry, error
 		})
 	}
 	return entries, nil
+}
+
+// isSafeEntryName 判断远端返回的条目名能否直接参与路径拼接。
+//
+// POSIX 与 Windows 的单个文件名都不允许包含路径分隔符；出现 "/"、"\"
+// 或本身是 "."/".." 的条目只可能来自异常或恶意 SFTP 服务端。若放行，
+// filepath.Join 会把下载目标解到用户选定目录之外（服务端可控文件名 →
+// 本地任意路径写入），打包下载的 ZIP 也会带上 "../" 成员。
+func isSafeEntryName(name string) bool {
+	if name == "" || name == "." || name == ".." {
+		return false
+	}
+	if strings.ContainsAny(name, "/\\") || strings.IndexByte(name, 0) >= 0 {
+		return false
+	}
+	return true
 }
 
 // ReadFile 读取远程小文件内容并以字符串返回，用于文本预览。
@@ -232,6 +321,71 @@ func (s *SftpService) ReadFile(sessionID string, path string) (string, error) {
 	return string(data), nil
 }
 
+// ReadFileTail 读取远程常规文件末尾最多 maxBytes 字节，用于 shell 历史这类
+// 可能超过 ReadFile 上限的大文件。maxBytes 会被限制在 [4KB, 8MB]。
+// 截断位置落在行中间时丢弃第一行残片，保证返回内容从完整行开始。
+func (s *SftpService) ReadFileTail(sessionID string, path string, maxBytes int64) (string, error) {
+	client, err := s.sshSvc.GetSFTPClient(sessionID)
+	if err != nil {
+		return "", err
+	}
+
+	info, err := client.Stat(path)
+	if err != nil {
+		return "", fmt.Errorf("获取文件信息 %q 失败: %w", path, err)
+	}
+	if info.IsDir() {
+		return "", fmt.Errorf("%q 是目录，无法读取", path)
+	}
+	if !info.Mode().IsRegular() {
+		return "", fmt.Errorf("%q 不是常规文件，无法读取", path)
+	}
+
+	offset, length := tailWindow(info.Size(), maxBytes)
+	if length == 0 {
+		return "", nil
+	}
+	file, err := client.Open(path)
+	if err != nil {
+		return "", fmt.Errorf("打开文件 %q 失败: %w", path, err)
+	}
+	defer file.Close()
+
+	buf := make([]byte, length)
+	n, err := file.ReadAt(buf, offset)
+	if err != nil && !errors.Is(err, io.EOF) {
+		return "", fmt.Errorf("读取文件 %q 失败: %w", path, err)
+	}
+	text := string(buf[:n])
+	// 从文件中段开始读取时，第一行通常是被截断的半个命令行，丢弃它
+	if offset > 0 {
+		if idx := strings.IndexByte(text, '\n'); idx >= 0 {
+			text = text[idx+1:]
+		} else {
+			text = ""
+		}
+	}
+	return text, nil
+}
+
+// tailWindow 计算读取文件末尾时的起始偏移与长度。
+// maxBytes 会被限制在 [minTailBytes, maxTailBytes] 区间内。
+func tailWindow(size int64, maxBytes int64) (offset int64, length int64) {
+	if maxBytes < minTailBytes {
+		maxBytes = minTailBytes
+	}
+	if maxBytes > maxTailBytes {
+		maxBytes = maxTailBytes
+	}
+	if size <= 0 {
+		return 0, 0
+	}
+	if size <= maxBytes {
+		return 0, size
+	}
+	return size - maxBytes, maxBytes
+}
+
 // WriteFile 将文本内容写入远程文件（覆盖写入），用于远程文件编辑保存。
 // 保留原文件权限；写入失败时不影响原文件内容（先写临时文件再重命名）。
 func (s *SftpService) WriteFile(sessionID string, path string, content string) error {
@@ -254,8 +408,12 @@ func (s *SftpService) WriteFile(sessionID string, path string, content string) e
 	}
 	origMode := info.Mode().Perm()
 
-	// 写入临时文件再重命名，确保写入失败时原文件内容不丢失
-	tmpPath := path + ".terminator-tmp"
+	// 写入临时文件再重命名，确保写入失败时原文件内容不丢失。
+	// 后缀随机：固定名称在共享可写目录（如 /tmp）中可被他人预先放置为指向
+	// 敏感文件的符号链接，保存时会把内容写进链接目标并改写其权限。
+	var suffix [6]byte
+	_, _ = rand.Read(suffix[:])
+	tmpPath := fmt.Sprintf("%s.terminator-tmp-%x", path, suffix)
 	file, err := client.Create(tmpPath)
 	if err != nil {
 		return fmt.Errorf("创建临时文件 %q 失败: %w", tmpPath, err)
@@ -288,6 +446,66 @@ func (s *SftpService) WriteFile(sessionID string, path string, content string) e
 	if err := renameOver(client, tmpPath, path); err != nil {
 		_ = client.Remove(tmpPath)
 		return fmt.Errorf("写入文件 %q 失败: %w", path, err)
+	}
+	return nil
+}
+
+// WriteLocalFileToRemote 用一个本地文件的完整内容覆盖远端文件（供外部编辑器保存回传）。
+//
+// 与 Upload 不同：这里不需要进度事件与断点续传，但依然先写临时文件再原子重命名，
+// 保证保存过程中远端不会出现半截文件；写入后恢复原文件权限。
+// 只允许覆盖已存在的常规文件，避免误写目录或特殊文件。
+func (s *SftpService) WriteLocalFileToRemote(sessionID string, localPath string, remotePath string) error {
+	info, err := os.Stat(localPath)
+	if err != nil {
+		return fmt.Errorf("读取本地文件 %q 失败: %w", localPath, err)
+	}
+	if info.IsDir() {
+		return fmt.Errorf("%q 是目录，无法写回远端", localPath)
+	}
+	src, err := os.Open(localPath)
+	if err != nil {
+		return fmt.Errorf("打开本地文件 %q 失败: %w", localPath, err)
+	}
+	defer src.Close()
+
+	client, err := s.sshSvc.GetSFTPClient(sessionID)
+	if err != nil {
+		return err
+	}
+	// 用 Lstat 而非 Stat：Stat 会跟随软链接，随后 renameOver 会把链接本身
+	// 替换成普通文件，等于悄悄破坏了用户的软链接。这里直接拒绝软链接。
+	remoteInfo, err := client.Lstat(remotePath)
+	if err != nil {
+		return fmt.Errorf("获取远端文件 %q 信息失败: %w", remotePath, err)
+	}
+	if remoteInfo.IsDir() || !remoteInfo.Mode().IsRegular() {
+		return fmt.Errorf("%q 不是常规文件，无法写入", remotePath)
+	}
+
+	var suffix [6]byte
+	_, _ = rand.Read(suffix[:])
+	tmpPath := fmt.Sprintf("%s.terminator-tmp-%x", remotePath, suffix)
+	dst, err := client.Create(tmpPath)
+	if err != nil {
+		return fmt.Errorf("创建临时文件 %q 失败: %w", tmpPath, err)
+	}
+	_, copyErr := io.Copy(dst, src)
+	// 写入失败同样可能在 Close 时才由服务端返回（配额不足、连接中断）
+	if closeErr := dst.Close(); copyErr == nil {
+		copyErr = closeErr
+	}
+	if copyErr != nil {
+		_ = client.Remove(tmpPath)
+		return fmt.Errorf("写入远端文件 %q 失败: %w", remotePath, copyErr)
+	}
+	if err := client.Chmod(tmpPath, remoteInfo.Mode().Perm()); err != nil {
+		_ = client.Remove(tmpPath)
+		return fmt.Errorf("恢复文件 %q 权限失败: %w", remotePath, err)
+	}
+	if err := renameOver(client, tmpPath, remotePath); err != nil {
+		_ = client.Remove(tmpPath)
+		return err
 	}
 	return nil
 }
@@ -328,6 +546,48 @@ func (s *SftpService) Remove(sessionID string, path string) error {
 		}
 	}
 	return nil
+}
+
+// Exists 判断远程路径是否已存在，供上传前做同名冲突确认。
+// "不存在"必须与"检查失败"区分开：前者说明可以安全上传，后者要继续上报，
+// 否则一个网络抖动会被当成"文件不存在"从而静默覆盖已有文件。
+func (s *SftpService) Exists(sessionID string, path string) (bool, error) {
+	client, err := s.sshSvc.GetSFTPClient(sessionID)
+	if err != nil {
+		return false, err
+	}
+
+	if _, err := client.Stat(path); err != nil {
+		// pkg/sftp 会把 SSH_FX_NO_SUCH_FILE 归一化成 os.ErrNotExist
+		if errors.Is(err, os.ErrNotExist) || os.IsNotExist(err) {
+			return false, nil
+		}
+		// 个别服务端用自由文本返回，兜底做一次小写匹配
+		lower := strings.ToLower(err.Error())
+		if strings.Contains(lower, "no such file") || strings.Contains(lower, "does not exist") {
+			return false, nil
+		}
+		return false, fmt.Errorf("检查 %q 是否存在失败: %w", path, err)
+	}
+	return true, nil
+}
+
+// LocalExistingPaths 返回 localPaths 中已存在于本机的子集，供下载前确认覆盖。
+//
+// 一次调用完成批量检查：批量下载可能选中上百个条目，逐个发起 IPC 调用代价过高。
+// 检查失败（权限不足等）按"不存在"处理，不在下载前阻塞用户：
+// 真正的写入错误会由传输队列如实上报。
+func (s *SftpService) LocalExistingPaths(localPaths []string) []string {
+	existing := make([]string, 0, len(localPaths))
+	for _, p := range localPaths {
+		if p == "" {
+			continue
+		}
+		if _, err := os.Stat(p); err == nil {
+			existing = append(existing, p)
+		}
+	}
+	return existing
 }
 
 // Rename 重命名或移动远程文件/目录。
@@ -443,6 +703,11 @@ func (s *SftpService) SearchFiles(sessionID string, searchPath string, query str
 		if idx := strings.LastIndex(line, "/"); idx >= 0 && idx < len(line)-1 {
 			name = line[idx+1:]
 		}
+		// find 输出来自服务端，同样不可信：跳过含分隔符或 ".." 的结果，
+		// 避免前端把异常名字拼进下载路径
+		if !isSafeEntryName(name) {
+			continue
+		}
 
 		entry := SearchResultEntry{
 			Path: line,
@@ -463,6 +728,25 @@ func (s *SftpService) SearchFiles(sessionID string, searchPath string, query str
 	return results, nil
 }
 
+// Upload 上传本地文件或目录到 remotePath。
+// 目标是目录时递归上传：remotePath 即为目标目录本身（不存在时自动创建），
+// 内部目录结构按本地相对路径还原；符号链接会被跳过，避免目录环或把
+// 目录外的内容传到服务器。
+func (s *SftpService) Upload(sessionID string, transferID string, localPath string, remotePath string) error {
+	ctx, done := s.registerTransfer(transferID)
+	defer done()
+
+	info, err := os.Stat(localPath)
+	if err != nil {
+		s.emitter.EmitTransferComplete(sessionID, transferID, false, fmt.Sprintf("读取本地路径失败: %v", err))
+		return fmt.Errorf("读取本地路径 %q 失败: %w", localPath, err)
+	}
+	if !info.IsDir() {
+		return s.uploadFile(ctx, sessionID, transferID, localPath, remotePath)
+	}
+	return s.uploadDir(ctx, sessionID, transferID, localPath, remotePath)
+}
+
 // UploadFile 将本地文件上传到远程路径。
 // 该方法是同步的（Wails 绑定调用），但会通过 emitter 持续推送传输进度，
 // 前端可据 transferID 关联进度事件。传输结束（无论成功失败）推送完成事件。
@@ -471,27 +755,22 @@ func (s *SftpService) SearchFiles(sessionID string, searchPath string, query str
 // 重试时按已有大小从断点继续；全部写完后才原子重命名到 remotePath，
 // 因此目标路径不会出现半截文件。续传假定源文件在两次尝试之间未改动。
 func (s *SftpService) UploadFile(sessionID string, transferID string, localPath string, remotePath string) error {
-	filename := filepath.Base(localPath)
+	ctx, done := s.registerTransfer(transferID)
+	defer done()
+	return s.uploadFile(ctx, sessionID, transferID, localPath, remotePath)
+}
 
-	// 打开本地文件
-	localFile, err := os.Open(localPath)
+// uploadFile 是 UploadFile 的实际实现，接收取消上下文。
+func (s *SftpService) uploadFile(ctx context.Context, sessionID string, transferID string, localPath string, remotePath string) error {
+	info, err := os.Stat(localPath)
 	if err != nil {
 		s.emitter.EmitTransferComplete(sessionID, transferID, false, fmt.Sprintf("打开本地文件失败: %v", err))
 		return fmt.Errorf("打开本地文件 %q 失败: %w", localPath, err)
 	}
-	defer localFile.Close()
-
-	// 获取本地文件大小作为传输总量
-	info, err := localFile.Stat()
-	if err != nil {
-		s.emitter.EmitTransferComplete(sessionID, transferID, false, fmt.Sprintf("获取本地文件信息失败: %v", err))
-		return fmt.Errorf("获取本地文件 %q 信息失败: %w", localPath, err)
-	}
 	if info.IsDir() {
 		s.emitter.EmitTransferComplete(sessionID, transferID, false, "不能上传目录")
-		return fmt.Errorf("%q 是目录，无法上传", localPath)
+		return fmt.Errorf("%q 是目录，请使用 Upload 递归上传", localPath)
 	}
-	total := info.Size()
 
 	client, err := s.sshSvc.GetSFTPClient(sessionID)
 	if err != nil {
@@ -499,36 +778,11 @@ func (s *SftpService) UploadFile(sessionID string, transferID string, localPath 
 		return err
 	}
 
-	part := partPath(remotePath, total)
-	remoteFile, offset, err := openRemoteForResume(client, part, remoteResumeOffset(client, part, total))
-	if err != nil {
-		s.emitter.EmitTransferComplete(sessionID, transferID, false, fmt.Sprintf("创建远程文件失败: %v", err))
-		return fmt.Errorf("创建远程文件 %q 失败: %w", part, err)
-	}
-
-	// 续传时把本地读取位置对齐到断点
-	if offset > 0 {
-		if _, err := localFile.Seek(offset, io.SeekStart); err != nil {
-			remoteFile.Close()
-			s.emitter.EmitTransferComplete(sessionID, transferID, false, fmt.Sprintf("定位本地文件失败: %v", err))
-			return fmt.Errorf("定位本地文件 %q 到 %d 失败: %w", localPath, offset, err)
-		}
-	}
-
-	if err := s.copyWithProgress(localFile, remoteFile, sessionID, transferID, filename, total, offset); err != nil {
-		remoteFile.Close()
-		// 保留 part 文件：下次重试可据此续传，不再删除已传数据
-		s.emitter.EmitTransferComplete(sessionID, transferID, false, err.Error())
-		return fmt.Errorf("上传 %q -> %q 失败: %w", localPath, remotePath, err)
-	}
-	if err := remoteFile.Close(); err != nil {
-		s.emitter.EmitTransferComplete(sessionID, transferID, false, fmt.Sprintf("关闭远程文件失败: %v", err))
-		return fmt.Errorf("上传 %q -> %q 关闭远程文件失败: %w", localPath, remotePath, err)
-	}
-
-	// 全部写完才落到目标路径，保证目标文件要么是旧内容要么是完整新内容
-	if err := renameOver(client, part, remotePath); err != nil {
-		_ = client.Remove(part)
+	if err := s.uploadOne(
+		ctx, client, sessionID, transferID,
+		localPath, remotePath, filepath.Base(localPath),
+		info.Size(), 0,
+	); err != nil {
 		s.emitter.EmitTransferComplete(sessionID, transferID, false, err.Error())
 		return fmt.Errorf("上传 %q -> %q 失败: %w", localPath, remotePath, err)
 	}
@@ -537,35 +791,243 @@ func (s *SftpService) UploadFile(sessionID string, transferID string, localPath 
 	return nil
 }
 
-// DownloadFile 将远程文件下载到本地路径。
-// 与 UploadFile 对称：分块复制并推送进度，同样写入 "<localPath>.terminator-part-<总字节数>"
-// 以支持断点续传，完成后原子重命名到 localPath。
-func (s *SftpService) DownloadFile(sessionID string, transferID string, remotePath string, localPath string) error {
-	filename := filepath.Base(remotePath)
+// uploadOne 上传单个文件，不发送完成事件（由调用方决定整体成功/失败）。
+// progressTotal / progressBase 用于把单文件进度并入目录上传的整体进度：
+// 单文件上传传 base=0、total=文件大小；目录上传传所有文件总大小与已完成字节数。
+func (s *SftpService) uploadOne(
+	ctx context.Context,
+	client *sftp.Client,
+	sessionID string,
+	transferID string,
+	localPath string,
+	remotePath string,
+	displayName string,
+	progressTotal int64,
+	progressBase int64,
+) error {
+	localFile, err := os.Open(localPath)
+	if err != nil {
+		return fmt.Errorf("打开本地文件 %q 失败: %w", localPath, err)
+	}
+	defer localFile.Close()
 
+	info, err := localFile.Stat()
+	if err != nil {
+		return fmt.Errorf("获取本地文件 %q 信息失败: %w", localPath, err)
+	}
+	if info.IsDir() {
+		return fmt.Errorf("%q 是目录，无法上传", localPath)
+	}
+	total := info.Size()
+
+	part := partPath(remotePath, total)
+	remoteFile, offset, err := openRemoteForResume(client, part, remoteResumeOffset(client, part, total))
+	if err != nil {
+		return fmt.Errorf("创建远程文件 %q 失败: %w", part, err)
+	}
+
+	// 续传时把本地读取位置对齐到断点
+	if offset > 0 {
+		if _, err := localFile.Seek(offset, io.SeekStart); err != nil {
+			remoteFile.Close()
+			return fmt.Errorf("定位本地文件 %q 到 %d 失败: %w", localPath, offset, err)
+		}
+	}
+
+	if err := s.copyWithProgress(
+		ctx,
+		localFile, remoteFile,
+		sessionID, transferID, displayName,
+		progressTotal, progressBase+offset,
+	); err != nil {
+		remoteFile.Close()
+		// 保留 part 文件：下次重试可据此续传，不再删除已传数据
+		return err
+	}
+	if err := remoteFile.Close(); err != nil {
+		return fmt.Errorf("关闭远程文件失败: %w", err)
+	}
+
+	// 全部写完才落到目标路径，保证目标文件要么是旧内容要么是完整新内容
+	if err := renameOver(client, part, remotePath); err != nil {
+		_ = client.Remove(part)
+		return err
+	}
+	return nil
+}
+
+// uploadDir 递归上传本地目录。
+// 先遍历一遍收集目录与文件清单并统计总字节数，再把整体进度推给前端
+// （而不是每传一个文件就从 0% 重新开始）。
+func (s *SftpService) uploadDir(ctx context.Context, sessionID string, transferID string, localPath string, remotePath string) error {
 	client, err := s.sshSvc.GetSFTPClient(sessionID)
 	if err != nil {
 		s.emitter.EmitTransferComplete(sessionID, transferID, false, err.Error())
 		return err
 	}
 
-	// 打开远程文件
-	remoteFile, err := client.Open(remotePath)
-	if err != nil {
-		s.emitter.EmitTransferComplete(sessionID, transferID, false, fmt.Sprintf("打开远程文件失败: %v", err))
-		return fmt.Errorf("打开远程文件 %q 失败: %w", remotePath, err)
+	type fileItem struct {
+		LocalPath  string
+		RemotePath string
+		Name       string
+		Size       int64
 	}
-	defer remoteFile.Close()
+	var (
+		dirs       []string
+		files      []fileItem
+		totalBytes int64
+	)
 
-	// 获取远程文件大小作为传输总量
-	info, err := remoteFile.Stat()
+	walkErr := filepath.Walk(localPath, func(p string, fi os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(localPath, p)
+		if err != nil {
+			return err
+		}
+		remote := remotePath
+		if rel != "." {
+			remote = path.Join(remotePath, filepath.ToSlash(rel))
+		}
+		// 跳过符号链接：目录链接可能指向自身造成无限递归，
+		// 文件链接则会把目录之外的内容一并上传。
+		if fi.Mode()&os.ModeSymlink != 0 {
+			return nil
+		}
+		if fi.IsDir() {
+			dirs = append(dirs, remote)
+			return nil
+		}
+		files = append(files, fileItem{
+			LocalPath:  p,
+			RemotePath: remote,
+			Name:       filepath.Base(p),
+			Size:       fi.Size(),
+		})
+		totalBytes += fi.Size()
+		return nil
+	})
+	if walkErr != nil {
+		s.emitter.EmitTransferComplete(sessionID, transferID, false, walkErr.Error())
+		return fmt.Errorf("遍历本地目录 %q 失败: %w", localPath, walkErr)
+	}
+
+	for _, dir := range dirs {
+		if err := client.MkdirAll(dir); err != nil {
+			s.emitter.EmitTransferComplete(sessionID, transferID, false, fmt.Sprintf("创建远程目录失败: %v", err))
+			return fmt.Errorf("创建远程目录 %q 失败: %w", dir, err)
+		}
+	}
+
+	var done int64
+	for _, f := range files {
+		if err := checkCanceled(ctx); err != nil {
+			s.emitter.EmitTransferComplete(sessionID, transferID, false, err.Error())
+			return err
+		}
+		if err := s.uploadOne(
+			ctx, client, sessionID, transferID,
+			f.LocalPath, f.RemotePath, f.Name,
+			totalBytes, done,
+		); err != nil {
+			s.emitter.EmitTransferComplete(sessionID, transferID, false, err.Error())
+			return fmt.Errorf("上传 %q -> %q 失败: %w", f.LocalPath, f.RemotePath, err)
+		}
+		done += f.Size
+	}
+
+	s.emitter.EmitTransferComplete(sessionID, transferID, true, "")
+	return nil
+}
+
+// Download 下载远程文件或目录到本地路径。
+// 目标是目录时递归下载：localPath 即为目标目录本身（不存在时自动创建）。
+func (s *SftpService) Download(sessionID string, transferID string, remotePath string, localPath string) error {
+	ctx, done := s.registerTransfer(transferID)
+	defer done()
+
+	client, err := s.sshSvc.GetSFTPClient(sessionID)
+	if err != nil {
+		s.emitter.EmitTransferComplete(sessionID, transferID, false, err.Error())
+		return err
+	}
+	info, err := client.Stat(remotePath)
+	if err != nil {
+		s.emitter.EmitTransferComplete(sessionID, transferID, false, fmt.Sprintf("读取远程路径失败: %v", err))
+		return fmt.Errorf("读取远程路径 %q 失败: %w", remotePath, err)
+	}
+	if !info.IsDir() {
+		return s.downloadFile(ctx, sessionID, transferID, remotePath, localPath)
+	}
+	return s.downloadDir(ctx, client, sessionID, transferID, remotePath, localPath)
+}
+
+// DownloadFile 将远程文件下载到本地路径。
+// 与 UploadFile 对称：分块复制并推送进度，同样写入 "<localPath>.terminator-part-<总字节数>"
+// 以支持断点续传，完成后原子重命名到 localPath。
+func (s *SftpService) DownloadFile(sessionID string, transferID string, remotePath string, localPath string) error {
+	ctx, done := s.registerTransfer(transferID)
+	defer done()
+	return s.downloadFile(ctx, sessionID, transferID, remotePath, localPath)
+}
+
+// downloadFile 是 DownloadFile 的实际实现，接收取消上下文。
+func (s *SftpService) downloadFile(ctx context.Context, sessionID string, transferID string, remotePath string, localPath string) error {
+	client, err := s.sshSvc.GetSFTPClient(sessionID)
+	if err != nil {
+		s.emitter.EmitTransferComplete(sessionID, transferID, false, err.Error())
+		return err
+	}
+
+	info, err := client.Stat(remotePath)
 	if err != nil {
 		s.emitter.EmitTransferComplete(sessionID, transferID, false, fmt.Sprintf("获取远程文件信息失败: %v", err))
 		return fmt.Errorf("获取远程文件 %q 信息失败: %w", remotePath, err)
 	}
-	// 拒绝目录下载，避免读取目录句柄产生垃圾数据
 	if info.IsDir() {
 		s.emitter.EmitTransferComplete(sessionID, transferID, false, "不能下载目录")
+		return fmt.Errorf("%q 是目录，请使用 Download 递归下载", remotePath)
+	}
+
+	if err := s.downloadOne(
+		ctx, client, sessionID, transferID,
+		remotePath, localPath, filepath.Base(remotePath),
+		info.Size(), 0,
+	); err != nil {
+		s.emitter.EmitTransferComplete(sessionID, transferID, false, err.Error())
+		return fmt.Errorf("下载 %q -> %q 失败: %w", remotePath, localPath, err)
+	}
+
+	s.emitter.EmitTransferComplete(sessionID, transferID, true, "")
+	return nil
+}
+
+// downloadOne 下载单个文件，不发送完成事件（由调用方决定整体成功/失败）。
+// progressTotal / progressBase 语义同 uploadOne。
+func (s *SftpService) downloadOne(
+	ctx context.Context,
+	client *sftp.Client,
+	sessionID string,
+	transferID string,
+	remotePath string,
+	localPath string,
+	displayName string,
+	progressTotal int64,
+	progressBase int64,
+) error {
+	remoteFile, err := client.Open(remotePath)
+	if err != nil {
+		return fmt.Errorf("打开远程文件 %q 失败: %w", remotePath, err)
+	}
+	defer remoteFile.Close()
+
+	info, err := remoteFile.Stat()
+	if err != nil {
+		return fmt.Errorf("获取远程文件 %q 信息失败: %w", remotePath, err)
+	}
+	// 拒绝目录下载，避免读取目录句柄产生垃圾数据
+	if info.IsDir() {
 		return fmt.Errorf("%q 是目录，无法下载", remotePath)
 	}
 	total := info.Size()
@@ -578,7 +1040,6 @@ func (s *SftpService) DownloadFile(sessionID string, transferID string, remotePa
 	}
 	localFile, err := os.OpenFile(part, flags, 0o644)
 	if err != nil {
-		s.emitter.EmitTransferComplete(sessionID, transferID, false, fmt.Sprintf("创建本地文件失败: %v", err))
 		return fmt.Errorf("创建本地文件 %q 失败: %w", part, err)
 	}
 
@@ -586,26 +1047,117 @@ func (s *SftpService) DownloadFile(sessionID string, transferID string, remotePa
 	if offset > 0 {
 		if _, err := remoteFile.Seek(offset, io.SeekStart); err != nil {
 			localFile.Close()
-			s.emitter.EmitTransferComplete(sessionID, transferID, false, fmt.Sprintf("定位远程文件失败: %v", err))
 			return fmt.Errorf("定位远程文件 %q 到 %d 失败: %w", remotePath, offset, err)
 		}
 	}
 
-	if err := s.copyWithProgress(remoteFile, localFile, sessionID, transferID, filename, total, offset); err != nil {
+	if err := s.copyWithProgress(
+		ctx,
+		remoteFile, localFile,
+		sessionID, transferID, displayName,
+		progressTotal, progressBase+offset,
+	); err != nil {
 		localFile.Close()
 		// 保留 part 文件：下次重试可据此续传
-		s.emitter.EmitTransferComplete(sessionID, transferID, false, err.Error())
-		return fmt.Errorf("下载 %q -> %q 失败: %w", remotePath, localPath, err)
+		return err
 	}
 	if err := localFile.Close(); err != nil {
-		s.emitter.EmitTransferComplete(sessionID, transferID, false, fmt.Sprintf("关闭文件失败: %v", err))
-		return fmt.Errorf("下载 %q -> %q 关闭文件失败: %w", remotePath, localPath, err)
+		return fmt.Errorf("关闭文件失败: %w", err)
 	}
 
 	if err := os.Rename(part, localPath); err != nil {
 		_ = os.Remove(part)
-		s.emitter.EmitTransferComplete(sessionID, transferID, false, fmt.Sprintf("重命名文件失败: %v", err))
-		return fmt.Errorf("下载 %q -> %q 失败: %w", remotePath, localPath, err)
+		return err
+	}
+	return nil
+}
+
+// downloadDir 递归下载远程目录。
+// 与上传对称：先遍历统计总字节数，再逐个下载并汇总进度。
+func (s *SftpService) downloadDir(ctx context.Context, client *sftp.Client, sessionID string, transferID string, remotePath string, localPath string) error {
+	type fileItem struct {
+		RemotePath string
+		LocalPath  string
+		Name       string
+		Size       int64
+	}
+	var (
+		dirs       []string
+		files      []fileItem
+		totalBytes int64
+	)
+
+	var walk func(remoteDir string, localDir string) error
+	walk = func(remoteDir string, localDir string) error {
+		entries, err := client.ReadDir(remoteDir)
+		if err != nil {
+			return err
+		}
+		for _, entry := range entries {
+			// 服务端返回的文件名不可信：含分隔符/.. 的条目会让本地路径逃出
+			// 用户选定目录，直接跳过（正常文件系统不可能产生这种名字）
+			if !isSafeEntryName(entry.Name()) {
+				continue
+			}
+			remote := path.Join(remoteDir, entry.Name())
+			local := filepath.Join(localDir, entry.Name())
+			// 跳过符号链接：可能指向目录自身导致无限递归，也可能指向
+			// 目标目录之外的位置（下载到本地后失去原有链接语义）。
+			if entry.Mode()&os.ModeSymlink != 0 {
+				continue
+			}
+			if entry.IsDir() {
+				dirs = append(dirs, local)
+				if err := walk(remote, local); err != nil {
+					return err
+				}
+				continue
+			}
+			files = append(files, fileItem{
+				RemotePath: remote,
+				LocalPath:  local,
+				Name:       entry.Name(),
+				Size:       entry.Size(),
+			})
+			totalBytes += entry.Size()
+		}
+		return nil
+	}
+
+	if err := walk(remotePath, localPath); err != nil {
+		s.emitter.EmitTransferComplete(sessionID, transferID, false, err.Error())
+		return fmt.Errorf("遍历远程目录 %q 失败: %w", remotePath, err)
+	}
+
+	// 根目录与各层子目录先建好，避免文件写入时父目录不存在
+	if err := os.MkdirAll(localPath, 0o755); err != nil {
+		s.emitter.EmitTransferComplete(sessionID, transferID, false, fmt.Sprintf("创建本地目录失败: %v", err))
+		return fmt.Errorf("创建本地目录 %q 失败: %w", localPath, err)
+	}
+	for _, dir := range dirs {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			s.emitter.EmitTransferComplete(sessionID, transferID, false, fmt.Sprintf("创建本地目录失败: %v", err))
+			return fmt.Errorf("创建本地目录 %q 失败: %w", dir, err)
+		}
+	}
+
+	var done int64
+	for _, f := range files {
+		// 取消后不再开始下一个文件：目录传输可能包含成千上万个小文件，
+		// 只依赖单文件复制循环内的检查会让取消延迟到下一个大文件中段。
+		if err := checkCanceled(ctx); err != nil {
+			s.emitter.EmitTransferComplete(sessionID, transferID, false, err.Error())
+			return err
+		}
+		if err := s.downloadOne(
+			ctx, client, sessionID, transferID,
+			f.RemotePath, f.LocalPath, f.Name,
+			totalBytes, done,
+		); err != nil {
+			s.emitter.EmitTransferComplete(sessionID, transferID, false, err.Error())
+			return fmt.Errorf("下载 %q -> %q 失败: %w", f.RemotePath, f.LocalPath, err)
+		}
+		done += f.Size
 	}
 
 	s.emitter.EmitTransferComplete(sessionID, transferID, true, "")
@@ -616,7 +1168,7 @@ func (s *SftpService) DownloadFile(sessionID string, transferID string, remotePa
 // 每 progressEmitInterval 推送一次进度（时间节流，非每块都发）。
 // src/dst 必须已打开，total 为本次传输的总字节数，
 // initial 为续传时已存在的字节数（从 0 开始传输时传 0）。
-func (s *SftpService) copyWithProgress(src io.Reader, dst io.Writer, sessionID string, transferID string, filename string, total int64, initial int64) error {
+func (s *SftpService) copyWithProgress(ctx context.Context, src io.Reader, dst io.Writer, sessionID string, transferID string, filename string, total int64, initial int64) error {
 	buf := make([]byte, transferChunkSize)
 	transferred := initial
 	lastEmit := time.Now()
@@ -627,6 +1179,10 @@ func (s *SftpService) copyWithProgress(src io.Reader, dst io.Writer, sessionID s
 	}
 
 	for {
+		// 每块前检查取消信号：单块最大 256KB，取消延迟可控
+		if err := checkCanceled(ctx); err != nil {
+			return err
+		}
 		n, readErr := src.Read(buf)
 		if n > 0 {
 			written, werr := dst.Write(buf[:n])

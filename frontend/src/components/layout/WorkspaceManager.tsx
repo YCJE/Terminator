@@ -61,8 +61,13 @@ export function WorkspaceManager() {
 
             if (cancelled || restored.size === 0) return;
 
-            // 恢复分屏：先聚焦主窗格再拆分，最后切回原来的激活标签
-            if (snapshot.split) {
+            // 恢复窗格布局：新版按形状重建整组窗格，旧版快照回退到单一分屏
+            if (snapshot.panes) {
+                const rootId = restored.get(snapshot.panes.hostId);
+                if (rootId) {
+                    useSessionStore.getState().restorePaneLayout(rootId, snapshot.panes.shape);
+                }
+            } else if (snapshot.split) {
                 const primaryId = restored.get(snapshot.split.hostId);
                 if (primaryId) {
                     useSessionStore.getState().setActiveSession(primaryId);
@@ -101,6 +106,9 @@ export function WorkspaceManager() {
                 clearTimeout(timer);
                 timer = null;
             }
+            // 恢复流程进行中不要持久化：快照里需要交互输入密码的主机会被跳过，
+            // 此时写盘会把它们的标签永久裁掉，下次启动就再也恢复不出来。
+            if (restoreInProgress) return;
             const snapshot = buildSnapshot();
             if (snapshot.sessions.length > 0) {
                 saveWorkspace(snapshot);

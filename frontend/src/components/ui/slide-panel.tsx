@@ -115,8 +115,8 @@ export function SlidePanel({
                 className="absolute left-0 top-0 z-40 h-full w-1.5 cursor-col-resize hover:bg-primary/40 transition-colors"
             />
 
-            {/* Header — 固定高度 */}
-            <div className="flex shrink-0 items-center justify-between gap-2 px-5 py-4">
+            {/* Header — 固定高度，底部发丝线与内容区分离 */}
+            <div className="flex shrink-0 items-center justify-between gap-2 border-b border-[var(--hairline)] px-4 py-3">
                 <div className="flex min-w-0 items-center gap-2">
                     {showBackButton && onBack && (
                         <button
@@ -127,9 +127,9 @@ export function SlidePanel({
                         </button>
                     )}
                     <div className="min-w-0">
-                        <h3 className="truncate text-[14px] text-[var(--fg-strong)]">{title}</h3>
+                        <h3 className="truncate text-[13px] text-[var(--fg-strong)]">{title}</h3>
                         {subtitle && (
-                            <p className="mt-0.5 truncate text-[11px] text-[var(--fg-muted)]">{subtitle}</p>
+                            <p className="mt-0.5 truncate text-[11px] text-[var(--fg-subtle)]">{subtitle}</p>
                         )}
                     </div>
                 </div>
@@ -147,14 +147,14 @@ export function SlidePanel({
 
             {/* Content — 可滚动区域 */}
             <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
-                <div className={cn("space-y-4 p-5", contentClassName)}>
+                <div className={cn("space-y-4 px-4 py-4", contentClassName)}>
                     {children}
                 </div>
             </div>
 
-            {/* Footer — 固定高度（可选） */}
+            {/* Footer — 固定高度（可选），顶部发丝线收口 */}
             {footer && (
-                <div className="shrink-0 px-5 py-3">
+                <div className="shrink-0 border-t border-[var(--hairline)] px-4 py-3">
                     {footer}
                 </div>
             )}

@@ -220,7 +220,15 @@ func (s *BackupService) ExportBackup(ctx context.Context) (string, error) {
 	// 原子写：先写临时文件并 fsync 落盘，再改名。
 	// 若只写不 fsync，rename 可能先于数据真正落盘生效，掉电后目标文件会变为
 	// 空/截断，而备份往往是用户唯一副本，此时等于全量丢失。
-	tmp := path + ".tmp"
+	//
+	// 临时文件名必须唯一：Wails 绑定调用在独立 goroutine 中执行，两次导出到
+	// 同一路径时固定 ".tmp" 会被第二个调用截断，最终把混合内容改名为正式备份。
+	tmpFile, err := os.CreateTemp(filepath.Dir(path), ".terminator-backup-*.tmp")
+	if err != nil {
+		return "", err
+	}
+	tmp := tmpFile.Name()
+	_ = tmpFile.Close()
 	if err := writeFileSync(tmp, data); err != nil {
 		_ = os.Remove(tmp)
 		return "", err

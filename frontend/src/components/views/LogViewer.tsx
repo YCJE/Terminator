@@ -4,7 +4,9 @@
 // 提供两个页签：应用日志（运行日志）与会话日志（终端输出落盘后的检索与预览）
 import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import { useTranslation } from "react-i18next";
-import { ScrollText, RefreshCw, Copy, Trash2, Check, Search, FileText } from "lucide-react";
+import { ScrollText, RefreshCw, Copy, Trash2, Check, Search, FileText, Download } from "lucide-react";
+import { Dialogs } from "@wailsio/runtime";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SettingsService } from "../../../bindings/terminator-desktop/backend/internal/services/settings";
@@ -121,6 +123,7 @@ export function LogViewer() {
     const [logQuery, setLogQuery] = useState("");
     const [matches, setMatches] = useState<SessionLogMatch[] | null>(null);
     const [searching, setSearching] = useState(false);
+    const [exporting, setExporting] = useState(false);
     // 请求序号：预览与检索共用同一把"最新请求"闸门。
     // 快速连续点击不同文件、或在检索未返回时再次检索时，慢请求的响应可能
     // 晚于新请求返回，把界面回填成旧文件的内容/旧关键字的结果。
@@ -260,6 +263,31 @@ export function LogViewer() {
         setSearching(false);
     }, []);
 
+    // 导出选中的会话日志到用户指定位置。
+    // 后端复制的是磁盘上的原始字节（含 ANSI 控制序列），与界面剥色后的预览不同，
+    // 便于归档或转交时保留完整现场。
+    const exportSessionLog = useCallback(async () => {
+        if (!selectedLog || exporting) return;
+        setExporting(true);
+        try {
+            const dest = await Dialogs.SaveFile({
+                Title: t("session_log_export"),
+                Filename: selectedLog,
+            });
+            // 用户在保存对话框中取消
+            if (!dest) return;
+            await SshService.ExportSessionLog(selectedLog, dest);
+            toast.success(t("session_log_export_success"));
+        } catch (err) {
+            const msg = String((err as Error)?.message ?? err ?? "");
+            if (!/cancel/i.test(msg)) {
+                handleAppError(err);
+            }
+        } finally {
+            setExporting(false);
+        }
+    }, [selectedLog, exporting, t]);
+
     // 解析并格式化应用日志行
     const parsedLines = useMemo(() => {
         if (!rawLogs) return [];
@@ -271,7 +299,7 @@ export function LogViewer() {
     const previewLoading = logLoading && !!selectedLog;
 
     return (
-        <div className="flex flex-col gap-3 p-4">
+        <div className="log-viewer flex flex-col gap-3 p-4">
             {/* 页签切换 */}
             <div className="flex items-center gap-1">
                 {([
@@ -364,8 +392,8 @@ export function LogViewer() {
                             <span className="settings-row-title">{t("session_log_viewer_title")}</span>
                             <span className="settings-row-desc">{t("session_log_viewer_desc")}</span>
                         </div>
-                        <div className="flex items-center gap-2">
-                            <div className="relative">
+                        <div className="flex flex-wrap items-center gap-2">
+                            <div className="relative min-w-0">
                                 <Search className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-[var(--fg-subtle)]" />
                                 <Input
                                     value={logQuery}
@@ -375,7 +403,8 @@ export function LogViewer() {
                                         if (e.key === "Escape") clearSessionSearch();
                                     }}
                                     placeholder={t("session_log_search_placeholder")}
-                                    className="h-8 w-56 pl-8 text-xs"
+                                    aria-label={t("session_log_search_placeholder")}
+                                    className="h-8 w-56 max-w-full pl-8 text-xs"
                                 />
                             </div>
                             <Button
@@ -387,6 +416,16 @@ export function LogViewer() {
                                 <Search className={`mr-1.5 size-3.5 ${searching ? "animate-pulse" : ""}`} />
                                 {t("session_log_search")}
                             </Button>
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={exportSessionLog}
+                                disabled={!selectedLog || exporting}
+                                title={t("session_log_export_tip")}
+                            >
+                                <Download className={`mr-1.5 size-3.5 ${exporting ? "animate-pulse" : ""}`} />
+                                {t("session_log_export")}
+                            </Button>
                             <Button variant="outline" size="sm" onClick={loadSessionLogs} disabled={logLoading}>
                                 <RefreshCw className={`mr-1.5 size-3.5 ${logLoading ? "animate-spin" : ""}`} />
                                 {t("log_refresh")}
@@ -394,10 +433,10 @@ export function LogViewer() {
                         </div>
                     </div>
 
-                    <div className="flex h-72 overflow-hidden rounded-[var(--radius-md)] border border-[var(--hairline)]
+                    <div className="log-viewer-body flex h-72 overflow-hidden rounded-[var(--radius-md)] border border-[var(--hairline)]
                                     bg-[var(--surface-0)]">
                         {/* 日志文件列表 */}
-                        <div className="w-56 shrink-0 overflow-y-auto border-r border-[var(--hairline)] p-1.5">
+                        <div className="log-viewer-list w-56 shrink-0 overflow-y-auto border-r border-[var(--hairline)] p-1.5">
                             {logFiles.length === 0 ? (
                                 <div className="px-2 py-6 text-center text-xs text-[var(--fg-muted)]">
                                     {logLoading ? t("session_log_loading") : t("session_log_no_files")}
@@ -424,7 +463,7 @@ export function LogViewer() {
                         </div>
 
                         {/* 预览 / 检索结果 */}
-                        <div className="min-w-0 flex-1 overflow-auto p-3 select-text">
+                        <div className="log-viewer-preview min-w-0 flex-1 overflow-auto p-3 select-text">
                             {matches ? (
                                 matches.length === 0 ? (
                                     <div className="flex h-full items-center justify-center text-xs text-[var(--fg-muted)]">

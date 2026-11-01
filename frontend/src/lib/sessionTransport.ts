@@ -1,29 +1,31 @@
-// 会话传输路由：前端只面对统一的输入/尺寸/关闭接口，
-// 由会话 kind 决定走 SSH 还是本地 shell。终端事件本身共用同一数据通道。
+// 会话传输路由：前端只面对统一的输入/尺寸接口，
+// 由会话 kind 决定走 SSH / 本地 shell / Telnet / 串口。
+// 终端事件本身共用同一数据通道，显示逻辑无需区分数据来源。
 
-import { useSessionStore } from "@/store/sessionStore";
-import { SshService } from "../../bindings/terminator-desktop/backend/internal/services/ssh";
-import { LocalShellService } from "../../bindings/terminator-desktop/backend/internal/services/local";
+import { useSessionStore, type SessionKind } from "@/store/sessionStore";
+import {
+    resizeTransport,
+    sendTransportInput,
+    sendTransportInputBase64,
+} from "@/lib/sessionBackend";
 
-export function isLocalSession(sessionId: string | null | undefined): boolean {
-    if (!sessionId) return false;
-    return useSessionStore.getState().sessions.find((s) => s.id === sessionId)?.kind === "local";
+function getSessionKind(sessionId: string): SessionKind | undefined {
+    return useSessionStore.getState().sessions.find((s) => s.id === sessionId)?.kind;
 }
 
-export function sendSessionInput(sessionId: string, data: string): Promise<void> {
-    return isLocalSession(sessionId)
-        ? LocalShellService.Input(sessionId, data)
-        : SshService.Input(sessionId, data);
+/**
+ * 路由输入/尺寸操作。
+ * 浮动窗口是独立 webview，它的 store 里没有会话记录，必须由调用方把
+ * 组件自身的 kind 传进来；缺省时才回落到主窗口 store 的查询。
+ */
+export function sendSessionInput(sessionId: string, data: string, kind?: SessionKind): Promise<void> {
+    return sendTransportInput(kind ?? getSessionKind(sessionId), sessionId, data);
 }
 
-export function resizeSession(sessionId: string, rows: number, cols: number): Promise<void> {
-    return isLocalSession(sessionId)
-        ? LocalShellService.Resize(sessionId, rows, cols)
-        : SshService.Resize(sessionId, rows, cols);
+export function sendSessionInputBase64(sessionId: string, dataBase64: string, kind?: SessionKind): Promise<void> {
+    return sendTransportInputBase64(kind ?? getSessionKind(sessionId), sessionId, dataBase64);
 }
 
-export function closeSessionTransport(sessionId: string): Promise<void> {
-    return isLocalSession(sessionId)
-        ? LocalShellService.Close(sessionId)
-        : SshService.Disconnect(sessionId);
+export function resizeSession(sessionId: string, rows: number, cols: number, kind?: SessionKind): Promise<void> {
+    return resizeTransport(kind ?? getSessionKind(sessionId), sessionId, rows, cols);
 }

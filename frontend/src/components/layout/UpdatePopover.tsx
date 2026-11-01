@@ -15,6 +15,7 @@ export function UpdatePopover() {
         updateReleaseUrl,
         updateReleaseVersion,
         setUpdateRelease,
+        snoozeUpdateForSession,
     } = useUIStore();
 
     // 两种更新提示：
@@ -43,13 +44,25 @@ export function UpdatePopover() {
         }
     };
 
-    const handleDismiss = () => {
-        if (version) setDismissedUpdateVersion(version);
+    /** 清除当前提示（不记录偏好） */
+    const clearPrompt = () => {
         if (updateVersionReady) {
             setUpdateVersionReady(null);
         } else {
             setUpdateRelease(null, null);
         }
+    };
+
+    // "稍后提醒"只在本次运行内静默，重启后仍会提示
+    const handleLater = () => {
+        snoozeUpdateForSession(true);
+        clearPrompt();
+    };
+
+    // "跳过此版本"写入 localStorage：该版本不再提示，出现更高版本时恢复
+    const handleSkipVersion = () => {
+        if (version) setDismissedUpdateVersion(version);
+        clearPrompt();
     };
 
     return (
@@ -86,8 +99,16 @@ export function UpdatePopover() {
                             {t("restart_update")}
                         </Button>
                     )}
-                    <Button size="sm" variant="ghost" onClick={handleDismiss} className="w-full">
-                        {t("later", {ns: "common", defaultValue: "Later"})}
+                    <Button size="sm" variant="ghost" onClick={handleLater} className="w-full">
+                        {t("later")}
+                    </Button>
+                    <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={handleSkipVersion}
+                        className="w-full text-[var(--fg-subtle)]"
+                    >
+                        {t("skip_version")}
                     </Button>
                 </div>
             </PopoverContent>

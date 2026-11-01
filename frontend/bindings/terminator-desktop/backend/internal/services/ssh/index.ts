@@ -7,6 +7,8 @@ export {
 };
 
 export {
+    ConnectionTestResult,
+    ConnectionTestStep,
     JumpHostConfig,
     KnownHostEntry,
     PortForwardSpec,

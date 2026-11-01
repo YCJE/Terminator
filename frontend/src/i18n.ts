@@ -22,6 +22,7 @@ void i18n
                 "hosts",
                 "keys",
                 "portForwarding",
+                "batchExec",
                 "settings",
                 "sftp",
                 "terminal",

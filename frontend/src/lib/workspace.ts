@@ -1,16 +1,24 @@
 // 工作区持久化：只保存可重建的会话标识与布局，不落盘任何凭据。
 //
 // 会话参数（密码、私钥、跳板链）可能随时间变化，恢复时一律按当前主机配置
-// 重新构建；保存的只有主机 ID、标签顺序、激活标签与分屏方向。
+// 重新构建；保存的只有主机 ID、标签顺序、激活标签与窗格布局形状。
 
 import type { SplitOrientation } from "@/store/sessionStore";
+import { MAX_PANES, countPaneShape, parsePaneShape, type PaneShapeSnapshot } from "@/lib/paneLayout";
 
 const STORAGE_KEY = "terminator_workspace_v1";
 
+/** 旧版单一分屏快照：仅用于兼容已保存的历史数据 */
 export interface WorkspaceSplitSnapshot {
     /** 分屏主窗格对应的主机 ID */
     hostId: string;
     orientation: SplitOrientation;
+}
+
+/** 多窗格布局快照：布局形状 + 布局根（标签代表）对应的主机 ID */
+export interface WorkspacePanesSnapshot {
+    hostId: string;
+    shape: PaneShapeSnapshot;
 }
 
 export interface WorkspaceSnapshot {
@@ -18,8 +26,22 @@ export interface WorkspaceSnapshot {
     sessions: string[];
     /** 当前激活标签对应的主机 ID */
     activeHostId: string | null;
-    /** 分屏信息；未分屏时为 null */
+    /** 旧版分屏信息；新数据一律为 null */
     split: WorkspaceSplitSnapshot | null;
+    /** 多窗格布局；未分屏时为 null */
+    panes: WorkspacePanesSnapshot | null;
+}
+
+/** 校验并读取多窗格快照；非法或超出窗格上限时返回 null */
+export function parsePanesSnapshot(value: unknown): WorkspacePanesSnapshot | null {
+    if (!value || typeof value !== "object") return null;
+    const panes = value as Partial<WorkspacePanesSnapshot>;
+    if (typeof panes.hostId !== "string" || !panes.hostId) return null;
+    const shape = parsePaneShape(panes.shape);
+    if (!shape) return null;
+    const count = countPaneShape(shape);
+    if (count < 2 || count > MAX_PANES) return null;
+    return {hostId: panes.hostId, shape};
 }
 
 /** 读取工作区快照；数据损坏或版本不符时返回 null。 */
@@ -42,6 +64,7 @@ export function loadWorkspace(): WorkspaceSnapshot | null {
             sessions,
             activeHostId: typeof parsed.activeHostId === "string" ? parsed.activeHostId : null,
             split,
+            panes: parsePanesSnapshot(parsed.panes),
         };
     } catch {
         return null;

@@ -24,6 +24,13 @@ export function AddPortForward(spec: $models.PortForwardSpec | null): $Cancellab
 }
 
 /**
+ * CancelAuthPrompt 用户取消交互式认证，使在途连接尽快失败而不是等到超时。
+ */
+export function CancelAuthPrompt(requestID: string): $CancellablePromise<void> {
+    return $Call.ByID(3788277631, requestID);
+}
+
+/**
  * Connect establishes an SSH session with connection pooling and optional Jump Host support.
  * 
  * 连接复用：同一 host:port:user 的多个 session 共享 *ssh.Client（引用计数）
@@ -51,6 +58,15 @@ export function DisconnectAll(): $CancellablePromise<void> {
  */
 export function ExecCommand(sessionID: string, command: string, timeout: time$0.Duration): $CancellablePromise<string> {
     return $Call.ByID(4115702409, sessionID, command, timeout);
+}
+
+/**
+ * ExportSessionLog 把指定会话日志另存到 destPath（用户选择的本地路径）。
+ * 导出的是磁盘上的原始日志（含 ANSI 控制序列），而不是界面展示的剥色版本：
+ * 用户导出通常是为了归档或转交排查，保留原始字节更可靠。
+ */
+export function ExportSessionLog(name: string, destPath: string): $CancellablePromise<void> {
+    return $Call.ByID(60934197, name, destPath);
 }
 
 /**
@@ -85,6 +101,15 @@ export function GetSystemStats(sessionID: string): $CancellablePromise<$models.S
  */
 export function Input(sessionID: string, data: string): $CancellablePromise<void> {
     return $Call.ByID(187872847, sessionID, data);
+}
+
+/**
+ * InputBase64 发送原始字节（ZMODEM 等二进制协议使用）。
+ * Wails 的字符串参数按 UTF-8 传输，直接把二进制转成字符串会被转码破坏，
+ * 因此前端先把字节数组编码为 base64，这里解码后原样写入 SSH 通道。
+ */
+export function InputBase64(sessionID: string, dataBase64: string): $CancellablePromise<void> {
+    return $Call.ByID(4000043720, sessionID, dataBase64);
 }
 
 /**
@@ -146,6 +171,27 @@ export function SearchSessionLogs(query: string, limit: number): $CancellablePro
     });
 }
 
+/**
+ * SubmitAuthResponses 提交前端填写的交互式认证回答。
+ * 问答已超时/取消时返回错误，前端据此提示"请求已失效"。
+ */
+export function SubmitAuthResponses(requestID: string, responses: string[]): $CancellablePromise<void> {
+    return $Call.ByID(1984968881, requestID, responses);
+}
+
+/**
+ * TestConnection 对主机配置做一次真实但短暂的连接预检：
+ * 校验配置 → 建立 SSH 连接（含代理/跳板/host key 校验/认证）→ 打开会话通道。
+ * 
+ * 预检不使用连接池，结束后立即关闭；不会留下监听端口或后台会话。
+ * 首次连接仍会按 TOFU 写入 known_hosts，与正常连接的行为一致。
+ */
+export function TestConnection(config: $models.SSHConnectionConfig | null): $CancellablePromise<$models.ConnectionTestResult | null> {
+    return $Call.ByID(3542082557, config).then(($result: any) => {
+        return $$createType11($result);
+    });
+}
+
 // Private type creation functions
 const $$createType0 = sftp$0.Client.createFrom;
 const $$createType1 = $Create.Nullable($$createType0);
@@ -157,3 +203,5 @@ const $$createType6 = $models.SessionLogFile.createFrom;
 const $$createType7 = $Create.Array($$createType6);
 const $$createType8 = $models.SessionLogMatch.createFrom;
 const $$createType9 = $Create.Array($$createType8);
+const $$createType10 = $models.ConnectionTestResult.createFrom;
+const $$createType11 = $Create.Nullable($$createType10);

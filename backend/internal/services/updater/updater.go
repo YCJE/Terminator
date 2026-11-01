@@ -167,8 +167,8 @@ func normalizeVersion(v string) string {
 // compareVersions 比较 semver 版本号 a 和 b
 // 返回: 1 if a > b, -1 if a < b, 0 if a == b
 func compareVersions(a, b string) int {
-	aMajor, aMinor, aPatch, aOK := parseSemverParts(a)
-	bMajor, bMinor, bPatch, bOK := parseSemverParts(b)
+	aMajor, aMinor, aPatch, aPre, aOK := parseSemverParts(a)
+	bMajor, bMinor, bPatch, bPre, bOK := parseSemverParts(b)
 	if !aOK || !bOK {
 		// 任一侧不是形如 X.Y.Z 的纯数字版本（如 release-2024）时，逐段比较会把
 		// 两侧都读成 0 而误判为"相等/无更新"。退化为字符串比较，至少不会漏报。
@@ -192,17 +192,39 @@ func compareVersions(a, b string) int {
 		}
 		return -1
 	}
-	return 0
+	// 三段号相同：按 semver 规则，预发布版本低于同号正式版。
+	// 若丢弃 "-rc1" 之类后缀，RC 用户永远收不到同号正式版的更新。
+	switch {
+	case aPre == bPre:
+		return 0
+	case aPre != "" && bPre == "":
+		return -1
+	case aPre == "" && bPre != "":
+		return 1
+	default:
+		return strings.Compare(aPre, bPre)
+	}
 }
 
-// parseSemverParts 解析形如 X.Y.Z 的版本号，要求三段均为整数。
+// parseSemverParts 解析形如 X.Y.Z[-pre] 的版本号，要求三段均为整数。
+// 预发布后缀单独返回并参与优先级比较；build metadata（+...）按 semver 忽略。
 // 解析失败时 ok 为 false，避免把无法识别的标签静默当作 0.0.0。
-func parseSemverParts(v string) (major, minor, patch int, ok bool) {
-	n, err := fmt.Sscanf(strings.TrimSpace(v), "%d.%d.%d", &major, &minor, &patch)
-	if err != nil || n < 3 {
-		return 0, 0, 0, false
+func parseSemverParts(v string) (major, minor, patch int, pre string, ok bool) {
+	v = strings.TrimSpace(v)
+	// build metadata 不参与优先级比较
+	if i := strings.IndexByte(v, '+'); i >= 0 {
+		v = v[:i]
 	}
-	return major, minor, patch, true
+	// 保留预发布标识（"-rc1" → "rc1"），否则 RC 与正式版会被判为相等
+	if i := strings.IndexByte(v, '-'); i >= 0 {
+		pre = v[i+1:]
+		v = v[:i]
+	}
+	n, err := fmt.Sscanf(v, "%d.%d.%d", &major, &minor, &patch)
+	if err != nil || n < 3 {
+		return 0, 0, 0, "", false
+	}
+	return major, minor, patch, pre, true
 }
 
 // getManager 懒加载并复用 UpdateManager，避免每次 Check 都新建实例

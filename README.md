@@ -38,6 +38,7 @@ Terminator
   - [安全与备份](#安全与备份)
   - [日志与会话检索](#日志与会话检索)
   - [设置](#设置)
+- [界面与交互指南](docs/ui-guide.md)
 - [核心功能](#核心功能)
 - [安全加固](#安全加固)
 - [云端服务器](#云端服务器)
@@ -63,6 +64,8 @@ Terminator 是一款跨平台 SSH 客户端，专注于**安全、隐私和本�
 > Windows 上首次运行需要 [WebView2 运行时](https://developer.microsoft.com/microsoft-edge/webview2/)（绝大多数新版系统已内置）；Linux 与 macOS 的产物（AppImage / `pkg`）同样可在同一 Releases 页面下载。
 
 ## 界面预览
+
+> 窗口结构、状态含义与常用操作路径见 [界面与交互指南](docs/ui-guide.md)。
 
 ### 主机管理
 
@@ -481,7 +484,7 @@ wails3 task package
 - [x] Termius 风格界面重构（卡片 / 列表 / 详情面板统一）
 - [x] 可拖拽分屏分隔条 + 标签栏溢出滚动与拖拽反馈
 - [x] 全局动效节奏统一（160–220ms + 三档浮层阴影）
-- [ ] Zmodem / trzsz 文件传输
+- [x] Zmodem 终端内文件传输（trzsz 仍待接入）
 - [ ] 多配置文件（团队）
 - [ ] Android 客户端
 - [ ] CLI 客户端

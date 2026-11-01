@@ -6,6 +6,65 @@
 import { Create as $Create } from "@wailsio/runtime";
 
 /**
+ * EditorSavedPayload 自动回传结果载荷。
+ */
+export class EditorSavedPayload {
+    /**
+     * 所属 SSH 会话 ID
+     */
+    "sessionId": string;
+
+    /**
+     * 被编辑的远端路径
+     */
+    "remotePath": string;
+
+    /**
+     * 是否成功回传
+     */
+    "success": boolean;
+
+    /**
+     * 远端已被他人修改，本次未回传
+     */
+    "conflict": boolean;
+
+    /**
+     * 失败原因（成功时为空）
+     */
+    "error": string;
+
+    /** Creates a new EditorSavedPayload instance. */
+    constructor($$source: Partial<EditorSavedPayload> = {}) {
+        if (!("sessionId" in $$source)) {
+            this["sessionId"] = "";
+        }
+        if (!("remotePath" in $$source)) {
+            this["remotePath"] = "";
+        }
+        if (!("success" in $$source)) {
+            this["success"] = false;
+        }
+        if (!("conflict" in $$source)) {
+            this["conflict"] = false;
+        }
+        if (!("error" in $$source)) {
+            this["error"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new EditorSavedPayload instance from a string or object.
+     */
+    static createFrom($$source: any = {}): EditorSavedPayload {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new EditorSavedPayload($$parsedSource as Partial<EditorSavedPayload>);
+    }
+}
+
+/**
  * FileDropPayload 描述一次来自系统的外部文件拖放。
  * Wails 在 Windows 上通过 chrome.webview 传递文件路径，
  * 前端无法从 HTML5 DataTransfer 中拿到本地绝对路径，因此统一由后端转发。
@@ -51,6 +110,41 @@ export class FileDropPayload {
             $$parsedSource["files"] = $$createField0_0($$parsedSource["files"]);
         }
         return new FileDropPayload($$parsedSource as Partial<FileDropPayload>);
+    }
+}
+
+/**
+ * MonitorErrorPayload 采集失败事件的载荷。
+ */
+export class MonitorErrorPayload {
+    /**
+     * 所属 SSH 会话 ID
+     */
+    "sessionId": string;
+
+    /**
+     * 失败原因
+     */
+    "message": string;
+
+    /** Creates a new MonitorErrorPayload instance. */
+    constructor($$source: Partial<MonitorErrorPayload> = {}) {
+        if (!("sessionId" in $$source)) {
+            this["sessionId"] = "";
+        }
+        if (!("message" in $$source)) {
+            this["message"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new MonitorErrorPayload instance from a string or object.
+     */
+    static createFrom($$source: any = {}): MonitorErrorPayload {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new MonitorErrorPayload($$parsedSource as Partial<MonitorErrorPayload>);
     }
 }
 
@@ -164,6 +258,79 @@ export class SFTPTransferProgressPayload {
     }
 }
 
+export class SSHAuthItem {
+    "prompt": string;
+    "echo": boolean;
+
+    /** Creates a new SSHAuthItem instance. */
+    constructor($$source: Partial<SSHAuthItem> = {}) {
+        if (!("prompt" in $$source)) {
+            this["prompt"] = "";
+        }
+        if (!("echo" in $$source)) {
+            this["echo"] = false;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new SSHAuthItem instance from a string or object.
+     */
+    static createFrom($$source: any = {}): SSHAuthItem {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new SSHAuthItem($$parsedSource as Partial<SSHAuthItem>);
+    }
+}
+
+/**
+ * SSHAuthPromptPayload 对应 ssh.AuthPromptRequest 的前端结构。
+ */
+export class SSHAuthPromptPayload {
+    "requestId": string;
+    "sessionId": string;
+    "host": string;
+    "username": string;
+    "instruction": string;
+    "prompts": SSHAuthItem[];
+
+    /** Creates a new SSHAuthPromptPayload instance. */
+    constructor($$source: Partial<SSHAuthPromptPayload> = {}) {
+        if (!("requestId" in $$source)) {
+            this["requestId"] = "";
+        }
+        if (!("sessionId" in $$source)) {
+            this["sessionId"] = "";
+        }
+        if (!("host" in $$source)) {
+            this["host"] = "";
+        }
+        if (!("username" in $$source)) {
+            this["username"] = "";
+        }
+        if (!("instruction" in $$source)) {
+            this["instruction"] = "";
+        }
+        if (!("prompts" in $$source)) {
+            this["prompts"] = [];
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new SSHAuthPromptPayload instance from a string or object.
+     */
+    static createFrom($$source: any = {}): SSHAuthPromptPayload {
+        const $$createField5_0 = $$createType2;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("prompts" in $$parsedSource) {
+            $$parsedSource["prompts"] = $$createField5_0($$parsedSource["prompts"]);
+        }
+        return new SSHAuthPromptPayload($$parsedSource as Partial<SSHAuthPromptPayload>);
+    }
+}
+
 export class SSHClosedPayload {
     "id": string;
 
@@ -233,3 +400,5 @@ export class SyncErrorPayload {
 
 // Private type creation functions
 const $$createType0 = $Create.Array($Create.Any);
+const $$createType1 = SSHAuthItem.createFrom;
+const $$createType2 = $Create.Array($$createType1);

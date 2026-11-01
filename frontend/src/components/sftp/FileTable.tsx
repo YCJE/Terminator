@@ -37,17 +37,22 @@ interface FileTableProps {
     onOpen: (entry: FileEntry) => void;
     onContextMenu: (entry: FileEntry, e: React.MouseEvent) => void;
     /** 拖动文件行：由父组件写入远端路径 MIME，供终端插入路径 */
-    onEntryDragStart?: (entry: FileEntry, e: React.DragEvent) => void;
+    onEntryDragStart?: (entry: FileEntry, e: React.DragEvent, selectedNames?: string[]) => void;
     filterText?: string;
     onScrollChange?: (scrollTop: number) => void;
     restoreScrollTop?: number;
+    /** 当前选中的条目名（受控）。父组件持有以支持批量操作 */
+    selectedNames?: ReadonlySet<string>;
+    /** 选择变化回调：普通点击单选，Ctrl/Cmd 切换，Shift 连选 */
+    onSelectionChange?: (names: string[]) => void;
 }
 
-function FileTableImpl({ entries, loading, onOpen, onContextMenu, onEntryDragStart, filterText, onScrollChange, restoreScrollTop }: FileTableProps) {
+function FileTableImpl({ entries, loading, onOpen, onContextMenu, onEntryDragStart, filterText, onScrollChange, restoreScrollTop, selectedNames, onSelectionChange }: FileTableProps) {
     const { t } = useTranslation("sftp");
     const [sortKey, setSortKey] = useState<SortKey>("name");
     const [sortDir, setSortDir] = useState<SortDir>("asc");
-    const [selectedName, setSelectedName] = useState<string | null>(null);
+    // Shift 连选的起点（上一次不带 Shift 的点击项）
+    const selectionAnchorRef = useRef<string | null>(null);
 
     // 容器宽度检测：根据宽度决定显示哪些列
     const containerRef = useRef<HTMLDivElement>(null);
@@ -81,14 +86,15 @@ function FileTableImpl({ entries, loading, onOpen, onContextMenu, onEntryDragSta
         return () => observer.disconnect();
     }, [loading, entries.length]);
 
-    // 目录切换时恢复滚动位置（而非总是重置为 0），并清除上一目录的行选中态
+    // 目录切换时恢复滚动位置（而非总是重置为 0），并清除上一目录的选择
     useEffect(() => {
         const target = restoreScrollTop ?? 0;
         setScrollTop(target);
-        setSelectedName(null);
+        selectionAnchorRef.current = null;
         if (scrollRef.current) {
             scrollRef.current.scrollTop = target;
         }
+        onSelectionChange?.([]);
         // 仅在 entries 变化时执行，restoreScrollTop 此时已是目标值
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [entries]);
@@ -155,6 +161,36 @@ function FileTableImpl({ entries, loading, onOpen, onContextMenu, onEntryDragSta
         setScrollTop(top);
         onScrollChange?.(top);
     }, [onScrollChange]);
+
+    // 行点击选择：普通点击单选、Ctrl/Cmd 点击切换、Shift 点击按当前排序连选
+    const handleRowSelect = (entry: FileEntry, e: React.MouseEvent) => {
+        if (!onSelectionChange) return;
+        const names = sorted.map((item) => item.name);
+        const anchor = selectionAnchorRef.current;
+
+        if (e.shiftKey && anchor && names.includes(anchor)) {
+            const from = names.indexOf(anchor);
+            const to = names.indexOf(entry.name);
+            const [start, end] = from <= to ? [from, to] : [to, from];
+            onSelectionChange(names.slice(start, end + 1));
+            return;
+        }
+
+        if (e.ctrlKey || e.metaKey) {
+            const next = new Set(selectedNames ?? []);
+            if (next.has(entry.name)) {
+                next.delete(entry.name);
+            } else {
+                next.add(entry.name);
+            }
+            selectionAnchorRef.current = entry.name;
+            onSelectionChange(Array.from(next));
+            return;
+        }
+
+        selectionAnchorRef.current = entry.name;
+        onSelectionChange([entry.name]);
+    };
 
     if (loading) {
         return (
@@ -230,11 +266,11 @@ function FileTableImpl({ entries, loading, onOpen, onContextMenu, onEntryDragSta
                     {/* 偏移定位到可见区域 */}
                     <div style={{ transform: `translateY(${offsetY}px)` }}>
                         {visibleItems.map((entry) => {
-                            const isSelected = entry.name === selectedName;
+                            const isSelected = selectedNames?.has(entry.name) ?? false;
                             return (
                                 <div
                                     key={entry.name}
-                                    onClick={() => setSelectedName(entry.name)}
+                                    onClick={(e) => handleRowSelect(entry, e)}
                                     onDoubleClick={() => onOpen(entry)}
                                     onContextMenu={(e) => {
                                         e.preventDefault();
@@ -245,7 +281,11 @@ function FileTableImpl({ entries, loading, onOpen, onContextMenu, onEntryDragSta
                                         if (!onEntryDragStart) return;
                                         // 阻止冒泡到面板的拖拽上传处理器，避免把内部拖拽当成外部文件
                                         e.stopPropagation();
-                                        onEntryDragStart(entry, e);
+                                        // 拖动的是已选中的条目时带上整个选择，支持多选拖动上传/下载
+                                        const names = isSelected && selectedNames && selectedNames.size > 1
+                                            ? Array.from(selectedNames)
+                                            : [entry.name];
+                                        onEntryDragStart(entry, e, names);
                                     }}
                                     className={cn(
                                         "sftp-row text-sm",

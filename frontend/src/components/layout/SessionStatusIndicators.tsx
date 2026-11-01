@@ -4,13 +4,14 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
-import { Activity } from "lucide-react";
+import { Activity, Gauge } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
     DropdownMenu,
     DropdownMenuContent,
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { useUIStore } from "@/store/uiStore";
 import { SshService } from "../../../bindings/terminator-desktop/backend/internal/services/ssh";
 import type { SystemStats } from "../../../bindings/terminator-desktop/backend/internal/services/ssh";
 import { formatFileSize } from "@/lib/format";
@@ -146,6 +147,7 @@ function UsageBar({ used, total }: { used: number; total: number }) {
 /** 服务器资源小面板：打开期间轮询一次轻量采样 */
 export function SystemStatsButton({ sessionId }: SessionIndicatorProps) {
     const { t } = useTranslation("terminal");
+    const setMonitorPanelVisible = useUIStore((s) => s.setMonitorPanelVisible);
     const [open, setOpen] = useState(false);
     const [stats, setStats] = useState<SystemStats | null>(null);
     const [failed, setFailed] = useState(false);
@@ -282,6 +284,21 @@ export function SystemStatsButton({ sessionId }: SessionIndicatorProps) {
                         </div>
                     </div>
                 )}
+
+                {/* 升级入口：迷你面板用于快速看一眼，完整指标在侧栏监控面板 */}
+                <div className="mt-2 border-t border-[var(--hairline)] pt-2">
+                    <button
+                        type="button"
+                        onClick={() => {
+                            setOpen(false);
+                            setMonitorPanelVisible(true);
+                        }}
+                        className="terminal-overlay-btn w-full justify-center px-2.5 py-1 text-[11px]"
+                    >
+                        <Gauge className="size-3.5"/>
+                        {t("monitor_open_panel")}
+                    </button>
+                </div>
             </DropdownMenuContent>
         </DropdownMenu>
     );

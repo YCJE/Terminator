@@ -4,5 +4,7 @@
   "restart_update": "Restart & Update",
   "update_available": "A new version is available",
   "open_download_page": "Go to download",
-  "nav_update": "Update"
+  "nav_update": "Update",
+  "later": "Remind me later",
+  "skip_version": "Skip this version"
 }

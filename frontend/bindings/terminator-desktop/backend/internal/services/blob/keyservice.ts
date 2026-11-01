@@ -33,6 +33,19 @@ export function Save(key: $models.SavedKey): $CancellablePromise<string> {
     return $Call.ByID(2642404940, key);
 }
 
+/**
+ * ValidateKey 校验私钥格式与口令，并返回公钥类型与指纹。
+ * 加密私钥必须提供正确口令；口令错误、私钥损坏或格式不支持都会返回错误，
+ * 调用方据此在保存前拦截，避免把无法用于连接的密钥写入保险库。
+ */
+export function ValidateKey(privateKey: string, passphrase: string): $CancellablePromise<$models.KeyValidation | null> {
+    return $Call.ByID(77301918, privateKey, passphrase).then(($result: any) => {
+        return $$createType3($result);
+    });
+}
+
 // Private type creation functions
 const $$createType0 = $models.SavedKey.createFrom;
 const $$createType1 = $Create.Array($$createType0);
+const $$createType2 = $models.KeyValidation.createFrom;
+const $$createType3 = $Create.Nullable($$createType2);

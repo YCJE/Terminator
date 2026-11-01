@@ -37,9 +37,40 @@ export class Host {
     "agentForwarding"?: boolean;
 
     /**
+     * KeyboardInteractive 启用交互式认证（MFA/OTP），服务器发起问答时前端弹窗填写
+     */
+    "keyboardInteractive"?: boolean;
+
+    /**
+     * Certificate 是 OpenSSH 用户证书内容（*-cert.pub），与 KeyID 对应的私钥配对使用
+     */
+    "certificate"?: string;
+
+    /**
      * 连接成功后自动执行的命令（可选，明文存于加密 blob 内）
      */
     "onConnect"?: string;
+
+    /**
+     * ── 会话高级参数（随主机保存） ──────────────────────────────
+     * TermType 是请求 PTY 时上报的终端类型；空值为 xterm-256color。
+     */
+    "termType"?: string;
+
+    /**
+     * ConnectTimeout 是建立连接的总超时秒数；0 使用默认 15 秒。
+     */
+    "connectTimeout"?: number;
+
+    /**
+     * KeepAlive 是保活间隔秒数：0 默认 30 秒，负数关闭保活。
+     */
+    "keepAlive"?: number;
+
+    /**
+     * Encoding 是远端字符编码；空值/utf-8 表示 UTF-8。
+     */
+    "encoding"?: string;
 
     /** Creates a new Host instance. */
     constructor($$source: Partial<Host> = {}) {
@@ -88,6 +119,44 @@ export enum ItemType {
      */
     TypeSnippet = "snippet",
 };
+
+/**
+ * KeyValidation 描述一次私钥解析/校验的结果。
+ * Encrypted 表示私钥本身带口令；Fingerprint 为 OpenSSH 风格 SHA256 指纹，
+ * 可用于和服务器端 authorized_keys 或运维提供的指纹对照。
+ */
+export class KeyValidation {
+    "valid": boolean;
+    "encrypted": boolean;
+    "keyType": string;
+    "fingerprint": string;
+
+    /** Creates a new KeyValidation instance. */
+    constructor($$source: Partial<KeyValidation> = {}) {
+        if (!("valid" in $$source)) {
+            this["valid"] = false;
+        }
+        if (!("encrypted" in $$source)) {
+            this["encrypted"] = false;
+        }
+        if (!("keyType" in $$source)) {
+            this["keyType"] = "";
+        }
+        if (!("fingerprint" in $$source)) {
+            this["fingerprint"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new KeyValidation instance from a string or object.
+     */
+    static createFrom($$source: any = {}): KeyValidation {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new KeyValidation($$parsedSource as Partial<KeyValidation>);
+    }
+}
 
 /**
  * SSHConfigHost 是 ~/.ssh/config 中一个可导入的主机条目。
@@ -156,6 +225,12 @@ export class SavedKey {
     "name": string;
     "privateKey": string;
 
+    /**
+     * Passphrase 是加密私钥的解密口令，随密钥一起存入加密 blob。
+     * 仅对带口令的私钥有意义；无口令私钥保持为空。
+     */
+    "passphrase"?: string;
+
     /** Creates a new SavedKey instance. */
     constructor($$source: Partial<SavedKey> = {}) {
         if (!("id" in $$source)) {
@@ -191,7 +266,13 @@ export class Snippet {
     "type": ItemType;
     "name": string;
     "group"?: string;
+    "description"?: string;
     "command": string;
+
+    /**
+     * Pinned 置顶显示在片段面板顶部；旧数据无该字段时按 false 处理
+     */
+    "pinned"?: boolean;
 
     /** Creates a new Snippet instance. */
     constructor($$source: Partial<Snippet> = {}) {

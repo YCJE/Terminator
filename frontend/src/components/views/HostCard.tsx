@@ -62,7 +62,9 @@ export function HostCard({host, selected, onSelect, onConnect, onEdit, onDelete}
 
     const {Icon: OSIcon, color: osColor} = getOSIcon(host.name || host.host, host.username);
     const endpoint = `${host.username}@${host.host}${host.port && host.port !== 22 ? `:${host.port}` : ""}`;
-    const subtitle = host.group?.trim() || endpoint;
+    // 副行始终显示端点：分组改为右侧标签。原实现用"分组 or 端点"二选一，
+    // 编入分组的主机会丢失最关键的地址信息。
+    const group = host.group?.trim() || "";
 
     return (
         <ContextMenuPrimitive.Root>
@@ -73,9 +75,14 @@ export function HostCard({host, selected, onSelect, onConnect, onEdit, onDelete}
                     onClick={() => onSelect(host)}
                     onDoubleClick={() => onConnect(host)}
                     onKeyDown={(e) => {
-                        if (e.key === "Enter" && e.target === e.currentTarget) {
+                        if (e.target !== e.currentTarget) return;
+                        if (e.key === "Enter") {
                             e.preventDefault();
                             onConnect(host);
+                        } else if (e.key === " ") {
+                            // Space 等价于单击（选中卡片），同时阻止页面滚动
+                            e.preventDefault();
+                            onSelect(host);
                         }
                     }}
                     className={cn("card-tile", selected && "is-selected")}
@@ -92,8 +99,12 @@ export function HostCard({host, selected, onSelect, onConnect, onEdit, onDelete}
                         <span className="card-tile-title">
                             <span className="card-tile-name">{host.name || host.host}</span>
                         </span>
-                        <span className="card-tile-meta">{subtitle}</span>
+                        <span className="card-tile-meta">{endpoint}</span>
                     </span>
+
+                    {group && (
+                        <span className="card-tile-tag" title={group}>{group}</span>
+                    )}
                 </div>
             </ContextMenuPrimitive.Trigger>
 

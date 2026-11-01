@@ -11,25 +11,41 @@ import { Create as $Create } from "@wailsio/runtime";
 import * as emitters$0 from "../../../../../terminator-desktop/backend/cmd/terminator-desktop/emitters/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
+import * as floating$0 from "../../../../../terminator-desktop/backend/internal/services/floating/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
+import * as monitor$0 from "../../../../../terminator-desktop/backend/internal/services/monitor/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
 import * as sync$0 from "../../../../../terminator-desktop/backend/internal/services/sync/models.js";
 
 function configure() {
     Object.freeze(Object.assign($Create.Events, {
         "app:file-drop": $$createType0,
-        "sftp:complete": $$createType1,
-        "sftp:progress": $$createType2,
-        "ssh:closed": $$createType3,
-        "ssh:data": $$createType4,
-        "sync:error": $$createType5,
+        "editor:saved": $$createType1,
+        "floating:dock-request": $$createType2,
+        "monitor:error": $$createType3,
+        "monitor:sample": $$createType4,
+        "sftp:complete": $$createType5,
+        "sftp:progress": $$createType6,
+        "ssh:auth-prompt": $$createType7,
+        "ssh:closed": $$createType8,
+        "ssh:data": $$createType9,
+        "sync:error": $$createType10,
     }));
 }
 
 // Private type creation functions
 const $$createType0 = emitters$0.FileDropPayload.createFrom;
-const $$createType1 = emitters$0.SFTPTransferCompletePayload.createFrom;
-const $$createType2 = emitters$0.SFTPTransferProgressPayload.createFrom;
-const $$createType3 = emitters$0.SSHClosedPayload.createFrom;
-const $$createType4 = emitters$0.SSHDataPayload.createFrom;
-const $$createType5 = emitters$0.SyncErrorPayload.createFrom;
+const $$createType1 = emitters$0.EditorSavedPayload.createFrom;
+const $$createType2 = floating$0.DockPayload.createFrom;
+const $$createType3 = emitters$0.MonitorErrorPayload.createFrom;
+const $$createType4 = monitor$0.MonitorSample.createFrom;
+const $$createType5 = emitters$0.SFTPTransferCompletePayload.createFrom;
+const $$createType6 = emitters$0.SFTPTransferProgressPayload.createFrom;
+const $$createType7 = emitters$0.SSHAuthPromptPayload.createFrom;
+const $$createType8 = emitters$0.SSHClosedPayload.createFrom;
+const $$createType9 = emitters$0.SSHDataPayload.createFrom;
+const $$createType10 = emitters$0.SyncErrorPayload.createFrom;
 
 configure();

@@ -97,7 +97,9 @@ export function KeyCard({savedKey, selected, onSelect, onDelete}: KeyCardProps) 
                     tabIndex={0}
                     onClick={() => onSelect(savedKey)}
                     onKeyDown={(e) => {
-                        if (e.key === "Enter" && e.target === e.currentTarget) {
+                        if (e.target !== e.currentTarget) return;
+                        if (e.key === "Enter" || e.key === " ") {
+                            // 卡片只有一种激活行为（打开详情），Enter 与 Space 等价
                             e.preventDefault();
                             onSelect(savedKey);
                         }
