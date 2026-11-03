@@ -127,11 +127,25 @@ export function SnippetPanel({ sessionId }: SnippetPanelProps) {
         const session = state.sessions.find((s) => s.id === sessionId);
         const command = renderSnippetCommand(snippet.command, session);
         sendSessionInput(sessionId, command + "\n").catch(console.error);
-        // 广播模式：同时发送到其他所有活跃终端
+        // 广播模式：同时发送到其他所有活跃终端。
+        // 过滤条件必须与终端键入时一致：本地 shell 不参与广播（源端与目标端
+        // 都要排除），用户明确"退出广播"的会话也不能被执行片段命令
+        // （那通常正是要保护的生产机）。
+        if ((session?.kind ?? "ssh") === "local") return;
         if (state.broadcastMode) {
-            for (const id of state.getActiveSessionIds().filter((id) => id !== sessionId)) {
-                const other = state.sessions.find((s) => s.id === id);
-                sendSessionInput(id, renderSnippetCommand(snippet.command, other) + "\n").catch(() => {});
+            const targets = state.sessions.filter((s) =>
+                s.id !== sessionId
+                && (s.kind ?? "ssh") !== "local"
+                && s.status === "connected"
+                && !s.disconnected
+                && !state.broadcastExcluded.includes(s.id)
+            );
+            for (const target of targets) {
+                sendSessionInput(
+                    target.id,
+                    renderSnippetCommand(snippet.command, target) + "\n",
+                    target.kind,
+                ).catch(() => {});
             }
         }
     };

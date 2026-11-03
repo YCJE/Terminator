@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"errors"
+	"log/slog"
 	"runtime/debug"
 	"strings"
 	"sync"
@@ -16,6 +17,7 @@ import (
 	"terminator-desktop/backend/internal/apperror"
 	"terminator-desktop/backend/internal/crypto"
 	"terminator-desktop/backend/internal/dbgen"
+	"terminator-desktop/backend/internal/services/settings"
 	"terminator-desktop/backend/internal/timeutil"
 	"terminator-desktop/backend/internal/vault"
 
@@ -40,6 +42,9 @@ type AuthService struct {
 	client     *api.Client
 	sshDisconn SessionDisconnector
 	syncPauser SyncPauser
+	// settingsSvc 用于切换同步通道：登录/注册服务器后必须把 sync_method
+	// 从 webdav 改回 server，否则同步仍会走遗留的 WebDAV 配置。
+	settingsSvc *settings.SettingsService
 
 	// 登录失败退避状态：Argon2id 已让单次尝试变慢，此处再叠加应用层退避，
 	// 抬高通过 UI 反复试错的成本
@@ -68,12 +73,14 @@ func NewAuthService(
 	q *dbgen.Queries,
 	db *sql.DB,
 	vault *vault.Vault,
-	client *api.Client) *AuthService {
+	client *api.Client,
+	settingsSvc *settings.SettingsService) *AuthService {
 	return &AuthService{
-		q:      q,
-		db:     db,
-		vault:  vault,
-		client: client,
+		q:           q,
+		db:          db,
+		vault:       vault,
+		client:      client,
+		settingsSvc: settingsSvc,
 	}
 }
 
@@ -441,11 +448,38 @@ func (s *AuthService) LoginFromSync(ctx context.Context, serverUrl, username, pa
 	s.client.SetToken(authRes.AccessToken)
 	s.vault.Unlock(masterKey, loginKey)
 
+	// 从云端登录后同样切回服务器同步：
+	// 本地可能残留上一个账户/上一次使用 WebDAV 的配置。
+	s.activateServerSync()
+
 	go func() {
 		debug.FreeOSMemory()
 	}()
 
 	return nil
+}
+
+// activateServerSync 把持久化的同步方式切回服务器同步。
+//
+// 用户可能先用 WebDAV，之后再登录/注册到同步服务器。SyncService 只按
+// settings.sync_method 分支，若不重置该字段，新服务器地址完全不生效，
+// 同步仍会走旧的 WebDAV 通道（设置页也会把 WebDAV 显示为当前方式）。
+func (s *AuthService) activateServerSync() {
+	if s.settingsSvc == nil {
+		return
+	}
+	current, err := s.settingsSvc.GetSettings()
+	if err != nil {
+		slog.Warn("failed to read settings while switching sync method", "error", err)
+		return
+	}
+	if current.SyncMethod == "server" {
+		return
+	}
+	current.SyncMethod = "server"
+	if err := s.settingsSvc.SaveSettings(current); err != nil {
+		slog.Warn("failed to switch sync method to server", "error", err)
+	}
 }
 
 func (s *AuthService) RegisterOnServer(ctx context.Context, serverURL string) error {
@@ -502,6 +536,9 @@ func (s *AuthService) RegisterOnServer(ctx context.Context, serverURL string) er
 		return err
 	}
 
+	// 注册成功后显式切回服务器同步，避免遗留的 WebDAV 配置继续生效
+	s.activateServerSync()
+
 	go func() {
 		debug.FreeOSMemory()
 	}()
@@ -555,6 +592,14 @@ func (s *AuthService) WipeData(ctx context.Context) error {
 
 	s.vault.Lock()
 	s.client.ClearToken()
+
+	// 同时清除 WebDAV 凭据：否则登录另一个账户后，同步可能沿用旧地址与
+	// 旧密码去拉取/回写上一账户的数据。
+	if s.settingsSvc != nil {
+		if err := s.settingsSvc.ClearWebDAVConfig(); err != nil {
+			slog.Warn("failed to clear WebDAV config after wipe", "error", err)
+		}
+	}
 
 	return nil
 }

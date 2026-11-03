@@ -4,7 +4,7 @@
 // 数据由后端在两个 SFTP 客户端之间流式搬运，不经过本地磁盘。
 // 目标目录优先使用会话最近上报的 cwd（OSC 7），未知时异步读取主目录。
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Loader2, Server } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { SftpService } from "../../../bindings/terminator-desktop/backend/internal/services/sftp";
@@ -42,6 +42,9 @@ export function CrossCopyDialog({
     const sessions = useSessionStore((s) => s.sessions);
     const [selected, setSelected] = useState<string>("");
     const [dir, setDir] = useState("");
+    // HomeDir 是异步返回的：必须记住发起时的目标会话，否则用户已经切换到
+    // 另一个会话时，旧响应仍会把上一台主机的 home 填进目标目录。
+    const selectedRef = useRef("");
 
     // 只考虑其他已连接的 SSH 会话：本地 shell 没有 SFTP，断开/连接中的无法写入
     const eligible = useMemo(
@@ -58,14 +61,17 @@ export function CrossCopyDialog({
         if (!open) return;
         const first = eligible[0];
         setSelected(first?.id ?? "");
+        selectedRef.current = first?.id ?? "";
         setDir(first?.cwd ?? "");
 
         let cancelled = false;
         if (first && !first.cwd) {
             SftpService.HomeDir(first.id)
                 .then((home) => {
-                    // 用户在等待期间手动输入过目录时不覆盖
-                    if (!cancelled && home) setDir((prev) => prev || (home ?? ""));
+                    // 用户在等待期间手动输入过目录、或已切换会话时不覆盖
+                    if (!cancelled && home && selectedRef.current === first.id) {
+                        setDir((prev) => prev || (home ?? ""));
+                    }
                 })
                 .catch(() => {
                     // 读取主目录失败时留空，由用户填写；不阻塞对话框
@@ -79,11 +85,17 @@ export function CrossCopyDialog({
     const selectSession = (id: string) => {
         if (id === selected || !eligible.some((s) => s.id === id)) return;
         setSelected(id);
+        selectedRef.current = id;
         const next = eligible.find((s) => s.id === id);
         setDir(next?.cwd ?? "");
         if (next && !next.cwd) {
             SftpService.HomeDir(next.id)
-                .then((home) => { if (home) setDir((prev) => prev || (home ?? "")); })
+                .then((home) => {
+                    // 只接受当前选中会话的结果：切换过快时旧请求可能后返回
+                    if (home && selectedRef.current === id) {
+                        setDir((prev) => prev || (home ?? ""));
+                    }
+                })
                 .catch(() => {});
         }
     };

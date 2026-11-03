@@ -324,7 +324,7 @@ func (s *BackupService) ImportBackup(ctx context.Context, password string) error
 
 	masterKey, err := crypto.UnpackAndDecrypt(payload.User.EncryptedMasterKey, kek)
 	if err != nil {
-		return apperror.Validation("备份密码不正确，无法解密备份")
+		return apperror.DecryptionFailed(err)
 	}
 	defer clearBytes(masterKey)
 

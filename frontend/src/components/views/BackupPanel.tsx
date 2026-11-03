@@ -106,9 +106,9 @@ export function BackupPanel() {
             await refreshConflicts();
             toast.success(t("backup_restore_success"));
         } catch (error) {
-            // 密码不符是唯一可预期的失败，内联提示比自动消失的 toast 更便于重试；
-            // 其余错误（文件读写、数据库）走统一错误提示，避免被误报成密码问题
-            if (parseAppError(error).code === ErrorCode.VALIDATION_FAILED) {
+            // 只有"解密失败"才是密码不符；空密码、重复导入、未选择文件等
+            // 其他 VALIDATION_FAILED 应走统一提示，否则会把状态错误显示成密码错误
+            if (parseAppError(error).code === ErrorCode.DECRYPTION_FAILED) {
                 setPasswordRejected(true);
             } else {
                 handleAppError(error);

@@ -712,7 +712,15 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         useUIStore.getState().setFilePanelVisible(false);
         // 浮动窗口已全部关闭，它们的会话所有权标记也就没有意义了
         detachedSessionIds.clear();
-        set({sessions: [], activeSessionId: null, layout: null, broadcastExcluded: []});
+        // 广播模式必须一起复位：锁屏/擦除/恢复备份后是新一批会话，
+        // 沿用旧的广播开关会把输入静默发往用户没有预期的主机。
+        set({
+            sessions: [],
+            activeSessionId: null,
+            layout: null,
+            broadcastMode: false,
+            broadcastExcluded: [],
+        });
     },
 
     toggleBroadcastMode: () => {

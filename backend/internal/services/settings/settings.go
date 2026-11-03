@@ -309,9 +309,12 @@ func (s *SettingsService) SaveSettings(settings AppSettings) error {
 		return err
 	}
 
-	// 原子写：先写临时文件再 rename，防止写入中途崩溃损坏配置
+	// 原子写：先写临时文件再 rename，防止写入中途崩溃损坏配置。
+	// 写入后 fsync：rename 只保证目录项切换，若文件内容仍在页缓存中掉电，
+	// 会留下 0 字节的 settings.json；而本服务对损坏配置会拒绝覆盖，
+	// 用户将永久无法保存设置，只能手工删文件。
 	tmpPath := s.configPath + ".tmp"
-	if err := os.WriteFile(tmpPath, data, 0600); err != nil {
+	if err := writeFileSync(tmpPath, data, 0600); err != nil {
 		// 写入失败（磁盘满、权限）时同 rename 分支一样清理残留临时文件，
 		// 避免下次启动把半截 .tmp 误当作配置或被误读
 		_ = os.Remove(tmpPath)
@@ -323,6 +326,62 @@ func (s *SettingsService) SaveSettings(settings AppSettings) error {
 		return err
 	}
 	return nil
+}
+
+// ClearWebDAVConfig 清除 WebDAV 地址与凭据，并把同步方式恢复为默认的服务器同步。
+// 用于 WipeData：擦除本地数据后若保留旧 WebDAV 配置，后续登录另一个账户时
+// 同步会用遗留的地址与密码去拉取/回写上一账户的数据。
+func (s *SettingsService) ClearWebDAVConfig() error {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	var current AppSettings
+	data, err := os.ReadFile(s.configPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	if err := json.Unmarshal(data, &current); err != nil {
+		return err
+	}
+	current.SyncMethod = ""
+	current.WebDAVURL = ""
+	current.WebDAVUsername = ""
+	current.WebDAVPassword = ""
+
+	encoded, err := json.MarshalIndent(current, "", "  ")
+	if err != nil {
+		return err
+	}
+	tmpPath := s.configPath + ".tmp"
+	if err := writeFileSync(tmpPath, encoded, 0600); err != nil {
+		_ = os.Remove(tmpPath)
+		return err
+	}
+	if err := os.Rename(tmpPath, s.configPath); err != nil {
+		_ = os.Remove(tmpPath)
+		return err
+	}
+	return nil
+}
+
+// writeFileSync 写入文件并 fsync，确保数据在 rename 前真正落盘。
+func writeFileSync(path string, data []byte, perm os.FileMode) error {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, perm)
+	if err != nil {
+		return err
+	}
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		return err
+	}
+	return f.Close()
 }
 
 // maxLogReadBytes 单次读取日志文件的字节上限。
@@ -522,7 +581,7 @@ func (s *SettingsService) saveRecentHostsLocked(list []RecentHost) error {
 	}
 	p := s.recentHostsPath()
 	tmp := p + ".tmp"
-	if err := os.WriteFile(tmp, data, 0600); err != nil {
+	if err := writeFileSync(tmp, data, 0600); err != nil {
 		_ = os.Remove(tmp)
 		return err
 	}

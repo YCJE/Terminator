@@ -6,6 +6,7 @@ package sftp
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io"
@@ -59,13 +60,27 @@ const (
 	partSuffix = ".terminator-part"
 )
 
+// transferIdentity 描述一次传输的源端身份：源文件修改时间 + 前端传输 ID。
+//
+// 仅凭总字节数无法区分"同尺寸但内容不同"的源文件（例如把配置里的端口从
+// 8080 改成 9090 后重传同一远端路径），旧断点会被直接续上，拼出半旧半新的
+// 文件且最终以原子重命名伪装成成功。加入修改时间后，源文件一旦变化就会
+// 使用新的临时文件，从 0 重新传输。
+//
+// 同时带上传输 ID：两个不同传输写同一目标路径时不会共用同一个临时文件，
+// 避免交错写入后被重命名成"成功"的损坏文件。续传沿用原传输 ID，
+// 因此暂停后重试仍能命中同一个断点。
+func transferIdentity(modTime time.Time, transferID string) string {
+	return fmt.Sprintf("%d|%s", modTime.UnixNano(), transferID)
+}
+
 // partPath 返回目标路径对应的续传临时文件路径。
 //
-// 名称中带上本次传输的总字节数：同一目标路径先后传输内容不同的文件时
-// （例如上传到固定的发布路径、或远端文件被替换），旧断点不会与新传输
-// 匹配，避免把两次不同来源的数据拼接成内容损坏的文件。
-func partPath(path string, total int64) string {
-	return fmt.Sprintf("%s%s-%d", path, partSuffix, total)
+// 名称包含传输总字节数与源端身份的短摘要：源文件大小/修改时间变化，
+// 或换成另一次传输时，旧断点都不会被错误复用。
+func partPath(path string, total int64, identity string) string {
+	sum := sha256.Sum256([]byte(identity))
+	return fmt.Sprintf("%s%s-%d-%x", path, partSuffix, total, sum[:4])
 }
 
 // remoteResumeOffset 探测远程续传起点：临时文件存在且大小严格小于源文件总
@@ -396,7 +411,10 @@ func (s *SftpService) WriteFile(sessionID string, path string, content string) e
 
 	// 只允许覆盖已存在的常规文件：Stat 失败不能简单视为“新文件”而继续，
 	// 否则权限/连接错误、悬空符号链接等异常都会退化为静默覆盖或丢失原权限。
-	info, err := client.Stat(path)
+	// 用 Lstat 而非 Stat：读取内容会跟随软链接，但最终 renameOver 替换的是
+	// 链接本身。若按 Stat 放行，保存一个 ~/.bashrc -> ~/dotfiles/bashrc 的链接
+	// 会把链接变成普通文件，目标仓库里的真实文件反而没有更新。
+	info, err := client.Lstat(path)
 	if err != nil {
 		return fmt.Errorf("获取文件信息 %q 失败: %w", path, err)
 	}
@@ -751,9 +769,13 @@ func (s *SftpService) Upload(sessionID string, transferID string, localPath stri
 // 该方法是同步的（Wails 绑定调用），但会通过 emitter 持续推送传输进度，
 // 前端可据 transferID 关联进度事件。传输结束（无论成功失败）推送完成事件。
 //
-// 支持断点续传：数据先写入 "<remotePath>.terminator-part-<总字节数>"，中断时该文件保留，
-// 重试时按已有大小从断点继续；全部写完后才原子重命名到 remotePath，
-// 因此目标路径不会出现半截文件。续传假定源文件在两次尝试之间未改动。
+// 支持断点续传：数据先写入
+// "<remotePath>.terminator-part-<总字节数>-<源文件修改时间与传输ID摘要>"，
+// 中断时该文件保留，同一传输重试时按已有大小从断点继续；全部写完后才原子
+// 重命名到 remotePath，因此目标路径不会出现半截文件。
+// 源文件大小/修改时间变化或换成另一次传输时会使用新的临时文件，从 0 开始，
+// 避免把两次不同来源的数据拼接成一个"成功"的损坏文件。
+// 注意"失败后重建传输"（前端会生成新传输 ID）不会复用旧断点。
 func (s *SftpService) UploadFile(sessionID string, transferID string, localPath string, remotePath string) error {
 	ctx, done := s.registerTransfer(transferID)
 	defer done()
@@ -820,7 +842,7 @@ func (s *SftpService) uploadOne(
 	}
 	total := info.Size()
 
-	part := partPath(remotePath, total)
+	part := partPath(remotePath, total, transferIdentity(info.ModTime(), transferID))
 	remoteFile, offset, err := openRemoteForResume(client, part, remoteResumeOffset(client, part, total))
 	if err != nil {
 		return fmt.Errorf("创建远程文件 %q 失败: %w", part, err)
@@ -964,8 +986,8 @@ func (s *SftpService) Download(sessionID string, transferID string, remotePath s
 }
 
 // DownloadFile 将远程文件下载到本地路径。
-// 与 UploadFile 对称：分块复制并推送进度，同样写入 "<localPath>.terminator-part-<总字节数>"
-// 以支持断点续传，完成后原子重命名到 localPath。
+// 与 UploadFile 对称：分块复制并推送进度，同样写入带源端身份的
+// ".terminator-part-*" 临时文件以支持断点续传，完成后原子重命名到 localPath。
 func (s *SftpService) DownloadFile(sessionID string, transferID string, remotePath string, localPath string) error {
 	ctx, done := s.registerTransfer(transferID)
 	defer done()
@@ -1032,7 +1054,7 @@ func (s *SftpService) downloadOne(
 	}
 	total := info.Size()
 
-	part := partPath(localPath, total)
+	part := partPath(localPath, total, transferIdentity(info.ModTime(), transferID))
 	offset := localResumeOffset(part, total)
 	flags := os.O_WRONLY | os.O_CREATE | os.O_TRUNC
 	if offset > 0 {

@@ -190,8 +190,13 @@ func (s *SftpService) UploadDirArchive(sessionID string, transferID string, loca
 	); err != nil {
 		_ = client.Remove(remoteArchive)
 		// uploadOne 失败时会保留续传用的 part 文件；临时压缩包名带时间戳，
-		// 下次上传不会命中断点，必须一并删除，否则目标目录里会留下整份残留
-		_ = client.Remove(partPath(remoteArchive, zipSize))
+		// 下次上传不会命中断点，必须一并删除，否则目标目录里会留下整份残留。
+		// part 名包含源端修改时间与传输 ID，这里按同样的输入重建名称。
+		zipModTime := time.Time{}
+		if info, statErr := os.Stat(zipPath); statErr == nil {
+			zipModTime = info.ModTime()
+		}
+		_ = client.Remove(partPath(remoteArchive, zipSize, transferIdentity(zipModTime, transferID)))
 		s.emitter.EmitTransferComplete(sessionID, transferID, false, err.Error())
 		return fmt.Errorf("上传压缩包失败: %w", err)
 	}
@@ -258,22 +263,38 @@ const unsafeMemberPattern = `^/|(^|[/\\])\.\.([/\\]|$)`
 // 反斜杠也按分隔符处理：部分解压实现会把 "\" 解释成目录分隔。
 const pythonZipMemberCheck = `import sys, zipfile
 try:
-    names = zipfile.ZipFile(sys.argv[1]).namelist()
+    infos = zipfile.ZipFile(sys.argv[1]).infolist()
 except Exception as exc:
     sys.stderr.write("压缩包无法读取（文件损坏或不是 ZIP 格式）: %s\n" % exc)
     sys.exit(2)
+names = [i.filename for i in infos]
 bad = [n for n in names if n.startswith("/") or ".." in n.replace("\\", "/").split("/")]
 if bad:
     sys.stderr.write("压缩包包含非法路径成员（以 / 开头或含 .. 段），已中止解压\n")
     sys.exit(3)
+# 仅校验名字挡不住链接型成员：看似合法的 "link" 若指向 /etc，随后 "link/passwd"
+# 就会写到目标目录之外。unzip 会还原 ZIP 中的符号链接（external_attr 高 16 位
+# 记录 Unix 模式），因此链接条目一律拒绝，改用普通文件重新打包。
+links = [i.filename for i in infos if (i.external_attr >> 16) & 0o170000 == 0o120000]
+if links:
+    sys.stderr.write("压缩包包含符号链接条目，可能写到目标目录之外，已中止解压\n")
+    sys.exit(4)
 sys.exit(0)
 `
+
+// unsafe7zPathPattern 匹配 7z -slt 输出中的 Path 行（绝对路径或含 ".." 段）。
+// 7z 的普通列表（-ba）是「日期 时间 属性 大小 …」的多列表格，成员名不是行首，
+// 直接复用 unsafeMemberPattern 会漏掉行中间的 "../"。-slt 会逐字段输出
+// "Path = <成员名>"，必须把前缀一并写进正则，才能让行首锚点生效。
+// 必须与 -ba 同时使用：-ba 去掉压缩包自身的头部信息块（否则第一行
+// "Path = <压缩包绝对路径>" 会命中行首的 "/" 而误报非法成员）。
+const unsafe7zPathPattern = `^Path = (/|\.\.([/\\]|$)|.*[/\\]\.\.([/\\]|$))`
 
 // guardedExtractScript 生成"先列出成员并校验路径，再执行解压"的命令。
 // listCommand 输出成员名（一行一个），extractCommand 执行真正的解压。
 // 任一步缺工具或列表读取失败都中止：宁可不解压，也不能跳过校验
 // （tar / 7z 的部分实现会接受 "../" 或绝对路径成员，写到目标目录之外）。
-func guardedExtractScript(targetDir string, listCommand string, extractCommand string) string {
+func guardedExtractScript(targetDir string, listCommand string, extractCommand string, memberPattern string) string {
 	badName := shellQuote("压缩包包含非法路径成员（以 / 开头或含 .. 段），已中止解压")
 	noList := shellQuote("无法读取压缩包成员列表（缺少解压工具或压缩包已损坏），已中止解压")
 	noTemp := shellQuote("无法创建临时文件，已中止解压")
@@ -283,7 +304,7 @@ func guardedExtractScript(targetDir string, listCommand string, extractCommand s
 		"command -v grep >/dev/null 2>&1 || { echo " + noGrep + " >&2; exit 1; }; " +
 		"tmp=$(mktemp 2>/dev/null) || tmp=$(mktemp -t terminator-archive 2>/dev/null) || { echo " + noTemp + " >&2; exit 1; }; " +
 		"if ! " + listCommand + ` > "$tmp" 2>/dev/null; then rm -f "$tmp"; echo ` + noList + " >&2; exit 1; fi; " +
-		"if grep -Eq " + shellQuote(unsafeMemberPattern) + ` "$tmp"; then rm -f "$tmp"; echo ` + badName + " >&2; exit 1; fi; " +
+		"if grep -Eq " + shellQuote(memberPattern) + ` "$tmp"; then rm -f "$tmp"; echo ` + badName + " >&2; exit 1; fi; " +
 		`rm -f "$tmp"; ` + extractCommand
 }
 
@@ -292,8 +313,8 @@ func guardedExtractScript(targetDir string, listCommand string, extractCommand s
 // unzip 与 python3 -m zipfile 都不会拒绝 "../" 或绝对路径成员，恶意压缩包
 // 可以把文件写到目标目录之外、覆盖用户的其它文件。因此先列出全部成员：
 // 有 python3 时用标准库校验（能准确区分非法成员与损坏文件），只有 unzip 时
-// 用 -Z1 列成员再用 grep 校验；两者都无法给出成员列表时宁可中止，
-// 也不跳过校验直接解压（fail-closed）。
+// 用 -Z1 列成员再用 grep 校验，并用 zipinfo 长格式拒绝链接型成员；
+// 两者都无法给出成员列表时宁可中止，也不跳过校验直接解压（fail-closed）。
 func zipExtractScript(archivePath string, targetDir string) string {
 	archive := shellQuote(archivePath)
 	// 与 pythonZipMemberCheck 同一语义：以 "/" 开头，或出现被 "/"、"\"
@@ -303,6 +324,10 @@ func zipExtractScript(archivePath string, targetDir string) string {
 	noTemp := shellQuote("无法创建临时文件，已中止解压")
 	noGrep := shellQuote("远端缺少 grep，无法校验压缩包成员路径，已中止解压")
 	noTool := shellQuote("远端缺少 unzip 与 python3，无法解压")
+	// 无 python3 时链接成员只能靠 zipinfo 长格式识别（首列为类型字符）。
+	// 缺少该能力时保持 fail-closed，避免"link -> /etc" + "link/passwd" 逃逸。
+	noLinkList := shellQuote("远端 unzip 无法列出成员属性（缺少 zipinfo 且不支持 -Z 模式），已中止解压")
+	badLink := shellQuote("压缩包包含符号链接条目，可能写到目标目录之外，已中止解压")
 
 	return "cd " + shellQuote(targetDir) + " || exit 1; " +
 		"if command -v python3 >/dev/null 2>&1; then " +
@@ -312,6 +337,11 @@ func zipExtractScript(archivePath string, targetDir string) string {
 		"tmp=$(mktemp 2>/dev/null) || tmp=$(mktemp -t terminator-zip 2>/dev/null) || { echo " + noTemp + " >&2; exit 1; }; " +
 		"if ! unzip -Z1 " + archive + ` > "$tmp" 2>/dev/null; then rm -f "$tmp"; echo ` + noList + " >&2; exit 1; fi; " +
 		"if grep -Eq " + shellQuote(unsafeMemberPattern) + ` "$tmp"; then rm -f "$tmp"; echo ` + badName + " >&2; exit 1; fi; " +
+		"if command -v zipinfo >/dev/null 2>&1; then " +
+		`zipinfo ` + archive + ` > "$tmp" 2>/dev/null || { rm -f "$tmp"; echo ` + noLinkList + " >&2; exit 1; }; " +
+		`elif unzip -Z ` + archive + ` > "$tmp" 2>/dev/null; then :; ` +
+		`else rm -f "$tmp"; echo ` + noLinkList + " >&2; exit 1; fi; " +
+		`if grep -Eq "^l" "$tmp"; then rm -f "$tmp"; echo ` + badLink + " >&2; exit 1; fi; " +
 		`rm -f "$tmp"; ` +
 		"fi; " +
 		"if command -v unzip >/dev/null 2>&1; then unzip -o -q " + archive + "; " +
@@ -329,23 +359,23 @@ func extractCommand(archivePath string, targetDir string) string {
 	case strings.HasSuffix(name, ".zip"):
 		return zipExtractScript(archivePath, targetDir)
 	case strings.HasSuffix(name, ".tar.gz"), strings.HasSuffix(name, ".tgz"):
-		return guardedExtractScript(targetDir, "tar -tzf "+quotedArchive, "tar -xzf "+quotedArchive)
+		return guardedExtractScript(targetDir, "tar -tzf "+quotedArchive, "tar -xzf "+quotedArchive, unsafeMemberPattern)
 	case strings.HasSuffix(name, ".tar.bz2"), strings.HasSuffix(name, ".tbz2"):
-		return guardedExtractScript(targetDir, "tar -tjf "+quotedArchive, "tar -xjf "+quotedArchive)
+		return guardedExtractScript(targetDir, "tar -tjf "+quotedArchive, "tar -xjf "+quotedArchive, unsafeMemberPattern)
 	case strings.HasSuffix(name, ".tar.xz"), strings.HasSuffix(name, ".txz"):
-		return guardedExtractScript(targetDir, "tar -tJf "+quotedArchive, "tar -xJf "+quotedArchive)
+		return guardedExtractScript(targetDir, "tar -tJf "+quotedArchive, "tar -xJf "+quotedArchive, unsafeMemberPattern)
 	case strings.HasSuffix(name, ".tar"):
-		return guardedExtractScript(targetDir, "tar -tf "+quotedArchive, "tar -xf "+quotedArchive)
+		return guardedExtractScript(targetDir, "tar -tf "+quotedArchive, "tar -xf "+quotedArchive, unsafeMemberPattern)
 	case strings.HasSuffix(name, ".7z"):
-		// 7z / 7za 的列表输出同样逐行包含成员路径，先校验再解压；
-		// 两个命令都不存在时保持原有的报错退出行为
+		// 7z 的普通列表由多列组成，成员名不在行首，必须用 -slt 逐字段输出，
+		// 才能对 "Path = ..." 做行首锚定的路径校验（见 unsafe7zPathPattern）。
 		var listCommand, extractCommand string
-		listCommand = `"$tool" l -ba ` + quotedArchive
+		listCommand = `"$tool" l -ba -slt ` + quotedArchive
 		extractCommand = `"$tool" x -y ` + quotedArchive + ` >/dev/null`
 		return "if command -v 7z >/dev/null 2>&1; then tool=7z; " +
 			"elif command -v 7za >/dev/null 2>&1; then tool=7za; " +
 			"else echo '远端缺少 7z，无法解压' >&2; exit 127; fi; " +
-			guardedExtractScript(targetDir, listCommand, extractCommand)
+			guardedExtractScript(targetDir, listCommand, extractCommand, unsafe7zPathPattern)
 	case strings.HasSuffix(name, ".gz"):
 		// 单文件 gzip：只解压出同名文件，不支持"解压到目录"
 		return prefix + "gzip -d -f " + quotedArchive

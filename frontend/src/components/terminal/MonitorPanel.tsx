@@ -250,13 +250,19 @@ export function MonitorPanel({sessionId}: {sessionId: string}) {
             enqueueMonitorCommand(() => MonitorService.Stop(sessionId));
             return;
         }
-        setRunning(sessionId, true, intervalMS);
         let active = true;
         enqueueMonitorCommand(async () => {
             try {
                 await MonitorService.Start(sessionId, intervalMS);
+                // 必须等后端确认启动成功后再标记 running：Start 可能因远端
+                // 缺少命令/权限而失败，提前置 true 会让面板同时显示"实时"绿点
+                // 和错误卡片，状态自相矛盾。
+                if (active) setRunning(sessionId, true, intervalMS);
             } catch (err) {
-                if (active) setError(sessionId, String((err as Error)?.message ?? err));
+                if (active) {
+                    setRunning(sessionId, false);
+                    setError(sessionId, String((err as Error)?.message ?? err));
+                }
             }
         });
         return () => {

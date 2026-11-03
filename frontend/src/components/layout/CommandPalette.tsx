@@ -149,6 +149,12 @@ export function CommandPalette() {
     const hasSessions = sessions.length > 0;
     // 远端文件搜索依赖 SFTP 客户端：仅 SSH 会话可用
     const activeIsSsh = isSshKind(sessions.find((s) => s.id === activeSessionId)?.kind);
+    // 会话从 connecting 变为 connected 时必须重新触发远端文件搜索：
+    // 依赖里只有 activeSessionId 时，连接完成不会重跑 effect，
+    // 用户必须再改一次关键字才能看到搜索结果。
+    const activeSessionStatus = useSessionStore(
+        (s) => s.sessions.find((x) => x.id === s.activeSessionId)?.status,
+    );
     // 焦点是否落在当前布局内，以及布局还剩多少可拆分的窗格
     const paneInLayout = !!layout && !!activeSessionId && isPaneSession(layout, activeSessionId);
     const paneCount = layout ? countPanes(layout) : 0;
@@ -254,8 +260,7 @@ export function CommandPalette() {
         const q = query.trim();
         setFileResults([]);
         if (!isOpen || !activeSessionId || !activeIsSsh || q.length < 2) return;
-        const session = useSessionStore.getState().sessions.find((s) => s.id === activeSessionId);
-        if (!session || session.status !== "connected") return;
+        if (activeSessionStatus !== "connected") return;
 
         let cancelled = false;
         const timer = setTimeout(() => {
@@ -272,7 +277,7 @@ export function CommandPalette() {
             cancelled = true;
             clearTimeout(timer);
         };
-    }, [query, isOpen, activeSessionId, activeIsSsh]);
+    }, [query, isOpen, activeSessionId, activeIsSsh, activeSessionStatus]);
 
     // 命令项随主机、片段、远端文件与当前会话状态变化重建
     const items = useMemo<PaletteItem[]>(() => {

@@ -215,9 +215,10 @@ func main() {
 		log.Fatal(fmt.Errorf("error creating SSH log directory: %w", err))
 	}
 
-	authService := auth.NewAuthService(queries, db, v, client)
-	// settingsService 需在 syncService 之前创建，以便注入到 SyncService
+	// settingsService 需在 syncService / authService 之前创建：
+	// 登录或注册同步服务器后要由 AuthService 把 sync_method 切回 server。
 	settingsService := settings.NewSettingsService(appDir)
+	authService := auth.NewAuthService(queries, db, v, client, settingsService)
 	syncService := sync.NewSyncService(queries, db, client, v, syncEmitter, nil, settingsService)
 	sshService := ssh.NewSshService(sshEmitter, sshLogDir)
 	// 交互式认证（MFA/OTP）：服务器发起问答时推送到前端弹窗填写

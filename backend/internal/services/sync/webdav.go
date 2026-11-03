@@ -100,7 +100,7 @@ func (s *SyncService) syncWebDAV(ctx context.Context, cfg WebDAVConfig) error {
 
 	// 4. 合并：本地为基准，远端较新者覆盖
 	merged := make(map[string]webdavBlob, len(localBlobs)+len(remoteBlobs))
-	localDBWrites := make([]dbgen.UpsertBlobParams, 0)
+	localDBWrites := make([]dbgen.UpsertBlobIfNewerParams, 0)
 
 	for id, lb := range localBlobs {
 		merged[id] = webdavBlob{
@@ -119,7 +119,7 @@ func (s *SyncService) syncWebDAV(ctx context.Context, cfg WebDAVConfig) error {
 		local, ok := merged[id]
 		if !ok {
 			merged[id] = rb
-			localDBWrites = append(localDBWrites, dbgen.UpsertBlobParams{
+			localDBWrites = append(localDBWrites, dbgen.UpsertBlobIfNewerParams{
 				ID:        rb.ID,
 				Blob:      rb.Blob,
 				UpdatedAt: rb.UpdatedAt,
@@ -145,7 +145,7 @@ func (s *SyncService) syncWebDAV(ctx context.Context, cfg WebDAVConfig) error {
 
 		if remoteWins(local, rb) {
 			merged[id] = rb
-			localDBWrites = append(localDBWrites, dbgen.UpsertBlobParams{
+			localDBWrites = append(localDBWrites, dbgen.UpsertBlobIfNewerParams{
 				ID:        rb.ID,
 				Blob:      rb.Blob,
 				UpdatedAt: rb.UpdatedAt,
@@ -155,9 +155,12 @@ func (s *SyncService) syncWebDAV(ctx context.Context, cfg WebDAVConfig) error {
 	}
 
 	// 5. 将远端较新的条目写回本地 DB
+	// 必须使用 UpsertBlobIfNewer：上面的合并基于同步开始时的快照，GET 远端
+	// 文件与写回之间用户可能又保存了同一主机。无条件 Upsert 会用远端旧副本
+	// 覆盖这份新编辑，而且不产生冲突记录（冲突检测比较的仍是旧快照）。
 	hasRemoteUpdates := len(localDBWrites) > 0
 	for _, p := range localDBWrites {
-		if err = s.q.UpsertBlob(ctx, p); err != nil {
+		if err = s.q.UpsertBlobIfNewer(ctx, p); err != nil {
 			return fmt.Errorf("写回本地 blob 失败 (id=%s): %w", p.ID, err)
 		}
 	}

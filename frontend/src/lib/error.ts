@@ -88,9 +88,17 @@ export function parseAppError(error: unknown): AppClientError {
         try {
             const parsed = JSON.parse(errorString);
             if (parsed?.cause) {
-                return mapRawError(parsed.cause, parsed);
+                const mapped = mapRawError(parsed.cause, parsed);
+                // cause 无法识别（例如普通 Go error 序列化成空对象）时，
+                // Wails 仍把原始错误文案放在 parsed.message 中，不能丢。
+                if (mapped.code !== ErrorCode.UNKNOWN_ERROR) {
+                    return mapped;
+                }
             }
-            // 有效 JSON 但无 cause 字段，保留原始字符串作为错误信息
+            if (typeof parsed?.message === "string" && parsed.message.trim()) {
+                return { code: ErrorCode.INTERNAL_ERROR, message: parsed.message, raw: parsed };
+            }
+            // 有效 JSON 但无可用错误信息，保留原始字符串便于排查
             return { code: ErrorCode.INTERNAL_ERROR, message: errorString, raw: error };
         } catch {
             if (error instanceof Error) {
@@ -108,13 +116,16 @@ export function parseAppError(error: unknown): AppClientError {
 const ERROR_DEBOUNCE_MS = 5000;
 const recentErrors = new Map<string, number>();
 
-function shouldShowError(errorCode: string): boolean {
+function shouldShowError(errorCode: string, message: string): boolean {
     const now = Date.now();
-    const lastShown = recentErrors.get(errorCode);
+    // 同一错误码下不同原因的失败不应互相吞掉：普通 Go error 全部归为
+    // INTERNAL_ERROR，只按 code 去抖会让 5 秒内第二次失败的原始信息消失。
+    const key = `${errorCode}:${message}`;
+    const lastShown = recentErrors.get(key);
     if (lastShown && now - lastShown < ERROR_DEBOUNCE_MS) {
         return false; // 去抖窗口内，不重复弹窗
     }
-    recentErrors.set(errorCode, now);
+    recentErrors.set(key, now);
     // 清理过期条目，防止 Map 无限增长
     if (recentErrors.size > 50) {
         for (const [key, ts] of recentErrors) {
@@ -129,8 +140,8 @@ function shouldShowError(errorCode: string): boolean {
 export function handleAppError(rawError: unknown, fallbackCode: string = ErrorCode.UNKNOWN_ERROR) {
     const appError = parseAppError(rawError);
 
-    // 去抖检查：同一错误码在保护窗口内不重复弹窗
-    if (!shouldShowError(appError.code)) {
+    // 去抖检查：同一错误码 + 同一文案在保护窗口内不重复弹窗
+    if (!shouldShowError(appError.code, appError.message)) {
         console.warn("Suppressed duplicate error:", { code: appError.code });
         return;
     }
@@ -149,6 +160,10 @@ export function handleAppError(rawError: unknown, fallbackCode: string = ErrorCo
         description = i18n.t(`errors:${ErrorCode.INTERNAL_ERROR}`);
     } else if (appError.detailsString) {
         description = appError.detailsString;
+    } else if (appError.message && appError.message !== "Unknown error") {
+        // 没有结构化详情时至少展示底层错误文案：否则所有普通 error 都只显示
+        // "未知错误"，用户看不到权限不足、路径不存在等真实原因。
+        description = appError.message;
     }
 
     toast.error(safeTitle, {

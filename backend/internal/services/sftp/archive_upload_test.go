@@ -202,6 +202,9 @@ func TestZipExtractScriptValidatesBeforeExtract(t *testing.T) {
 		"zipfile.ZipFile",
 		"unzip -Z1",
 		"grep -Eq",
+		// 无 python3 时必须用 zipinfo 长格式拒绝链接型成员，不能只校验名字
+		"command -v zipinfo",
+		`grep -Eq "^l"`,
 		"unzip -o -q '/tmp/pkg.zip'",
 		"python3 -m zipfile -e '/tmp/pkg.zip'",
 	} {
@@ -339,8 +342,9 @@ func TestTarAnd7zExtractScriptValidateMembers(t *testing.T) {
 	command := extractCommand("/tmp/pkg.7z", "/tmp/target")
 	for _, want := range []string{
 		"tool=7z",
-		"l -ba '/tmp/pkg.7z'",
+		`l -ba -slt '/tmp/pkg.7z'`,
 		"grep -Eq",
+		`^Path = `,
 		`"$tool" x -y '/tmp/pkg.7z'`,
 		"exit 127",
 	} {
@@ -348,7 +352,7 @@ func TestTarAnd7zExtractScriptValidateMembers(t *testing.T) {
 			t.Errorf("7z 解压命令缺少 %q:\n%s", want, command)
 		}
 	}
-	listAt := strings.Index(command, "l -ba")
+	listAt := strings.Index(command, "l -ba -slt")
 	extractAt := strings.Index(command, "x -y")
 	if listAt < 0 || extractAt < 0 || listAt > extractAt {
 		t.Errorf("7z 必须先列出成员校验、再解压:\n%s", command)

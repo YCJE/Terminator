@@ -268,6 +268,23 @@ func TestDownloadArchiveSeparatesDuplicateNames(t *testing.T) {
 	}
 }
 
+// 同一目标路径的并发打包下载必须使用不同的临时文件，
+// 否则后一个会删掉/重命名前一个正在写入的文件。
+func TestArchivePartPathDistinguishesTransfers(t *testing.T) {
+	base := filepath.Join(t.TempDir(), "out.zip")
+	p1 := archivePartPath(base, "t1")
+	p2 := archivePartPath(base, "t2")
+	if p1 == p2 {
+		t.Fatalf("不同传输共用临时文件: %q", p1)
+	}
+	if !strings.HasPrefix(p1, base) {
+		t.Errorf("临时文件未紧邻目标路径: %q", p1)
+	}
+	if again := archivePartPath(base, "t1"); again != p1 {
+		t.Errorf("同一传输的临时名不稳定: %q != %q", again, p1)
+	}
+}
+
 func TestDownloadArchiveCancelRemovesTemp(t *testing.T) {
 	target := filepath.Join(t.TempDir(), "canceled.zip")
 	svc := NewSftpService(nil, &fakeSFTPEmitter{})
@@ -278,7 +295,7 @@ func TestDownloadArchiveCancelRemovesTemp(t *testing.T) {
 	if !errors.Is(err, errTransferCanceled) {
 		t.Fatalf("取消后错误 = %v，期望 errTransferCanceled", err)
 	}
-	for _, p := range []string{target, target + ".terminator-zip-part"} {
+	for _, p := range []string{target, archivePartPath(target, "t1")} {
 		if _, statErr := os.Stat(p); !os.IsNotExist(statErr) {
 			t.Errorf("取消后不应残留 %q", p)
 		}

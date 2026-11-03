@@ -1233,7 +1233,11 @@ export function TerminalInstance({sessionId, isVisible, isFocused, config, sessi
         // 仅凭它判断会让自动重连只尝试一次。reconnectAttemptsRef > 0 表示本轮
         // 重连尚未成功，据此继续 2s/5s/10s 的后续尝试。
         const reconnecting = reconnectAttemptsRef.current > 0;
-        if (!isLocal && useUIStore.getState().autoReconnect && (hasConnectedRef.current || reconnecting)) {
+        // 浮动窗口是独立 webview，它的 store 里没有该会话（会话由主窗口管理）。
+        // reconnectSession 会遍历空数组，打印"正在重连"却永远不发连接请求；
+        // 浮动窗口改用手动重连按钮（递增 reconnectNonce）触发重连。
+        const managedByStore = useSessionStore.getState().sessions.some((s) => s.id === sessionId);
+        if (!isLocal && managedByStore && useUIStore.getState().autoReconnect && (hasConnectedRef.current || reconnecting)) {
             const attempt = reconnectAttemptsRef.current;
             if (attempt < 3) {
                 const delay = [2000, 5000, 10000][attempt];

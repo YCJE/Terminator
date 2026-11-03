@@ -301,15 +301,15 @@ func TestRunCrossCopyWritesTree(t *testing.T) {
 func TestRunCrossCopyResumesFromPart(t *testing.T) {
 	src := &fakeCopyFS{files: map[string]string{"/a.txt": "abcdef"}}
 	dst := newFakeCopyTarget()
-	// 预置前 4 字节的断点文件：part 名称带总字节数
-	dst.parts["/dst.txt"+partSuffix+"-6"] = "abcd"
-
-	emitter := &fakeSFTPEmitter{}
-	svc := NewSftpService(nil, emitter)
 	info, err := src.stat("/a.txt")
 	if err != nil {
 		t.Fatalf("stat 失败: %v", err)
 	}
+	// 预置前 4 字节的断点文件：名称由「大小 + 源端修改时间 + 传输 ID」共同决定
+	dst.parts[partPath("/dst.txt", 6, transferIdentity(info.ModTime(), "t1"))] = "abcd"
+
+	emitter := &fakeSFTPEmitter{}
+	svc := NewSftpService(nil, emitter)
 	if err := svc.runCrossCopy(
 		context.Background(), src, dst, "s1", "t1", "/a.txt", "/dst.txt", info,
 	); err != nil {

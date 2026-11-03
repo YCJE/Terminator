@@ -97,6 +97,15 @@ export function TerminalStack({isVisible}: TerminalStackProps) {
     const handleDividerPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
         const drag = dragStateRef.current;
         if (!drag) return;
+        // 指针捕获可能在 Alt+Tab、系统对话框或 pointercancel 时丢失，
+        // 而 pointerup 又落在分隔条之外：此时 dragStateRef 会残留，
+        // 之后鼠标只是经过分隔条（无按键的 pointermove 也会触发）
+        // 就会不断改写分屏比例。无按键时立即结束拖拽。
+        if (e.buttons === 0) {
+            dragStateRef.current = null;
+            setDraggingNodeId(null);
+            return;
+        }
         const container = splitContainerRef.current?.getBoundingClientRect();
         if (!container || container.width === 0 || container.height === 0) return;
         const fractionX = (e.clientX - container.left) / container.width;
@@ -265,7 +274,12 @@ export function TerminalStack({isVisible}: TerminalStackProps) {
                                 onPointerDown={(e) => handleDividerPointerDown(e, divider)}
                                 onPointerMove={handleDividerPointerMove}
                                 onPointerUp={handleDividerPointerUp}
-                                onLostPointerCapture={() => setDraggingNodeId(null)}
+                                onLostPointerCapture={() => {
+                                    // 捕获丢失说明拖拽已不可继续，必须同时清掉拖拽状态，
+                                    // 否则残留的 dragStateRef 会让后续 pointermove 继续改比例
+                                    dragStateRef.current = null;
+                                    setDraggingNodeId(null);
+                                }}
                             />
                         ))}
                     </div>

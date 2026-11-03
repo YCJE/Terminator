@@ -1,8 +1,9 @@
 // 跨服务器文件复制（远端 → 远端）。
 //
 // 数据直接从源服务器的 SFTP 读取流写入目标服务器，既不落本地磁盘也不整体读入内存。
-// 目标端沿用单机上传的续传约定：先写 "<目标路径>.terminator-part-<总字节数>"，
-// 全部写完才原子重命名到目标路径，因此中断不会留下半截文件，重试可按已有大小续传。
+// 目标端沿用单机上传的续传约定：先写带源端身份的 ".terminator-part-*" 临时文件，
+// 全部写完才原子重命名到目标路径，因此中断不会留下半截文件，
+// 同一传输重试可按已有大小续传。
 // 进度事件挂在源会话上（前端传输队列按源会话分组展示）。
 
 package sftp
@@ -15,6 +16,7 @@ import (
 	"os"
 	"path"
 	"strings"
+	"time"
 
 	"github.com/pkg/sftp"
 )
@@ -90,11 +92,12 @@ func (t sftpCopyTarget) chmod(p string, mode os.FileMode) error {
 
 // crossCopyFile 一条待复制的远端文件（含目标侧完整路径）。
 type crossCopyFile struct {
-	src  string
-	dst  string
-	name string
-	size int64
-	mode os.FileMode
+	src     string
+	dst     string
+	name    string
+	size    int64
+	mode    os.FileMode
+	modTime time.Time
 }
 
 // crossCopyPlan 一次目录复制的执行计划。
@@ -146,11 +149,12 @@ func planCrossCopy(src crossCopySource, srcRoot string, dstRoot string) (*crossC
 				continue
 			}
 			plan.files = append(plan.files, crossCopyFile{
-				src:  childSrc,
-				dst:  childDst,
-				name: info.Name(),
-				size: info.Size(),
-				mode: info.Mode().Perm(),
+				src:     childSrc,
+				dst:     childDst,
+				name:    info.Name(),
+				size:    info.Size(),
+				mode:    info.Mode().Perm(),
+				modTime: info.ModTime(),
 			})
 			plan.total += info.Size()
 		}
@@ -178,6 +182,7 @@ func (s *SftpService) copyCrossOne(
 	progressTotal int64,
 	progressBase int64,
 	mode os.FileMode,
+	modTime time.Time,
 ) error {
 	reader, err := src.open(srcPath)
 	if err != nil {
@@ -191,7 +196,7 @@ func (s *SftpService) copyCrossOne(
 		}
 	}
 
-	part := partPath(dstPath, size)
+	part := partPath(dstPath, size, transferIdentity(modTime, transferID))
 	writer, offset, err := dst.openPart(part, size)
 	if err != nil {
 		return fmt.Errorf("创建目标临时文件 %q 失败: %w", part, err)
@@ -249,7 +254,7 @@ func (s *SftpService) runCrossCopy(
 		return s.copyCrossOne(
 			ctx, src, dst, sessionID, transferID,
 			srcPath, dstPath, displayName,
-			info.Size(), info.Size(), 0, info.Mode().Perm(),
+			info.Size(), info.Size(), 0, info.Mode().Perm(), info.ModTime(),
 		)
 	}
 
@@ -272,7 +277,7 @@ func (s *SftpService) runCrossCopy(
 		if err := s.copyCrossOne(
 			ctx, src, dst, sessionID, transferID,
 			file.src, file.dst, file.name,
-			file.size, plan.total, done, file.mode,
+			file.size, plan.total, done, file.mode, file.modTime,
 		); err != nil {
 			return fmt.Errorf("复制 %q -> %q 失败: %w", file.src, file.dst, err)
 		}

@@ -216,6 +216,12 @@ type SshService struct {
 	probes   map[*ssh.Client]*connProbe
 	probesMu sync.Mutex
 
+	// latencyProbes 记录每个 client 正在进行的延迟探测。
+	// 与 probes 同理：连接黑洞时 SendRequest 会永久阻塞，前端每 10 秒轮询一次，
+	// 若每次都新建 goroutine，关闭 keepalive 时会无界累积。同一 client 共享结果。
+	latencyProbes map[*ssh.Client]*latencyProbe
+	latencyMu     sync.Mutex
+
 	// 端口转发管理
 	forwards   map[string]net.Listener // key = forward ID
 	forwardsMu sync.Mutex
@@ -318,6 +324,7 @@ func NewSshService(emitter SSHEmitter, logDir string) *SshService {
 		connPool:        make(map[string]*pooledConn),
 		retired:         make(map[*ssh.Client]int),
 		probes:          make(map[*ssh.Client]*connProbe),
+		latencyProbes:   make(map[*ssh.Client]*latencyProbe),
 		forwards:        make(map[string]net.Listener),
 		sessionForwards: make(map[string][]string),
 		forwardConns:    make(map[string]map[net.Conn]struct{}),
@@ -593,12 +600,6 @@ func (s *SshService) Connect(config *SSHConnectionConfig) error {
 		// 旧会话的日志不在这里关闭：其 streamOutput 可能还有一批输出待落盘，
 		// 提前关闭会丢掉会话结束前的最后一段内容。日志由 streamOutput 在
 		// 管道 EOF 后自行关闭，两个句柄短暂并发追加同名文件是安全的。
-		if old.agentCloser != nil {
-			_ = old.agentCloser.Close()
-		}
-		if old.sftpClient != nil {
-			_ = old.sftpClient.Close()
-		}
 		if old.pipeCloser != nil {
 			_ = old.pipeCloser.Close()
 		}
@@ -610,6 +611,8 @@ func (s *SshService) Connect(config *SSHConnectionConfig) error {
 		} else if old.client != nil {
 			_ = old.client.Close()
 		}
+		closeResourceWithTimeout("sftp client", old.sftpClient)
+		closeResourceWithTimeout("ssh agent", old.agentCloser)
 	}
 
 	go s.streamOutput(config.ID, pr, currentSession)
@@ -1249,7 +1252,9 @@ func (s *SshService) SubmitAuthResponses(requestID string, responses []string) e
 	trimmed := make([]string, len(responses))
 	for i, answer := range responses {
 		if len(answer) > maxAuthResponseLen {
-			answer = answer[:maxAuthResponseLen]
+			// 按字节截断可能切断多字节字符，把非法 UTF-8 发给服务器。
+			// 与提示文本的截断保持一致，回退到完整字符边界。
+			answer = truncateUTF8Bytes(answer, maxAuthResponseLen)
 		}
 		trimmed[i] = answer
 	}
@@ -1272,6 +1277,40 @@ func (s *SshService) CancelAuthPrompt(requestID string) error {
 	default:
 	}
 	return nil
+}
+
+// sessionUsesClient 判断指定会话当前是否仍绑定到该 client。
+// 端口转发在 Listen 与登记之间可能与 Disconnect 交错：登记的 listener
+// 不会再被 cleanupForwards 看到，必须登记后二次校验并自行回收。
+func (s *SshService) sessionUsesClient(sessionID string, client *ssh.Client) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	active, ok := s.sessions[sessionID]
+	return ok && active.client == client
+}
+
+// isCurrentSession 判断 current 是否仍注册在 sessions 中。
+// 用于输出流：会话被 Disconnect 删除、或被同 ID 的新连接替换后，
+// 旧管道里尚未发送的数据不得再写入前端（否则旧会话的输出会混进新终端）。
+func (s *SshService) isCurrentSession(sessionID string, current *activeSession) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.sessions[sessionID] == current
+}
+
+// truncateUTF8Bytes 把字符串截到不超过 maxBytes，且不破坏多字节字符。
+func truncateUTF8Bytes(s string, maxBytes int) string {
+	if maxBytes <= 0 {
+		return ""
+	}
+	if len(s) <= maxBytes {
+		return s
+	}
+	b := []byte(s)[:maxBytes]
+	for len(b) > 0 && !utf8.Valid(b) {
+		b = b[:len(b)-1]
+	}
+	return string(b)
 }
 
 // takeAuthWaiter 取出并移除等待者：同一请求只允许一次性回答/取消。
@@ -1572,6 +1611,13 @@ func fingerprintFromBase64(encoded string) string {
 	return "SHA256:" + base64.RawStdEncoding.EncodeToString(sum[:])
 }
 
+// latencyProbe 一次在途的延迟探测结果。
+type latencyProbe struct {
+	done chan struct{}
+	ms   int64
+	err  error
+}
+
 // GetLatency 测量当前会话到服务器的往返时延（毫秒）。
 // 复用 SSH 的 keepalive 请求：不额外开辟通道，也不会在远端留下命令痕迹。
 func (s *SshService) GetLatency(sessionID string) (int64, error) {
@@ -1589,26 +1635,52 @@ func (s *SshService) GetLatency(sessionID string) (int64, error) {
 
 	start := time.Now()
 	// SendRequest 在连接黑洞（半开连接、网络静默丢包）时会一直阻塞在读取
-	// 服务器应答上。前端每 10 秒轮询一次，若此处无超时，Wails 调用将永久挂起，
-	// 且每次轮询都会再叠加一个阻塞 goroutine。这里等待有限时间后返回超时错误，
-	// 连接真正被 keepalive 判定死亡并关闭后，在途 goroutine 会自然退出。
-	done := make(chan error, 1)
+	// 服务器应答上。前端每 10 秒轮询一次，若每次都新建探测 goroutine，
+	// 关闭 keepalive 后会无界累积。同一 client 只保留一个在途探测，
+	// 其它调用复用同一次结果。
+	s.latencyMu.Lock()
+	if p, ok := s.latencyProbes[client]; ok {
+		s.latencyMu.Unlock()
+		select {
+		case <-p.done:
+			return p.ms, p.err
+		case <-time.After(probeTimeout):
+			return 0, fmt.Errorf("延迟探测超时（%s）", probeTimeout)
+		}
+	}
+	probe := &latencyProbe{done: make(chan struct{})}
+	s.latencyProbes[client] = probe
+	s.latencyMu.Unlock()
+
 	go func() {
+		var ms int64
+		var err error
 		defer func() {
 			if r := recover(); r != nil {
-				done <- fmt.Errorf("延迟探测 panic: %v", r)
+				err = fmt.Errorf("延迟探测 panic: %v", r)
 			}
+			// 先写结果再 close(done)：等待方收到 done 后读取是安全的
+			probe.ms = ms
+			probe.err = err
+			s.latencyMu.Lock()
+			if cur, ok := s.latencyProbes[client]; ok && cur == probe {
+				delete(s.latencyProbes, client)
+			}
+			s.latencyMu.Unlock()
+			close(probe.done)
 		}()
-		_, _, err := client.SendRequest("keepalive@openssh.com", true, nil)
-		done <- err
+		_, _, err = client.SendRequest("keepalive@openssh.com", true, nil)
+		if err == nil {
+			ms = time.Since(start).Milliseconds()
+		}
 	}()
 
 	select {
-	case err := <-done:
-		if err != nil {
-			return 0, fmt.Errorf("延迟探测失败: %w", err)
+	case <-probe.done:
+		if probe.err != nil {
+			return 0, fmt.Errorf("延迟探测失败: %w", probe.err)
 		}
-		return time.Since(start).Milliseconds(), nil
+		return probe.ms, nil
 	case <-time.After(probeTimeout):
 		return 0, fmt.Errorf("延迟探测超时（%s）", probeTimeout)
 	}
@@ -1673,6 +1745,31 @@ func (s *SshService) Resize(sessionID string, rows, cols int) error {
 	return active.session.WindowChange(rows, cols)
 }
 
+// cleanupCloseTimeout 限制清理路径上关闭资源的等待时间。
+// SFTP 客户端与远端端口转发监听器的 Close 会等待对端应答；连接处于半开
+// 或黑洞状态时可能永久阻塞，进而卡死关闭标签、锁库乃至应用退出。
+const cleanupCloseTimeout = 5 * time.Second
+
+// closeResourceWithTimeout 在后台关闭资源，最多等待 cleanupCloseTimeout。
+// 超时只记录告警并继续清理：关闭动作仍留在后台，连接最终被回收时会返回。
+func closeResourceWithTimeout(label string, closer io.Closer) {
+	if closer == nil {
+		return
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		if err := closer.Close(); err != nil {
+			slog.Debug("cleanup close returned error", "resource", label, "error", err)
+		}
+	}()
+	select {
+	case <-done:
+	case <-time.After(cleanupCloseTimeout):
+		slog.Warn("cleanup close timed out", "resource", label)
+	}
+}
+
 func (s *SshService) Disconnect(sessionID string) {
 	s.mu.Lock()
 	active, exists := s.sessions[sessionID]
@@ -1682,17 +1779,16 @@ func (s *SshService) Disconnect(sessionID string) {
 	s.mu.Unlock()
 
 	if exists {
-		// 清理该会话的所有端口转发监听器
-		s.cleanupForwards(sessionID)
 		// 日志文件不由这里关闭：streamOutput 在管道 EOF 后还要把最后一批输出
 		// 落盘，提前关闭会让这段内容静默丢失。关闭管道后 streamOutput 会自行
 		// 结束并关闭日志。
-		if active.agentCloser != nil {
-			_ = active.agentCloser.Close()
-		}
-		if active.sftpClient != nil {
-			_ = active.sftpClient.Close()
-		}
+		//
+		// 关闭顺序很重要：先关管道与 session 让输出流立即结束，再释放连接池引用
+		// （最后一个使用者会关闭底层连接，从而打断 SFTP 的阻塞读），然后才清理
+		// 端口转发与 SFTP/agent。若先关 SFTP，半开连接上它会无限等待，后面的
+		// EmitClosed 永远不会发出，前端标签卡在"已断开"却收不到事件。
+		// 转发清理放在释放连接之后：远端转发关闭要向服务器发请求，
+		// 连接已断开时它会立即失败返回，不会在半开连接上等满超时。
 		if active.pipeCloser != nil {
 			_ = active.pipeCloser.Close()
 		}
@@ -1704,6 +1800,10 @@ func (s *SshService) Disconnect(sessionID string) {
 		} else if active.client != nil {
 			_ = active.client.Close()
 		}
+		// 清理该会话的所有端口转发监听器
+		s.cleanupForwards(sessionID)
+		closeResourceWithTimeout("sftp client", active.sftpClient)
+		closeResourceWithTimeout("ssh agent", active.agentCloser)
 		s.emitter.EmitClosed(sessionID)
 	}
 }
@@ -1825,6 +1925,50 @@ func (s *SshService) NewSFTPClient(sessionID string) (*sftp.Client, error) {
 	)
 }
 
+// openCommandSession 在 deadline 前创建 SSH 会话；deadline 为零值表示不超时。
+//
+// x/crypto/ssh 的 NewSession 不接受 context：连接僵死（服务器不再回应握手）时
+// 它会永久阻塞。批量执行命令明明传入了超时，前端却会一直等不到返回。
+// 因此把创建放进独立 goroutine，超时后立即返回错误；后台再等它真正返回，
+// 并关闭迟到的会话，避免句柄泄漏。
+func openCommandSession(client *ssh.Client, deadline time.Time) (*ssh.Session, error) {
+	type sessionResult struct {
+		session *ssh.Session
+		err     error
+	}
+	results := make(chan sessionResult, 1)
+	go func() {
+		session, err := client.NewSession()
+		results <- sessionResult{session: session, err: err}
+	}()
+
+	if deadline.IsZero() {
+		r := <-results
+		if r.err != nil {
+			return nil, fmt.Errorf("创建命令会话失败: %w", r.err)
+		}
+		return r.session, nil
+	}
+
+	remaining := time.Until(deadline)
+	timer := time.NewTimer(remaining)
+	defer timer.Stop()
+	select {
+	case r := <-results:
+		if r.err != nil {
+			return nil, fmt.Errorf("创建命令会话失败: %w", r.err)
+		}
+		return r.session, nil
+	case <-timer.C:
+		go func() {
+			if r := <-results; r.session != nil {
+				_ = r.session.Close()
+			}
+		}()
+		return nil, fmt.Errorf("创建命令会话超时（%s）", remaining)
+	}
+}
+
 // ExecCommand 在指定会话的 SSH 连接上执行非交互式命令，返回合并的 stdout+stderr 输出。
 // 使用独立的 session（不影响交互式 shell），执行完毕后立即关闭。
 // timeout 为 0 表示不超时。
@@ -1837,9 +1981,15 @@ func (s *SshService) ExecCommand(sessionID string, command string, timeout time.
 		return "", apperror.SSHSessionNotFound()
 	}
 
-	session, err := active.client.NewSession()
+	// 超时覆盖整个调用（含创建会话），而不是只约束命令执行阶段
+	var deadline time.Time
+	if timeout > 0 {
+		deadline = time.Now().Add(timeout)
+	}
+
+	session, err := openCommandSession(active.client, deadline)
 	if err != nil {
-		return "", fmt.Errorf("创建命令会话失败: %w", err)
+		return "", err
 	}
 
 	// 使用 sync.Once 确保 session.Close() 只执行一次，避免并发关闭竞态
@@ -1848,8 +1998,12 @@ func (s *SshService) ExecCommand(sessionID string, command string, timeout time.
 	defer closeSession()
 
 	// 超时控制：通过 context 取消 session
-	if timeout > 0 {
-		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	if !deadline.IsZero() {
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return "", fmt.Errorf("命令执行超时（%s）", timeout)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), remaining)
 		defer cancel()
 		go func() {
 			<-ctx.Done()
@@ -1936,6 +2090,14 @@ func (s *SshService) startLocalForward(spec *PortForwardSpec, client *ssh.Client
 	s.sessionForwards[spec.SessionID] = append(s.sessionForwards[spec.SessionID], spec.ID)
 	s.forwardsMu.Unlock()
 
+	// Disconnect 可能已在 Listen 之后、登记之前执行完 cleanupForwards：
+	// 这个 listener 不会被任何清理路径看到，必须立即自行回收，
+	// 否则本地端口被永久占用、转发计数逐步耗尽。
+	if client != nil && !s.sessionUsesClient(spec.SessionID, client) {
+		_ = s.RemovePortForward(spec.ID)
+		return apperror.SSHSessionNotFound()
+	}
+
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
@@ -2019,6 +2181,12 @@ func (s *SshService) startRemoteForward(spec *PortForwardSpec, client *ssh.Clien
 	s.sessionForwards[spec.SessionID] = append(s.sessionForwards[spec.SessionID], spec.ID)
 	s.forwardsMu.Unlock()
 
+	// 同本地转发：登记后确认会话仍然存在，否则立即回收远端监听
+	if client != nil && !s.sessionUsesClient(spec.SessionID, client) {
+		_ = s.RemovePortForward(spec.ID)
+		return apperror.SSHSessionNotFound()
+	}
+
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
@@ -2100,7 +2268,7 @@ func (s *SshService) RemovePortForward(forwardID string) error {
 	s.forwardsMu.Unlock()
 
 	if ok && listener != nil {
-		_ = listener.Close()
+		closeResourceWithTimeout("port forward listener", listener)
 	}
 	// 关闭该转发已建立的隧道连接：仅关 listener 不会关闭已 Accept 的连接，
 	// 否则"已删除"的转发仍会继续传输并泄漏 fd/goroutine
@@ -2122,8 +2290,21 @@ func (s *SshService) cleanupForwards(sessionID string) {
 	}
 	s.forwardsMu.Unlock()
 
-	for _, listener := range listeners {
-		_ = listener.Close()
+	// 远端转发的 listener.Close 会向服务器发送 cancel-tcpip-forward 并等待应答，
+	// 半开连接上可能永久阻塞。整体放到后台并设置总超时，避免关闭会话时卡住。
+	if len(listeners) > 0 {
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			for _, listener := range listeners {
+				_ = listener.Close()
+			}
+		}()
+		select {
+		case <-done:
+		case <-time.After(cleanupCloseTimeout):
+			slog.Warn("closing port forward listeners timed out", "session", sessionID)
+		}
 	}
 	// 一并关闭这些转发的活跃隧道连接，否则仅关 listener 会留下仍在传输的
 	// 连接和 io.Copy goroutine，直到对端断开为止
@@ -2224,7 +2405,9 @@ func (s *SshService) streamOutput(sessionID string, stdout io.Reader, current *a
 		case chunk, ok := <-dataChan:
 			if !ok {
 				if len(batch) > 0 {
-					s.emitter.EmitData(sessionID, batch)
+					if s.isCurrentSession(sessionID, current) {
+						s.emitter.EmitData(sessionID, batch)
+					}
 					s.writeLog(current, batch)
 				}
 				// 先关闭日志再清理会话：Disconnect/替换会话时不再提前关闭日志，
@@ -2237,14 +2420,18 @@ func (s *SshService) streamOutput(sessionID string, stdout io.Reader, current *a
 			batch = append(batch, chunk...)
 
 			if len(batch) >= batchSize {
-				s.emitter.EmitData(sessionID, batch)
+				if s.isCurrentSession(sessionID, current) {
+					s.emitter.EmitData(sessionID, batch)
+				}
 				s.writeLog(current, batch)
 				batch = batch[:0]
 			}
 
 		case <-ticker.C:
 			if len(batch) > 0 {
-				s.emitter.EmitData(sessionID, batch)
+				if s.isCurrentSession(sessionID, current) {
+					s.emitter.EmitData(sessionID, batch)
+				}
 				s.writeLog(current, batch)
 				batch = batch[:0]
 			}
@@ -2300,15 +2487,10 @@ func (s *SshService) cleanupSession(sessionID string, current *activeSession) {
 		delete(s.sessions, sessionID)
 		s.mu.Unlock()
 
-		// 清理该会话的所有端口转发监听器
-		s.cleanupForwards(sessionID)
 		current.closeLogFile()
-		if current.agentCloser != nil {
-			_ = current.agentCloser.Close()
-		}
-		if current.sftpClient != nil {
-			_ = current.sftpClient.Close()
-		}
+		// 与 Disconnect 相同的顺序：先结束输出与 session、释放连接池引用，
+		// 再清理端口转发并对有超时风险的 SFTP/agent 做有界关闭，
+		// 避免清理流程在连接半开时永久阻塞。
 		if current.pipeCloser != nil {
 			_ = current.pipeCloser.Close()
 		}
@@ -2320,6 +2502,10 @@ func (s *SshService) cleanupSession(sessionID string, current *activeSession) {
 		} else if current.client != nil {
 			_ = current.client.Close()
 		}
+		// 清理该会话的所有端口转发监听器
+		s.cleanupForwards(sessionID)
+		closeResourceWithTimeout("sftp client", current.sftpClient)
+		closeResourceWithTimeout("ssh agent", current.agentCloser)
 		s.emitter.EmitClosed(sessionID)
 	} else {
 		s.mu.Unlock()

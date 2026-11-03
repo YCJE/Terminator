@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"time"
 
 	"terminator-desktop/backend/internal/apperror"
 	"terminator-desktop/backend/internal/crypto"
@@ -91,11 +92,37 @@ func (s *SyncService) ConflictCount(ctx context.Context) (int, error) {
 	return int(n), nil
 }
 
+// conflictResolutionTime 计算冲突解决后写回本地的时间戳。
+//
+// 仅用本地当前时间并不够：远端副本可能带有更晚的时间戳（对端时钟领先，
+// 或服务端返回的 SyncTime 已前移），服务端按「较新者生效」合并时仍会保留
+// 远端副本，下一轮同步又把用户刚选定的内容覆盖回去、冲突重新出现。
+// 因此取「本地当前时间」与「双方快照时间 + 1ns」中的最大值，
+// 保证选中的副本严格晚于两端旧值，无论选择哪一端都能稳定生效。
+func conflictResolutionTime(localAt, remoteAt string) string {
+	chosen := timeutil.Now()
+	latest, err := timeutil.Parse(chosen)
+	if err != nil {
+		latest = time.Now()
+	}
+	for _, s := range []string{localAt, remoteAt} {
+		t, err := timeutil.Parse(s)
+		if err != nil {
+			continue
+		}
+		if cand := t.Add(time.Nanosecond); cand.After(latest) {
+			latest = cand
+		}
+	}
+	return timeutil.Format(latest)
+}
+
 // ResolveConflict 按用户选择保留冲突中的一端：keepLocal 为 true 保留本地副本，
 // 否则保留远端副本。
 //
-// 选中的副本以「当前时间」写回本地，因此它晚于本轮同步游标，会在下一轮同步中
-// 上传并覆盖另一端；不这样做的话本地会一直停留在落败的旧值上反复产生冲突。
+// 选中的副本以「严格晚于双方旧值」的时间写回本地（见 conflictResolutionTime），
+// 因此它晚于本轮同步游标，会在下一轮同步中上传并覆盖另一端；
+// 不这样做的话本地会一直停留在落败的旧值上反复产生冲突。
 func (s *SyncService) ResolveConflict(ctx context.Context, blobID string, keepLocal bool) error {
 	if !s.vault.IsUnlocked() {
 		return apperror.VaultLocked()
@@ -143,7 +170,7 @@ func (s *SyncService) ResolveConflict(ctx context.Context, blobID string, keepLo
 
 	chosen := dbgen.UpsertBlobParams{
 		ID:        blobID,
-		UpdatedAt: timeutil.Now(),
+		UpdatedAt: conflictResolutionTime(conflict.LocalUpdatedAt, conflict.RemoteUpdatedAt),
 	}
 	if keepLocal {
 		chosen.Blob = conflict.LocalBlob

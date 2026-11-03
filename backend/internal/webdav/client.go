@@ -82,6 +82,12 @@ func GetFile(ctx context.Context, url, username, password string) (data []byte, 
 // 返回上传成功后的新 ETag。
 func PutFile(ctx context.Context, url, username, password string, data []byte, ifMatchETag, ifUnmodifiedSince string) (newETag string, err error) {
 	client := newClient()
+	// PUT 不能跟随重定向：Go 的 http.Client 遇到 301/302/303 会把方法改成 GET
+	// 并丢弃请求体，目标服务器最终返回 200，调用方会把"根本没上传"当成成功。
+	// 禁止重定向后，3xx 会作为错误状态返回，用户可以修正 URL（例如改用 https）。
+	client.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
+		return http.ErrUseLastResponse
+	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPut, url, bytes.NewReader(data))
 	if err != nil {
@@ -109,8 +115,11 @@ func PutFile(ctx context.Context, url, username, password string, data []byte, i
 		return "", &PreconditionFailedError{URL: url}
 	}
 
-	if resp.StatusCode >= 400 {
-		return "", fmt.Errorf("WebDAV PUT 返回错误状态码: %d", resp.StatusCode)
+	// 只接受 2xx：3xx（含被改为 GET 的跳转）与 1xx 都不代表文件已写入
+	switch resp.StatusCode {
+	case http.StatusOK, http.StatusCreated, http.StatusNoContent:
+	default:
+		return "", fmt.Errorf("WebDAV PUT 返回非成功状态码: %d", resp.StatusCode)
 	}
 
 	newETag = resp.Header.Get("ETag")

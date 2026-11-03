@@ -301,6 +301,11 @@ func (s *Service) watch(w *watcher) {
 
 	info, err := os.Stat(w.localPath)
 	if err != nil {
+		// 监听尚未开始就失败（例如安全软件/同步盘瞬时移走文件）：
+		// 必须注销 watcher 并清理临时目录，否则 s.watchers 永久残留，
+		// 之后同一远端路径再次打开会命中这个失效条目，永远无法恢复。
+		s.removeWatcher(w.key)
+		_ = os.RemoveAll(w.localDir)
 		return
 	}
 	lastMod := info.ModTime()
@@ -330,6 +335,10 @@ func (s *Service) watch(w *watcher) {
 			lastSize = info.Size()
 			dirty = true
 			stable = 0
+			// 用户又编辑了本地文件：即便上一轮已提示过远端冲突，也要重新提示。
+			// 否则 conflictNotified 一旦置位就再也不会复位（上传永远被跳过），
+			// 后续所有保存都会静默丢弃，编辑器却显示"已保存"。
+			w.conflictNotified = false
 			continue
 		}
 		if !dirty {

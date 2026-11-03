@@ -26,12 +26,14 @@ export function WindowControls({className = ""}) {
     useEffect(() => {
         setIsWindows(System.IsWindows());
 
-        Window.IsMaximised().then(setIsMaximised);
-        const handleResize = () => {
-            Window.IsMaximised().then(setIsMaximised);
+        // 窗口服务在窗口销毁/后端异常时会 reject，必须兜底，
+        // 否则每次 resize 都会产生未处理的 Promise rejection。
+        const refreshMaximised = () => {
+            Window.IsMaximised().then(setIsMaximised).catch(() => setIsMaximised(false));
         };
-        window.addEventListener("resize", handleResize);
-        return () => window.removeEventListener("resize", handleResize);
+        refreshMaximised();
+        window.addEventListener("resize", refreshMaximised);
+        return () => window.removeEventListener("resize", refreshMaximised);
     }, []);
 
     const handleToggleMaximise = async () => {
@@ -43,8 +45,13 @@ export function WindowControls({className = ""}) {
             } else {
                 await Window.Maximise();
             }
-        } finally {
+        } catch {
+            // 最大化/还原失败时保持现有状态，不做无意义的翻转
+        }
+        try {
             setIsMaximised(await Window.IsMaximised());
+        } catch {
+            // 读取失败时保留上一次已知状态
         }
     };
 

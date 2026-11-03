@@ -18,7 +18,7 @@ import {
     Clock3,
 } from "lucide-react";
 import { useTransferStore, type TransferItem, type TransferStatus } from "@/store/transferStore";
-import { cancelScheduledTransfer } from "@/lib/transferScheduler";
+import { cancelScheduledTransfer, scheduleTransfer } from "@/lib/transferScheduler";
 import { formatFileSize } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { useTranslation } from "react-i18next";
@@ -87,10 +87,14 @@ const TransferRow = memo(function TransferRow({ item, onRetry }: { item: Transfe
         }
         if (cancelling) return;
         setCancelling(true);
-        // 后端会推送一次失败完成事件，队列据此转为"已取消"状态
-        SftpService.CancelTransfer(item.id).catch(() => {
-            setCancelling(false);
-        });
+        // 后端会推送一次失败完成事件，队列据此转为"已取消"状态。
+        // 无论调用成功还是失败都复位 cancelling：事件可能因任务刚好结束、
+        // 连接断开而丢失，只在 catch 里复位会让按钮永久禁用。
+        // 必须显式 catch：任务已结束/会话已断开时该调用会 reject，
+        // finally 派生出的 Promise 无人处理会变成未捕获的 rejection。
+        SftpService.CancelTransfer(item.id)
+            .catch(() => {})
+            .finally(() => setCancelling(false));
     };
 
     const requestPause = () => {
@@ -107,41 +111,59 @@ const TransferRow = memo(function TransferRow({ item, onRetry }: { item: Transfe
         }, 2500);
     };
 
-    const requestResume = async () => {
+    const requestResume = () => {
         if (resuming || item.status !== "paused" || !resumable) return;
         setResuming(true);
-        useTransferStore.getState().resumeTransfer(item.id);
-        // 续传必须沿用原始传输方式：压缩上传的 localPath 是目录，
-        // 走普通 Upload 会把目录内容平铺到目标目录而不是还原成 <目录名>/…；
-        // 打包下载没有单一 remotePath，只能按 archivePaths 重新打包。
-        const run = item.type === "copy"
-            ? SftpService.CopyBetweenSessions(
-                item.sessionId, item.sourcePath!, item.targetSessionId!, item.remotePath!, item.id,
-            )
-            : item.type === "upload"
-                ? (item.archiveUpload
-                    ? SftpService.UploadDirArchive(
-                        item.sessionId, item.id, item.localPath!, item.remotePath!,
+        // 续传也必须走调度器：直接调用后端时，用户连续点开多个暂停任务会绕过
+        // 每会话 3 个的并发上限，把大量请求同时压到同一条 SSH 连接上。
+        // 条目在轮到执行前保持 paused（不提前 resumeTransfer）；调度器按 id 去重，
+        // 因此组件被卸载重挂后按钮再次被点也不会重复发起同一个传输。
+        let cancelledWhileQueued = false;
+        scheduleTransfer(
+            item.sessionId,
+            item.id,
+            async () => {
+                if (cancelledWhileQueued) return;
+                useTransferStore.getState().resumeTransfer(item.id);
+                // 续传必须沿用原始传输方式：压缩上传的 localPath 是目录，
+                // 走普通 Upload 会把目录内容平铺到目标目录而不是还原成 <目录名>/…；
+                // 打包下载没有单一 remotePath，只能按 archivePaths 重新打包。
+                const run = item.type === "copy"
+                    ? SftpService.CopyBetweenSessions(
+                        item.sessionId, item.sourcePath!, item.targetSessionId!, item.remotePath!, item.id,
                     )
-                    : SftpService.Upload(item.sessionId, item.id, item.localPath!, item.remotePath!))
-                : (item.archivePaths?.length
-                    ? SftpService.DownloadArchive(
-                        item.sessionId, item.id, item.archivePaths, item.localPath!,
-                    )
-                    : SftpService.Download(item.sessionId, item.id, item.remotePath!, item.localPath!));
-        try {
-            await run;
-            useTransferStore.getState().updateTransfer(item.id, {status: "success"});
-        } catch (err) {
-            useTransferStore.getState().updateTransfer(
-                item.id,
-                isTransferCanceled(err)
-                    ? {status: "error", cancelled: true}
-                    : {status: "error", error: String((err as Error)?.message ?? err)}
-            );
-        } finally {
-            setResuming(false);
-        }
+                    : item.type === "upload"
+                        ? (item.archiveUpload
+                            ? SftpService.UploadDirArchive(
+                                item.sessionId, item.id, item.localPath!, item.remotePath!,
+                            )
+                            : SftpService.Upload(item.sessionId, item.id, item.localPath!, item.remotePath!))
+                        : (item.archivePaths?.length
+                            ? SftpService.DownloadArchive(
+                                item.sessionId, item.id, item.archivePaths, item.localPath!,
+                            )
+                            : SftpService.Download(item.sessionId, item.id, item.remotePath!, item.localPath!));
+                try {
+                    await run;
+                    useTransferStore.getState().updateTransfer(item.id, {status: "success"});
+                } catch (err) {
+                    useTransferStore.getState().updateTransfer(
+                        item.id,
+                        isTransferCanceled(err)
+                            ? {status: "error", cancelled: true}
+                            : {status: "error", error: String((err as Error)?.message ?? err)}
+                    );
+                } finally {
+                    setResuming(false);
+                }
+            },
+            () => {
+                // 排队期间被取消（用户移除条目或会话关闭）：不要再发起后端传输
+                cancelledWhileQueued = true;
+                useTransferStore.getState().updateTransfer(item.id, {status: "error", cancelled: true});
+                setResuming(false);
+            },
+        );
     };
 
     // 进度行下方的元信息：进行中显示速率/剩余时间，结束后显示耗时与完成时刻
@@ -315,8 +337,9 @@ const TransferRow = memo(function TransferRow({ item, onRetry }: { item: Transfe
                     size="icon-xs"
                     className="shrink-0 opacity-0 group-hover:opacity-100"
                     onClick={() => {
-                        // 排队中的任务被移除时同步清掉调度队列里的条目
-                        if (item.status === "queued") {
+                        // 排队中的任务（含刚点续传、仍在等待槽位的 paused 条目）
+                        // 被移除时，同步清掉调度队列里的条目，避免它稍后仍被启动
+                        if (item.status === "queued" || item.status === "paused") {
                             cancelScheduledTransfer(item.sessionId, item.id);
                         }
                         removeTransfer(item.id);

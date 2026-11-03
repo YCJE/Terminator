@@ -15,7 +15,19 @@ const MAX_HISTORY_FILE_BYTES = 512 * 1024;
 const HISTORY_FILES = [".bash_history", ".zsh_history", ".sh_history"];
 
 const cache = new Map<string, string[]>();
-const pending = new Map<string, Promise<void>>();
+interface PendingLoad {
+    promise: Promise<void>;
+    generation: number;
+}
+const pending = new Map<string, PendingLoad>();
+
+// 每个会话一个代次：清理/重连时递增，旧任务完成后不允许再写入缓存，
+// 否则上一轮连接读到的历史会在新连接里"复活"。
+const generations = new Map<string, number>();
+
+function generationOf(sessionId: string): number {
+    return generations.get(sessionId) ?? 0;
+}
 
 /**
  * 解析 shell 历史文件内容，返回"最新在前"的命令列表。
@@ -51,6 +63,8 @@ export function getRemoteHistory(sessionId?: string | null): string[] {
 export function clearRemoteHistory(sessionId: string): void {
     cache.delete(sessionId);
     pending.delete(sessionId);
+    // 递增代次：仍在途的读取任务完成后会发现自己已过期，直接丢弃结果
+    generations.set(sessionId, generationOf(sessionId) + 1);
 }
 
 /**
@@ -59,42 +73,52 @@ export function clearRemoteHistory(sessionId: string): void {
  */
 export function loadRemoteShellHistory(sessionId: string): Promise<void> {
     const existing = pending.get(sessionId);
-    if (existing) return existing;
+    if (existing) return existing.promise;
 
+    const generation = generationOf(sessionId);
     const task = (async () => {
+        let home = "";
         try {
-            let home = "";
-            try {
-                home = (await SftpService.HomeDir(sessionId)) ?? "";
-            } catch {
-                return;
-            }
-            if (!home) return;
-
-            const merged: string[] = [];
-            const seen = new Set<string>();
-            for (const name of HISTORY_FILES) {
-                const remotePath = joinRemotePath(home, name);
-                try {
-                    if (!(await SftpService.Exists(sessionId, remotePath))) continue;
-                    const text = await SftpService.ReadFileTail(sessionId, remotePath, MAX_HISTORY_FILE_BYTES);
-                    if (!text) continue;
-                    for (const command of parseShellHistory(text)) {
-                        if (seen.has(command)) continue;
-                        seen.add(command);
-                        merged.push(command);
-                        if (merged.length >= MAX_REMOTE_HISTORY_LINES) break;
-                    }
-                } catch {
-                    // 单个历史文件不存在/无权限/读取失败都不影响其它候选文件
-                }
-                if (merged.length >= MAX_REMOTE_HISTORY_LINES) break;
-            }
-            cache.set(sessionId, merged);
-        } finally {
-            pending.delete(sessionId);
+            home = (await SftpService.HomeDir(sessionId)) ?? "";
+        } catch {
+            return;
         }
+        if (!home) return;
+
+        const merged: string[] = [];
+        const seen = new Set<string>();
+        for (const name of HISTORY_FILES) {
+            const remotePath = joinRemotePath(home, name);
+            try {
+                if (!(await SftpService.Exists(sessionId, remotePath))) continue;
+                const text = await SftpService.ReadFileTail(sessionId, remotePath, MAX_HISTORY_FILE_BYTES);
+                if (!text) continue;
+                for (const command of parseShellHistory(text)) {
+                    if (seen.has(command)) continue;
+                    seen.add(command);
+                    merged.push(command);
+                    if (merged.length >= MAX_REMOTE_HISTORY_LINES) break;
+                }
+            } catch {
+                // 单个历史文件不存在/无权限/读取失败都不影响其它候选文件
+            }
+            if (merged.length >= MAX_REMOTE_HISTORY_LINES) break;
+        }
+        // 读取期间会话可能已重连/关闭：代次变化说明结果属于上一轮连接
+        if (generationOf(sessionId) !== generation) return;
+        cache.set(sessionId, merged);
     })();
-    pending.set(sessionId, task);
+    const entry: PendingLoad = {promise: task, generation};
+    pending.set(sessionId, entry);
+    // 用 then(cleanup, cleanup) 而不是 finally：避免派生出的 Promise 在任务
+    // 失败时产生未处理的 rejection（错误已经通过返回的 task 交给调用方）。
+    task.then(
+        () => {
+            if (pending.get(sessionId) === entry) pending.delete(sessionId);
+        },
+        () => {
+            if (pending.get(sessionId) === entry) pending.delete(sessionId);
+        },
+    );
     return task;
 }

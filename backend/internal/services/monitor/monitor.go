@@ -205,10 +205,19 @@ type probeCounters struct {
 // sessionState 一个会话的采集循环状态。
 // 只在启动它的 goroutine 内读写计数，Stop 只操作 channel。
 type sessionState struct {
-	stopCh  chan struct{}
-	doneCh  chan struct{}
-	hasPrev bool
-	prev    probeCounters
+	stopCh   chan struct{}
+	doneCh   chan struct{}
+	stopOnce sync.Once
+	hasPrev  bool
+	prev     probeCounters
+}
+
+// requestStop 幂等停止采集循环：并发的 Start/Stop 可能同时操作同一状态，
+// 直接 close(stopCh) 会触发 "close of closed channel" panic。
+func (state *sessionState) requestStop() {
+	state.stopOnce.Do(func() {
+		close(state.stopCh)
+	})
 }
 
 // MonitorService 管理各会话的采集 goroutine。
@@ -236,18 +245,27 @@ func (s *MonitorService) Start(sessionID string, intervalMS int) error {
 	}
 	interval := normalizeInterval(intervalMS)
 
-	// 先停旧循环再注册新状态：stop 会等待旧 goroutine 退出，
-	// 否则两个循环会同时向同一个会话发起探测命令。
-	s.stop(sessionID)
-
 	state := &sessionState{
 		stopCh: make(chan struct{}),
 		doneCh: make(chan struct{}),
 	}
 
+	// 替换与"停止旧循环"必须在同一个临界区完成：若先 stop 再注册，
+	// 两个并发 Start 都可能看不到旧状态，各自启动一个采集循环；
+	// 后注册者覆盖 map 后，先注册的循环再也无法被 Stop 停止。
 	s.mu.Lock()
+	old := s.sessions[sessionID]
 	s.sessions[sessionID] = state
 	s.mu.Unlock()
+
+	if old != nil {
+		old.requestStop()
+		// 等待旧循环退出：若正卡在一次探测命令上，最长为 probeTimeout。
+		select {
+		case <-old.doneCh:
+		case <-time.After(probeTimeout + time.Second):
+		}
+	}
 
 	go s.run(sessionID, state, interval)
 	return nil
@@ -283,7 +301,7 @@ func (s *MonitorService) stop(sessionID string) {
 	if !ok {
 		return
 	}
-	close(state.stopCh)
+	state.requestStop()
 	// 等待采集循环退出：若正卡在一次探测命令上，最长为 probeTimeout。
 	select {
 	case <-state.doneCh:

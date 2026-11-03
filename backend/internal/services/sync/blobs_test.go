@@ -4,11 +4,13 @@ import (
 	"context"
 	"database/sql"
 	"testing"
+	"time"
 
 	_ "modernc.org/sqlite"
 
 	"terminator-desktop/backend/internal/dbgen"
 	"terminator-desktop/backend/internal/migration"
+	"terminator-desktop/backend/internal/timeutil"
 )
 
 func newTestQueries(t *testing.T) *dbgen.Queries {
@@ -155,5 +157,48 @@ func TestGetBlobsSinceUsesLexicographicBound(t *testing.T) {
 	}
 	if len(got) != 1 || got[0].ID != "b-late" {
 		t.Errorf("增量查询边界错误: %+v", got)
+	}
+}
+
+// 冲突解决写回的时间戳必须严格晚于双方快照：否则服务端按「较新者生效」
+// 合并时仍会保留较新的旧副本，用户的选择在下一轮同步被覆盖回去。
+func TestConflictResolutionTimeStrictlyNewer(t *testing.T) {
+	future := timeutil.Format(time.Now().Add(time.Hour))
+	got := conflictResolutionTime("", future)
+	gotTime, err := timeutil.Parse(got)
+	if err != nil {
+		t.Fatalf("解析结果时间戳失败: %v", err)
+	}
+	remote, err := timeutil.Parse(future)
+	if err != nil {
+		t.Fatalf("解析远端时间戳失败: %v", err)
+	}
+	if !gotTime.After(remote) {
+		t.Errorf("写回时间 %s 未严格晚于远端 %s", got, future)
+	}
+
+	// 两端都是过去时间时，结果至少晚于较新的那一端
+	past := timeutil.Format(time.Now().Add(-time.Hour))
+	got = conflictResolutionTime(past, past)
+	gotTime, err = timeutil.Parse(got)
+	if err != nil {
+		t.Fatalf("解析结果时间戳失败: %v", err)
+	}
+	pastTime, err := timeutil.Parse(past)
+	if err != nil {
+		t.Fatalf("解析过去时间戳失败: %v", err)
+	}
+	if !gotTime.After(pastTime) {
+		t.Errorf("写回时间 %s 未严格晚于快照 %s", got, past)
+	}
+
+	// 非法时间戳不应让结果失控：回退到当前时间
+	got = conflictResolutionTime("not-a-time", "")
+	gotTime, err = timeutil.Parse(got)
+	if err != nil {
+		t.Fatalf("解析回退时间戳失败: %v", err)
+	}
+	if time.Since(gotTime) > time.Minute {
+		t.Errorf("非法输入时未回退到当前时间: %s", got)
 	}
 }

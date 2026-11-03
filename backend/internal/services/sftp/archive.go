@@ -9,6 +9,7 @@ package sftp
 import (
 	"archive/zip"
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io"
@@ -166,6 +167,16 @@ func collectArchiveEntries(src archiveSource, remotePaths []string) ([]archiveEn
 	return entries, total, nil
 }
 
+// archivePartPath 返回打包下载的临时文件路径。
+//
+// 临时名带上传输标识：同一目标同时发起两个打包下载（用户重复操作、或旧任务
+// 尚未结束就重试）时，共用固定临时名会让后一个先删掉前一个正在写入的文件，
+// 甚至通过重命名把对方仍在写的句柄“偷走”，最终留下半截压缩包。
+func archivePartPath(localPath, transferID string) string {
+	sum := sha256.Sum256([]byte(transferID))
+	return fmt.Sprintf("%s.terminator-zip-%x-part", localPath, sum[:6])
+}
+
 // downloadArchive 是打包下载的实际实现。
 // 返回前会关闭并删除临时文件；只有成功完成并原子重命名后才保留目标文件。
 func (s *SftpService) downloadArchive(
@@ -185,7 +196,7 @@ func (s *SftpService) downloadArchive(
 	}
 
 	displayName := filepath.Base(localPath)
-	part := localPath + ".terminator-zip-part"
+	part := archivePartPath(localPath, transferID)
 	if err := os.Remove(part); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("清理旧的临时文件 %q 失败: %w", part, err)
 	}

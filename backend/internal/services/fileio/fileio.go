@@ -9,6 +9,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -73,10 +74,92 @@ func (s *TextFileService) SaveText(path string, content string) error {
 	if info, statErr := os.Stat(clean); statErr == nil && info.IsDir() {
 		return errors.New("目标是目录，无法写入文件")
 	}
-	if err := os.WriteFile(clean, []byte(content), 0o600); err != nil {
+	if err := writeFileAtomic(clean, []byte(content), 0o600); err != nil {
 		return fmt.Errorf("写入文件失败: %w", err)
 	}
 	return nil
+}
+
+// writeFileAtomic 在目标目录创建临时文件，写满并 fsync 后再原子重命名。
+// 直接 os.WriteFile 会先截断目标：磁盘满、IO 错误或进程中途退出时，
+// 用户原有的文件会变成 0 字节或半截内容且无法恢复。
+func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
+	// 目标是符号链接时写到它指向的真实文件：rename 会替换目录项本身，
+	// 否则保存一次就会把链接变成普通文件，链接另一端的真实文件反而不更新。
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		path = resolved
+	}
+	// 覆盖已有文件时沿用原权限：os.WriteFile 不会修改已存在文件的权限，
+	// 若这里固定 chmod 为传入值（0600），会把可执行脚本、组可读文件降权。
+	if info, err := os.Stat(path); err == nil && info.Mode().IsRegular() {
+		perm = info.Mode().Perm()
+	}
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, ".terminator-save-*")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	cleanup := true
+	defer func() {
+		if cleanup {
+			_ = tmp.Close()
+			_ = os.Remove(tmpName)
+		}
+	}()
+
+	if _, err := tmp.Write(data); err != nil {
+		return err
+	}
+	// fsync 确保 rename 之前内容已经落盘；否则掉电后可能留下 0 字节文件
+	if err := tmp.Sync(); err != nil {
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	// CreateTemp 使用 0600，显式 chmod 以匹配调用方期望的权限
+	if err := os.Chmod(tmpName, perm); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpName, path); err != nil {
+		return err
+	}
+	cleanup = false
+	return nil
+}
+
+// readFileLimited 读取常规文件并强制大小上限。
+// 不能只依赖 Stat.Size：FIFO 之类非常规文件会在打开时阻塞，
+// /dev/zero 之类大小报告为 0 但读取无限增长，必须先拒绝非常规文件，
+// 再用 LimitReader 兜底防止读取过程中文件被写大。
+func readFileLimited(path string, maxBytes int64) ([]byte, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, fmt.Errorf("读取文件失败: %w", err)
+	}
+	if info.IsDir() {
+		return nil, errors.New("目标是目录，无法读取文件")
+	}
+	if !info.Mode().IsRegular() {
+		return nil, errors.New("目标不是常规文件，无法读取")
+	}
+	if info.Size() > maxBytes {
+		return nil, fmt.Errorf("文件超过 %d MB 上限", maxBytes>>20)
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("读取文件失败: %w", err)
+	}
+	defer f.Close()
+	data, err := io.ReadAll(io.LimitReader(f, maxBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf("读取文件失败: %w", err)
+	}
+	if int64(len(data)) > maxBytes {
+		return nil, fmt.Errorf("文件超过 %d MB 上限", maxBytes>>20)
+	}
+	return data, nil
 }
 
 // ReadText 读取用户选定的文本文件，超过上限时拒绝。
@@ -95,9 +178,9 @@ func (s *TextFileService) ReadText(path string) (string, error) {
 	if info.Size() > maxTextBytes {
 		return "", fmt.Errorf("文件超过 %d MB 上限", maxTextBytes>>20)
 	}
-	data, err := os.ReadFile(clean)
+	data, err := readFileLimited(clean, maxTextBytes)
 	if err != nil {
-		return "", fmt.Errorf("读取文件失败: %w", err)
+		return "", err
 	}
 	return string(data), nil
 }
@@ -120,9 +203,9 @@ func (s *TextFileService) ReadBinary(path string) (string, error) {
 	if info.Size() > maxBinaryBytes {
 		return "", fmt.Errorf("文件超过 %d MB 上限", maxBinaryBytes>>20)
 	}
-	data, err := os.ReadFile(clean)
+	data, err := readFileLimited(clean, maxBinaryBytes)
 	if err != nil {
-		return "", fmt.Errorf("读取文件失败: %w", err)
+		return "", err
 	}
 	return base64.StdEncoding.EncodeToString(data), nil
 }
@@ -147,7 +230,7 @@ func (s *TextFileService) SaveBinary(path string, contentBase64 string) error {
 	if info, statErr := os.Stat(clean); statErr == nil && info.IsDir() {
 		return errors.New("目标是目录，无法写入文件")
 	}
-	if err := os.WriteFile(clean, data, 0o600); err != nil {
+	if err := writeFileAtomic(clean, data, 0o600); err != nil {
 		return fmt.Errorf("写入文件失败: %w", err)
 	}
 	return nil

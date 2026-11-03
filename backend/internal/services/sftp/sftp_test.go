@@ -3,6 +3,7 @@ package sftp
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -35,20 +36,31 @@ func TestRegisterTransferKeepsNewerHandle(t *testing.T) {
 }
 
 func TestPartPathAppendsSuffix(t *testing.T) {
-	got := partPath("/home/u/big.iso", 4096)
-	want := "/home/u/big.iso" + partSuffix + "-4096"
-	if got != want {
-		t.Errorf("partPath = %q, 期望 %q", got, want)
+	got := partPath("/home/u/big.iso", 4096, "1700000000000000000|t1")
+	if !strings.HasPrefix(got, "/home/u/big.iso"+partSuffix+"-4096-") {
+		t.Errorf("partPath = %q, 缺少前缀或总大小", got)
+	}
+	if strings.Contains(got, "|") || strings.Contains(got, "t1") {
+		t.Errorf("partPath = %q, 传输身份未摘要，可能把分隔符带进文件名", got)
 	}
 }
 
-// 断点文件名必须随传输总量变化：同一目标路径先后传输不同大小的文件时，
-// 旧断点不得被当作新传输的续传起点，否则会拼出内容损坏的文件。
+// 断点文件名必须随「源端身份 + 传输 ID」变化：同一目标路径先后传输不同内容
+// 的文件、或同时进行两次传输时，旧断点不得被当作续传起点，否则会拼出损坏文件。
 func TestPartPathDistinguishesTotals(t *testing.T) {
-	small := partPath("/r/x", 1024)
-	large := partPath("/r/x", 2048)
+	small := partPath("/r/x", 1024, "m1|t1")
+	large := partPath("/r/x", 2048, "m1|t1")
 	if small == large {
 		t.Errorf("不同大小的传输共用断点文件名: %q", small)
+	}
+}
+
+func TestPartPathDistinguishesIdentity(t *testing.T) {
+	changedSource := partPath("/r/x", 1024, "m2|t1")
+	otherTransfer := partPath("/r/x", 1024, "m1|t2")
+	base := partPath("/r/x", 1024, "m1|t1")
+	if base == changedSource || base == otherTransfer {
+		t.Errorf("源端变化或不同传输复用了同一个断点文件名: %q", base)
 	}
 }
 
