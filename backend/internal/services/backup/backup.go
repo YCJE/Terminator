@@ -391,7 +391,10 @@ func (s *BackupService) ImportBackup(ctx context.Context, password string) error
 	// 不是当前账户时必须重置同步通道：settings.json 里的 WebDAV 地址与凭据
 	// 属于被替换的账户，新账户的主密钥既解不开旧远端数据，也会把新数据写进
 	// 上一账户的云盘空间；备份里的同步游标也属于另一账户，需要清空后重新对齐。
-	previousUser, userErr := s.q.GetUser(ctx)
+	// 必须走事务句柄：SQLite 连接池只有一条连接，事务持有连接后再用
+	// 非事务句柄查询会永久等待可用连接（CI 上表现为测试超时）。
+	qtx := s.q.WithTx(tx)
+	previousUser, userErr := qtx.GetUser(ctx)
 	if userErr != nil && !errors.Is(userErr, sql.ErrNoRows) {
 		return userErr
 	}
@@ -399,7 +402,6 @@ func (s *BackupService) ImportBackup(ctx context.Context, password string) error
 		previousUser.Username == payload.User.Username &&
 		previousUser.ServerUrl.String == payload.User.ServerURL
 
-	qtx := s.q.WithTx(tx)
 	if err := qtx.WipeBlobs(ctx); err != nil {
 		return err
 	}
