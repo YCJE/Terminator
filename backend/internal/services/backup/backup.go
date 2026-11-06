@@ -401,6 +401,9 @@ func (s *BackupService) ImportBackup(ctx context.Context, password string) error
 	sameAccount := userErr == nil &&
 		previousUser.Username == payload.User.Username &&
 		previousUser.ServerUrl.String == payload.User.ServerURL
+	// 无既有账户（首次安装或已清空数据）时不存在"上一账户"，备份中的游标
+	// 属于待恢复账户，必须原样保留，否则增量同步会从零重拉全部数据。
+	crossAccount := userErr == nil && !sameAccount
 
 	if err := qtx.WipeBlobs(ctx); err != nil {
 		return err
@@ -449,7 +452,7 @@ func (s *BackupService) ImportBackup(ctx context.Context, password string) error
 	// 恢复的是另一个账户：清除上一账户的 WebDAV 凭据（连同同步方式一起复位），
 	// 并清空备份带来的同步游标——它属于另一账户/服务器，继续沿用会让增量
 	// 同步漏掉新服务器上的既有数据。清理失败只告警，不回滚已成功恢复的数据。
-	if !sameAccount {
+	if crossAccount {
 		if s.settingsSvc != nil {
 			if err := s.settingsSvc.ClearWebDAVConfig(); err != nil {
 				slog.Warn("failed to clear WebDAV config after backup import", "error", err)
