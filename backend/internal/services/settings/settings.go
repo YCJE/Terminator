@@ -459,7 +459,7 @@ type WindowState struct {
 	Height    int  `json:"height"`
 	X         int  `json:"x"`
 	Y         int  `json:"y"`
-	HasPos    bool `json:"has_pos"`    // 是否已记录过位置（0,0 是合法坐标，不能靠零值判断）
+	HasPos    bool `json:"has_pos"`   // 是否已记录过位置（0,0 是合法坐标，不能靠零值判断）
 	Maximised bool `json:"maximised"` // 上次关闭时是否处于最大化
 }
 

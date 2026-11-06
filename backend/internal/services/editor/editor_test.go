@@ -114,7 +114,7 @@ func TestLocalEditorFileName(t *testing.T) {
 		"/":                     "remote-file",
 		"/tmp/":                 "tmp",
 		// ".." 会拼出临时目录的父路径，必须回退成普通文件名
-		"..": "remote-file",
+		"..":      "remote-file",
 		"/tmp/..": "remote-file",
 	}
 	for input, want := range cases {
