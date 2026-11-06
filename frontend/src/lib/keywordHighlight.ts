@@ -49,6 +49,22 @@ function isRiskyPattern(source: string): boolean {
 }
 
 /**
+ * 供设置页预校验：与 compileCustomRules 的拒绝条件保持一致。
+ * 语法合法但会被运行时静默跳过的规则（超长、灾难性回溯、可匹配空串）
+ * 也必须标为无效，否则用户会以为规则已生效但终端毫无反应。
+ */
+export function isHighlightPatternValid(pattern: string, regex: boolean): boolean {
+    if (!pattern || !regex) return true;
+    if (pattern.length > MAX_PATTERN_LENGTH || isRiskyPattern(pattern)) return false;
+    try {
+        // 可匹配空字符串的规则会被跳过，避免在每个字符之间插入颜色序列
+        return !new RegExp(pattern).test("");
+    } catch {
+        return false;
+    }
+}
+
+/**
  * 默认关键词高亮规则
  *
  * 颜色使用 SGR（Select Graphic Rendition）序列：

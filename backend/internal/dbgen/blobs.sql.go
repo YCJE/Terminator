@@ -127,8 +127,10 @@ func (q *Queries) GetBlobsSince(ctx context.Context, updatedAt string) ([]Encryp
 }
 
 const softDeleteBlob = `-- name: SoftDeleteBlob :exec
+-- blob 一并清空：墓碑记录只需保留 id/时间戳/删除标记，密文继续保留会让
+-- 已删除的密码等敏感内容随同步文件长期存在于远端与备份中。
 UPDATE encrypted_blobs
-SET is_deleted = 1, updated_at = ?
+SET is_deleted = 1, blob = '', updated_at = ?
 WHERE id = ?
 `
 

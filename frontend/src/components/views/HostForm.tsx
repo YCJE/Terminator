@@ -145,6 +145,9 @@ export function HostForm({initialData, isSaving, onSave}: HostFormProps) {
 
     // 把表单值收敛成一份可直接保存/测试的主机配置。
     // 校验失败时返回 null 并给出提示，调用方不再重复校验。
+    // 注意：连接预检不经过 <form> 的原生校验（handleTestConnection 直接调用本函数），
+    // 因此必填项与端口必须在这里显式校验；同时去掉首尾空白，避免把
+    // "  " 这样的主机名/用户名当作有效值保存或发起连接。
     const buildHost = (): Host | null => {
         // 校验：密钥认证必须选择密钥
         if (authMethod === "key" && (!formData.keyId || formData.keyId === "none")) {
@@ -152,8 +155,28 @@ export function HostForm({initialData, isSaving, onSave}: HostFormProps) {
             return null;
         }
 
-        const port = Number(formData.port) || 22;
-        const clampedPort = Math.max(1, Math.min(65535, port));
+        const host = (formData.host || "").trim();
+        if (!host) {
+            toast.error(t("quick_invalid_host"));
+            return null;
+        }
+        const username = (formData.username || "").trim();
+        if (!username) {
+            toast.error(t("quick_invalid_username"));
+            return null;
+        }
+
+        // 端口：留空按默认 22；填了就必须是 1-65535 的整数。
+        // 不再静默夹取（把 70000 改成 65535、把 0 改成 22 会让用户以为保存成功）。
+        let port = 22;
+        if (formData.port !== undefined && formData.port !== null && String(formData.port).trim() !== "") {
+            const parsed = Number(formData.port);
+            if (!Number.isInteger(parsed) || parsed < 1 || parsed > 65535) {
+                toast.error(t("quick_invalid_port"));
+                return null;
+            }
+            port = parsed;
+        }
 
         // 代理校验：选择了代理类型时，地址和端口为必填
         const hasProxyType = formData.proxyType && formData.proxyType !== "none";
@@ -174,7 +197,9 @@ export function HostForm({initialData, isSaving, onSave}: HostFormProps) {
             ...formData,
             id: formData.id || "",
             type: ItemType.TypeHost,
-            port: clampedPort,
+            host,
+            username,
+            port,
             group: formData.group?.trim() || undefined,
             keyId: authMethod === "key" ? (formData.keyId === "none" ? undefined : formData.keyId) : undefined,
             // 如果选择密钥认证，清空密码；「每次询问」不保存密码

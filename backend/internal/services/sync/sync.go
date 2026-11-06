@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"errors"
+	"strings"
 	"sync"
 	"terminator-desktop/backend/internal/api"
 	"terminator-desktop/backend/internal/dbgen"
@@ -48,6 +49,19 @@ type SyncService struct {
 	cancelSync context.CancelFunc
 	// syncDone 在自动同步 goroutine 退出时被关闭，供 StopAutoSync 等待在途同步结束
 	syncDone chan struct{}
+
+	// lifecycleMu 串行化自动同步循环的启动/停止。
+	// 启动需要先取消并等待旧循环退出，而等待期间不能持有 mutex（同步体自身
+	// 也会获取它）；若只用 mutex，并发的 Start/Stop 会看到中间态（字段均为 nil），
+	// 出现"Stop 已返回但新循环仍被启动"的情况。
+	lifecycleMu sync.Mutex
+
+	// lastLocalQueryAt 记录上一轮本地变更查询的发起的本地时刻。
+	// 下一轮以「该时刻 - SyncMargin」作为本地侧下界：若改用「当前时间 - 轮询间隔」，
+	// 单轮请求耗时或失败退避一旦超过轮询间隔，请求期间产生的本地修改就会落在
+	// 下界之外，而游标已推进到请求之后，这些修改将永久无法被 GetBlobsSince 命中。
+	// 仅在 Sync 内读写：isSyncing 保证同一时刻只有一个 Sync 在执行。
+	lastLocalQueryAt time.Time
 
 	// syncGate 保护「同步执行」与「整体替换本地数据」的互斥。
 	// 同步持读锁，备份导入/数据擦除持写锁：前者保证替换期间没有同步在跑，
@@ -137,6 +151,34 @@ func (s *SyncService) PauseSync() func() {
 	}
 }
 
+// ResetSyncCursor 清除增量同步游标。
+//
+// 切换同步方式时必须调用：游标是由上一种方式写入的（服务器同步写入服务端
+// 返回的 SyncTime，WebDAV 写入本地时间），换到另一种方式后作为冲突检测基准
+// 会失真。服务器时钟领先本地时，本地修改不再被判定为"晚于基准"，冲突不会
+// 被记录，落败的一方被静默覆盖且用户无法恢复。
+//
+// 与同步执行互斥，避免在途同步在清空后又把旧游标写回。
+//
+//wails:ignore 仅由后端装配调用，不暴露给前端
+func (s *SyncService) ResetSyncCursor(ctx context.Context) error {
+	s.syncGate.Lock()
+	defer s.syncGate.Unlock()
+
+	user, err := s.q.GetUser(ctx)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			// 尚未创建账户，没有游标可清
+			return nil
+		}
+		return err
+	}
+	return s.q.UpdateUserLastSyncTime(ctx, dbgen.UpdateUserLastSyncTimeParams{
+		LastSyncTime: sql.NullString{},
+		ID:           user.ID,
+	})
+}
+
 func (s *SyncService) Sync(ctx context.Context) (err error) {
 	// 等待整体替换数据的操作（备份导入 / 数据擦除）结束：在途同步读到的是
 	// 替换前的旧副本，若继续执行会把旧数据推回服务器或写回本地。
@@ -223,19 +265,30 @@ func (s *SyncService) Sync(ctx context.Context) (err error) {
 		lastSyncTime = time.Unix(0, 0).UTC()
 	}
 
-	// 本地变更查询下界取「上次同步游标回退余量」与「本地当前时间回退余量」的较小值。
+	// 本地变更查询下界取「上次同步游标回退余量」与「上一轮查询时刻回退余量」的较小值。
 	//
 	// 游标写入的是服务器返回的 SyncTime，可能晚于本次本地查询时刻：一旦同步请求
 	// 耗时（含超时重试）超过安全余量，请求期间产生的本地修改会小于下一轮的下界，
 	// 从而被永久跳过、静默丢失。以本地时钟为准的下界必然早于本地查询时刻，
 	// 可保证这些修改在下一轮仍被纳入；重复上传是幂等 upsert，无副作用。
 	//
-	// 以本地时钟为基准时必须再叠加一个轮询间隔：下界每轮随本地时间前移一个间隔，
-	// 若只回退 SyncMargin（默认间隔 3s > 余量 2s），相邻两轮的查询窗口之间会出现
-	// 缝隙，落进缝隙（例如服务器时钟领先时，下界恒为 now-2s）的本地修改将永久
-	// 落在后续下界之外、再也无法被 GetBlobsSince 命中，导致静默丢失。
+	// 以「当前时间 - 轮询间隔」为界并不充分：单轮请求耗时或失败退避都可能超过
+	// 轮询间隔，此时请求期间产生的修改仍会落在下界之前，而游标已推进到请求之后，
+	// 后续每一轮的下界都晚于它，该修改将永久无法被查询命中。因此记录上一轮真正
+	// 发起查询的时刻，以它回退 SyncMargin 作为本地侧下界，使相邻两轮的查询窗口
+	// 必然重叠，与轮询间隔、退避和请求耗时的变化无关。
+	queryAt := time.Now()
+	previousQueryAt := s.lastLocalQueryAt
+	if previousQueryAt.IsZero() {
+		// 进程首次同步没有上一轮查询时刻：以当前时刻为基准（等价于只回退
+		// SyncMargin），实际范围由同步游标决定，避免退化为无意义的全量重扫
+		// （游标为空时 SinceBound 本身已返回 epoch）。
+		previousQueryAt = queryAt
+	}
+	s.lastLocalQueryAt = queryAt
+
 	pushBound := timeutil.SinceBound(lastSyncString)
-	if localBound := timeutil.SinceBoundNowBy(s.syncInterval + timeutil.SyncMargin); localBound < pushBound {
+	if localBound := timeutil.Format(previousQueryAt.Add(-timeutil.SyncMargin)); localBound < pushBound {
 		pushBound = localBound
 	}
 
@@ -287,6 +340,12 @@ func (s *SyncService) Sync(ctx context.Context) (err error) {
 
 	if len(res.Blobs) > 0 {
 		for _, incoming := range res.Blobs {
+			// 服务端返回的条目缺少 ID 或时间戳时直接跳过：ID 为空会写入一条
+			// 无法被任何查询命中的脏数据，零值时间戳会被格式化成公元 1 年，
+			// 既可能污染冲突记录，也会让后续增量查询反复命中该条目。
+			if strings.TrimSpace(incoming.ID) == "" || time.Time(incoming.UpdatedAt).IsZero() {
+				continue
+			}
 			updatedAtStr := timeutil.Format(time.Time(incoming.UpdatedAt))
 
 			// 冲突检测：该 blob 本轮既被本地修改、又被服务端改动，且密文不同，
@@ -324,13 +383,18 @@ func (s *SyncService) Sync(ctx context.Context) (err error) {
 		s.emitter.EmitUpdatesAvailable()
 	}
 
-	newSyncTimeStr := timeutil.Format(time.Time(res.SyncTime))
-	err = s.q.UpdateUserLastSyncTime(ctx, dbgen.UpdateUserLastSyncTimeParams{
-		LastSyncTime: sql.NullString{String: newSyncTimeStr, Valid: true},
-		ID:           user.ID,
-	})
-	if err != nil {
-		return err
+	// 服务端未返回有效的 SyncTime（字段缺失/解析为零值）时保持游标不变。
+	// 若照常写入零值，游标会退化到公元 1 年，下一轮变成全量同步并反复重扫，
+	// 同时冲突检测基准失真：所有远端变更都会被当成"比本地新"。
+	if syncTime := time.Time(res.SyncTime); !syncTime.IsZero() {
+		newSyncTimeStr := timeutil.Format(syncTime)
+		err = s.q.UpdateUserLastSyncTime(ctx, dbgen.UpdateUserLastSyncTimeParams{
+			LastSyncTime: sql.NullString{String: newSyncTimeStr, Valid: true},
+			ID:           user.ID,
+		})
+		if err != nil {
+			return err
+		}
 	}
 
 	s.emitter.EmitStatus(SyncStatusSuccess)

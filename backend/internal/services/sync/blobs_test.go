@@ -13,20 +13,25 @@ import (
 	"terminator-desktop/backend/internal/timeutil"
 )
 
-func newTestQueries(t *testing.T) *dbgen.Queries {
+// newTestDB 创建带完整迁移的内存数据库。
+// 内存数据库按连接隔离，限制为单连接以保证迁移建表与后续查询命中同一个库。
+func newTestDB(t *testing.T) *sql.DB {
 	t.Helper()
 	db, err := sql.Open("sqlite", ":memory:")
 	if err != nil {
 		t.Fatalf("打开内存数据库失败: %v", err)
 	}
-	// 内存数据库按连接隔离，限制为单连接以保证迁移建表与后续查询命中同一个库
 	db.SetMaxOpenConns(1)
 	t.Cleanup(func() { _ = db.Close() })
 
 	if err := migration.RunMigrations(db); err != nil {
 		t.Fatalf("执行迁移失败: %v", err)
 	}
-	return dbgen.New(db)
+	return db
+}
+
+func newTestQueries(t *testing.T) *dbgen.Queries {
+	return dbgen.New(newTestDB(t))
 }
 
 func getBlob(t *testing.T, q *dbgen.Queries, id string) dbgen.EncryptedBlob {

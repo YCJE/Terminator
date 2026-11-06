@@ -45,9 +45,14 @@ interface FileTableProps {
     selectedNames?: ReadonlySet<string>;
     /** 选择变化回调：普通点击单选，Ctrl/Cmd 切换，Shift 连选 */
     onSelectionChange?: (names: string[]) => void;
+    /**
+     * 目录身份（会话 + 路径）。只有它变化时才恢复滚动位置并清空选择；
+     * 上传/删除后的静默刷新只替换 entries，不应打断用户当前的选择与滚动位置。
+     */
+    dirKey?: string;
 }
 
-function FileTableImpl({ entries, loading, onOpen, onContextMenu, onEntryDragStart, filterText, onScrollChange, restoreScrollTop, selectedNames, onSelectionChange }: FileTableProps) {
+function FileTableImpl({ entries, loading, onOpen, onContextMenu, onEntryDragStart, filterText, onScrollChange, restoreScrollTop, selectedNames, onSelectionChange, dirKey }: FileTableProps) {
     const { t } = useTranslation("sftp");
     const [sortKey, setSortKey] = useState<SortKey>("name");
     const [sortDir, setSortDir] = useState<SortDir>("asc");
@@ -86,8 +91,14 @@ function FileTableImpl({ entries, loading, onOpen, onContextMenu, onEntryDragSta
         return () => observer.disconnect();
     }, [loading, entries.length]);
 
-    // 目录切换时恢复滚动位置（而非总是重置为 0），并清除上一目录的选择
+    // 目录切换时恢复滚动位置（而非总是重置为 0），并清除上一目录的选择。
+    // 依赖 dirKey 而不是 entries：静默刷新后 entries 是新数组，若据此重置，
+    // 用户刚选好的文件会被清空、滚动位置也会跳回目录顶部。
+    // 目录身份未变化时（首次挂载或会话内刷新）不重置。
+    const prevDirKeyRef = useRef<string | undefined>(undefined);
     useEffect(() => {
+        if (prevDirKeyRef.current === dirKey) return;
+        prevDirKeyRef.current = dirKey;
         const target = restoreScrollTop ?? 0;
         setScrollTop(target);
         selectionAnchorRef.current = null;
@@ -95,9 +106,9 @@ function FileTableImpl({ entries, loading, onOpen, onContextMenu, onEntryDragSta
             scrollRef.current.scrollTop = target;
         }
         onSelectionChange?.([]);
-        // 仅在 entries 变化时执行，restoreScrollTop 此时已是目标值
+        // restoreScrollTop 在目录切换前已由父组件更新，这里不再纳入依赖
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [entries]);
+    }, [dirKey]);
 
     const showSize = containerWidth > 360;
     const showPerm = containerWidth > 480;

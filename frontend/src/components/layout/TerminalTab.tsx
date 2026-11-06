@@ -120,8 +120,12 @@ export function TerminalTab({
     // 右键菜单状态
     const [menuOpen, setMenuOpen] = useState(false);
     const [menuPos, setMenuPos] = useState({ x: 0, y: 0 });
-    // 标记当前 contextmenu 事件来自本组件，避免 close 监听器误关闭自身菜单
-    const skipCloseRef = useRef(false);
+    // 当前标签与菜单（Portal 到 body）的 DOM 引用：用于判断 contextmenu 事件
+    // 是否来自本标签内部。不能用"本次是我们自己"的布尔标记——每个标签各有一个
+    // 标记，且打开菜单那一次事件不会被自己的监听器消费，标记会残留下来，
+    // 导致下一次在别的标签上右键时旧菜单不关闭（两个菜单同时显示）。
+    const tabRef = useRef<HTMLDivElement>(null);
+    const menuRef = useRef<HTMLDivElement>(null);
 
     // 原地重命名状态
     const [renaming, setRenaming] = useState(false);
@@ -132,10 +136,15 @@ export function TerminalTab({
     useEffect(() => {
         if (!menuOpen) return;
         const close = (e: Event) => {
-            // contextmenu 事件来自本标签页时跳过关闭（允许重新定位菜单）
-            if (e.type === "contextmenu" && skipCloseRef.current) {
-                skipCloseRef.current = false;
-                return;
+            // 右键落在本标签或本菜单内部：保留菜单（同标签重复右键用于重新定位）
+            if (e.type === "contextmenu") {
+                const target = e.target;
+                if (
+                    target instanceof Node
+                    && (tabRef.current?.contains(target) || menuRef.current?.contains(target))
+                ) {
+                    return;
+                }
             }
             setMenuOpen(false);
         };
@@ -188,7 +197,6 @@ export function TerminalTab({
     /** 右键打开菜单并选中该标签 */
     const handleContextMenu = (e: React.MouseEvent) => {
         e.preventDefault();
-        skipCloseRef.current = true;
         onClick();
         // 估算菜单高度（随功能项数量变化），做视口边界收敛
         const estimatedHeight = tabColorEnabled ? 470 : 340;
@@ -219,6 +227,7 @@ export function TerminalTab({
     return (
         <>
             <div
+                ref={tabRef}
                 onClick={onClick}
                 onContextMenu={handleContextMenu}
                 // 中键关闭：符合浏览器/终端标签的通用习惯
@@ -379,6 +388,7 @@ export function TerminalTab({
             {/* 右键菜单 —— Portal 渲染到 body，避免被标签栏的 overflow:hidden 裁切 */}
             {menuOpen && createPortal(
                 <div
+                    ref={menuRef}
                     className="fixed z-50 min-w-48 rounded-[var(--radius-lg)] border border-[var(--hairline)]
                                bg-[var(--surface-2)] p-1 shadow-[var(--shadow-menu)]"
                     style={{ left: menuPos.x, top: menuPos.y }}

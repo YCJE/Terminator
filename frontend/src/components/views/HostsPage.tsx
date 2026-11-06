@@ -35,6 +35,7 @@ import { useSessionStore } from "@/store/sessionStore";
 import { HostService, Host, ItemType, SSHConfigHost } from "../../../bindings/terminator-desktop/backend/internal/services/blob";
 import { SettingsService, type RecentHost } from "../../../bindings/terminator-desktop/backend/internal/services/settings";
 import { buildSessionParams, fallbackHostName } from "@/lib/hostConnection";
+import { normalizeTerminalEncoding } from "@/lib/terminalEncoding";
 import { parseAppError } from "@/lib/error";
 import { cn } from "@/lib/utils";
 import type React from "react";
@@ -46,6 +47,42 @@ function normalizePort(value: unknown): number {
     const n = typeof value === "number" ? value : Number(value);
     if (!Number.isInteger(n) || n < 1 || n > 65535) return 22;
     return n;
+}
+
+// 可选端口（如代理端口）：非法/缺失时返回 undefined，由调用方决定是否跳过该配置。
+function optionalPort(value: unknown): number | undefined {
+    const n = typeof value === "number" ? value : Number(value);
+    if (!Number.isInteger(n) || n < 1 || n > 65535) return undefined;
+    return n;
+}
+
+// 导入文件的字段可能被手工编辑过：只接受字符串并去掉首尾空白，
+// 其他类型（数字、对象）一律视为未填写，避免它们被 JSON 序列化进主机配置。
+function importString(value: unknown): string | undefined {
+    return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+// 导入的整数参数做范围校验，非法值视为未设置（使用默认行为）。
+function importInt(value: unknown, min: number, max: number): number | undefined {
+    const n = typeof value === "number" ? value : Number(value);
+    if (!Number.isInteger(n) || n < min || n > max) return undefined;
+    return n;
+}
+
+// 代理配置按类型收敛：类型/地址/端口任一无效就整体丢弃，
+// 避免导入出一台"看起来有代理、实际连不上"的主机。
+function importProxy(item: Record<string, unknown>): Record<string, unknown> {
+    const rawType = importString(item.proxyType)?.toLowerCase();
+    if (rawType !== "http" && rawType !== "socks5") return {};
+    const host = importString(item.proxyHost);
+    const port = optionalPort(item.proxyPort);
+    if (!host || !port) return {};
+    return {
+        proxyType: rawType,
+        proxyHost: host,
+        proxyPort: port,
+        proxyUsername: importString(item.proxyUsername),
+    };
 }
 
 export function HostsPage() {
@@ -123,7 +160,13 @@ export function HostsPage() {
                 proxyPort: h.proxyPort || 0,
                 proxyUsername: h.proxyUsername || "",
                 agentForwarding: h.agentForwarding || false,
+                keyboardInteractive: h.keyboardInteractive || false,
                 onConnect: h.onConnect || "",
+                // 会话高级参数：缺失时导入会退回默认值，导出的主机行为与原来不一致
+                termType: h.termType || "",
+                encoding: h.encoding || "",
+                connectTimeout: h.connectTimeout || 0,
+                keepAlive: h.keepAlive || 0,
             }));
             const json = JSON.stringify(exportData, null, 2);
             const blob = new Blob([json], { type: "application/json" });
@@ -151,40 +194,81 @@ export function HostsPage() {
             const text = await file.text();
             const data = JSON.parse(text);
             if (!Array.isArray(data)) throw new Error("invalid format");
+
+            // 以库中现有主机为基准：
+            // 1) 跳板机名称映射可指向已存在的主机，而不是只看本次文件；
+            // 2) 按「名称 + 端点」去重，重复导入同一文件不会产生多份相同主机。
+            const existing = (await HostService.GetAll()) ?? [];
+            const nameToId = new Map<string, string>();
+            const existingKeys = new Set<string>();
+            existing.forEach((h) => {
+                const name = h.name || fallbackHostName(h.username, h.host);
+                if (!nameToId.has(name)) nameToId.set(name, h.id);
+                existingKeys.add(`${name}\u0000${h.username}@${h.host}:${h.port}`);
+            });
+
             // 第一遍：保存所有主机（跳板机关联留空），记录新 ID 与名称
             const imported: { id: string; name: string; jumpHostName: string; base: Record<string, unknown> }[] = [];
-            for (const item of data) {
-                if (!item.host || !item.username) continue;
-                const name = item.name || fallbackHostName(item.username, item.host);
+            let skipped = 0;
+            for (const raw of data) {
+                const item = (raw ?? {}) as Record<string, unknown>;
+                const host = importString(item.host);
+                const username = importString(item.username);
+                if (!host || !username) {
+                    skipped++;
+                    continue;
+                }
+                const name = importString(item.name) || fallbackHostName(username, host);
+                const port = normalizePort(item.port);
+                const dedupeKey = `${name}\u0000${username}@${host}:${port}`;
+                if (existingKeys.has(dedupeKey)) {
+                    skipped++;
+                    continue;
+                }
+                const encoding = normalizeTerminalEncoding(importString(item.encoding));
                 const base = {
                     type: ItemType.TypeHost,
                     name,
-                    group: item.group || "",
-                    host: item.host,
-                    port: normalizePort(item.port),
-                    username: item.username,
+                    group: importString(item.group) || "",
+                    host,
+                    port,
+                    username,
                     password: "",
                     keyId: "",
-                    proxyType: item.proxyType || undefined,
-                    proxyHost: item.proxyHost || undefined,
-                    proxyPort: item.proxyPort || undefined,
-                    proxyUsername: item.proxyUsername || undefined,
-                    agentForwarding: item.agentForwarding || false,
-                    onConnect: typeof item.onConnect === "string" ? item.onConnect : undefined,
+                    agentForwarding: item.agentForwarding === true,
+                    keyboardInteractive: item.keyboardInteractive === true,
+                    onConnect: importString(item.onConnect),
+                    // 终端高级参数：缺失/非法时落回后端默认值
+                    termType: importString(item.termType),
+                    encoding: encoding === "utf-8" ? undefined : encoding,
+                    connectTimeout: importInt(item.connectTimeout, 0, 120),
+                    keepAlive: importInt(item.keepAlive, -1, 300),
+                    ...importProxy(item),
                 };
                 const newId = await HostService.Save({ ...base, id: "" } as unknown as Host);
-                imported.push({ id: newId, name, jumpHostName: item.jumpHostName || "", base });
+                existingKeys.add(dedupeKey);
+                // 本次文件中的条目优先作为跳板目标：同名主机以导入后的新 ID 为准
+                nameToId.set(name, newId);
+                imported.push({
+                    id: newId,
+                    name,
+                    jumpHostName: importString(item.jumpHostName) || "",
+                    base,
+                });
             }
             // 第二遍：按名称解析跳板机并写回关联（ID 已重新生成，需映射到新 ID）
-            const nameToId = new Map<string, string>();
-            imported.forEach((h) => { if (!nameToId.has(h.name)) nameToId.set(h.name, h.id); });
             for (const h of imported) {
                 if (!h.jumpHostName) continue;
                 const jumpId = nameToId.get(h.jumpHostName);
                 if (!jumpId || jumpId === h.id) continue;
                 await HostService.Save({ ...h.base, id: h.id, jumpHostId: jumpId } as unknown as Host);
             }
-            toast.success(t("import_success", { count: imported.length }));
+            // 有跳过项时用带 skipped 的文案，让用户知道并非全部写入
+            if (skipped > 0) {
+                toast.success(t("ssh_config_import_success", { count: imported.length, skipped }));
+            } else {
+                toast.success(t("import_success", { count: imported.length }));
+            }
         } catch {
             toast.error(t("import_failed"));
         } finally {

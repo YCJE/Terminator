@@ -46,6 +46,10 @@ type AuthService struct {
 	// 从 webdav 改回 server，否则同步仍会走遗留的 WebDAV 配置。
 	settingsSvc *settings.SettingsService
 
+	// ephemeralCleaner 清理不在数据库中的敏感残留：会话日志（可能含口令）、
+	// 外部编辑留下的远端文件副本。擦除数据时这些内容也必须一并删除。
+	ephemeralCleaner func() error
+
 	// 登录失败退避状态：Argon2id 已让单次尝试变慢，此处再叠加应用层退避，
 	// 抬高通过 UI 反复试错的成本
 	loginMu         sync.Mutex
@@ -546,6 +550,13 @@ func (s *AuthService) RegisterOnServer(ctx context.Context, serverURL string) er
 	return nil
 }
 
+// SetEphemeralCleaner 注册 WipeData 时执行的非数据库清理（会话日志、临时文件等）。
+//
+//wails:ignore 仅由后端装配（main.go）调用，参数是函数类型无法 JSON 序列化
+func (s *AuthService) SetEphemeralCleaner(cleaner func() error) {
+	s.ephemeralCleaner = cleaner
+}
+
 func (s *AuthService) WipeData(ctx context.Context) error {
 	// 擦除期间暂停后台同步：在途同步读到的是擦除前的条目，会把它们推回服务器，
 	// 使已被用户清除的数据残留在云端
@@ -598,6 +609,14 @@ func (s *AuthService) WipeData(ctx context.Context) error {
 	if s.settingsSvc != nil {
 		if err := s.settingsSvc.ClearWebDAVConfig(); err != nil {
 			slog.Warn("failed to clear WebDAV config after wipe", "error", err)
+		}
+	}
+
+	// 数据库之外的敏感残留：会话日志可能包含用户输入的口令，外部编辑的临时
+	// 目录存有远端文件副本。擦除已完成，清理失败只记录告警，不回滚用户数据。
+	if s.ephemeralCleaner != nil {
+		if err := s.ephemeralCleaner(); err != nil {
+			slog.Warn("failed to clean up ephemeral files after wipe", "error", err)
 		}
 	}
 

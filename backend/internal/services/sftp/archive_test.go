@@ -113,7 +113,7 @@ func (unsafeNameFS) open(string) (io.ReadCloser, error) {
 
 // 打包下载必须丢弃带路径分隔符的条目，避免生成 zip-slip 成员。
 func TestCollectArchiveEntriesSkipsUnsafeNames(t *testing.T) {
-	entries, _, err := collectArchiveEntries(unsafeNameFS{}, []string{"/root"})
+	entries, _, err := collectArchiveEntries(context.Background(), unsafeNameFS{}, []string{"/root"})
 	if err != nil {
 		t.Fatalf("收集条目失败: %v", err)
 	}

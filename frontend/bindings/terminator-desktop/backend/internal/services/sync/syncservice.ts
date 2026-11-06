@@ -33,8 +33,9 @@ export function ListConflicts(): $CancellablePromise<$models.ConflictInfo[]> {
  * ResolveConflict 按用户选择保留冲突中的一端：keepLocal 为 true 保留本地副本，
  * 否则保留远端副本。
  * 
- * 选中的副本以「当前时间」写回本地，因此它晚于本轮同步游标，会在下一轮同步中
- * 上传并覆盖另一端；不这样做的话本地会一直停留在落败的旧值上反复产生冲突。
+ * 选中的副本以「严格晚于双方旧值」的时间写回本地（见 conflictResolutionTime），
+ * 因此它晚于本轮同步游标，会在下一轮同步中上传并覆盖另一端；
+ * 不这样做的话本地会一直停留在落败的旧值上反复产生冲突。
  */
 export function ResolveConflict(blobID: string, keepLocal: boolean): $CancellablePromise<void> {
     return $Call.ByID(1673768531, blobID, keepLocal);

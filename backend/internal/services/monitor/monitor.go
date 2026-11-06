@@ -321,6 +321,13 @@ func (s *MonitorService) run(sessionID string, state *sessionState, interval tim
 	}()
 
 	// 立即采样一次：面板打开后不必空等一个完整周期才看到数据。
+	// 若在首次采样前已被要求停止（用户打开后立刻关闭面板），直接退出：
+	// 否则这次采样会在 Stop 之后推一帧，前端把会话重新标记为"运行中"。
+	select {
+	case <-state.stopCh:
+		return
+	default:
+	}
 	if !s.sampleOnce(sessionID, state, interval) {
 		return
 	}
@@ -343,6 +350,13 @@ func (s *MonitorService) run(sessionID string, state *sessionState, interval tim
 // sampleOnce 执行一次探测。返回 false 表示采集应停止（会话失效或命令超时）。
 func (s *MonitorService) sampleOnce(sessionID string, state *sessionState, interval time.Duration) bool {
 	out, err := s.runner.ExecCommand(sessionID, probeCommand, probeTimeout)
+	// 探测期间可能已被要求停止：此时不应再推送结果，
+	// 否则前端会在 Stop 之后收到一帧并把会话重新标记为运行中。
+	select {
+	case <-state.stopCh:
+		return false
+	default:
+	}
 	if err != nil {
 		message := err.Error()
 		if trimmed := strings.TrimSpace(out); trimmed != "" && !strings.Contains(message, trimmed) {
@@ -540,7 +554,10 @@ func parseProbe(output string) probeRaw {
 			idx := strings.IndexByte(trimmed, ':')
 			name := strings.TrimSpace(trimmed[:idx])
 			fields := strings.Fields(trimmed[idx+1:])
-			if name == "" || len(fields) < 11 {
+			// /proc/net/dev 每行有 16 个计数字段，这里只用到前 12 个（含 tx_drops）。
+			// 守卫必须覆盖实际访问的最大下标：写成 <11 时，恰好 11 字段的异常行
+			// 仍会走到 fields[11]，越界 panic 会直接终止整个应用。
+			if name == "" || len(fields) < 12 {
 				continue
 			}
 			raw.net[name] = netCounters{

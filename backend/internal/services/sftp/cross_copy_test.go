@@ -324,6 +324,27 @@ func TestRunCrossCopyResumesFromPart(t *testing.T) {
 	}
 }
 
+// 源文件在复制期间被截短（或 stat 大小与实际内容不一致）时，
+// 已复制的内容只是残片，不能重命名成完整副本。
+func TestRunCrossCopyDetectsShortRead(t *testing.T) {
+	src := &fakeCopyFS{files: map[string]string{"/a.txt": "abc"}}
+	dst := newFakeCopyTarget()
+	svc := NewSftpService(nil, &fakeSFTPEmitter{})
+
+	info := copyInfo{name: "a.txt", size: 6, mode: 0o644}
+	if err := svc.runCrossCopy(
+		context.Background(), src, dst, "s1", "t1", "/a.txt", "/dst.txt", info,
+	); err == nil {
+		t.Fatal("实传字节数少于源文件大小时应返回错误")
+	}
+	if _, ok := dst.files["/dst.txt"]; ok {
+		t.Error("残缺内容不应重命名为目标文件")
+	}
+	if len(dst.parts) == 0 {
+		t.Error("失败时应保留临时文件供续传")
+	}
+}
+
 func TestRunCrossCopyCanceled(t *testing.T) {
 	src := newTestCopySource()
 	dst := newFakeCopyTarget()

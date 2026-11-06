@@ -24,6 +24,15 @@ export function ClearRecentHosts(): $CancellablePromise<void> {
 }
 
 /**
+ * ClearWebDAVConfig 清除 WebDAV 地址与凭据，并把同步方式恢复为默认的服务器同步。
+ * 用于 WipeData：擦除本地数据后若保留旧 WebDAV 配置，后续登录另一个账户时
+ * 同步会用遗留的地址与密码去拉取/回写上一账户的数据。
+ */
+export function ClearWebDAVConfig(): $CancellablePromise<void> {
+    return $Call.ByID(3318689991);
+}
+
+/**
  * GetAutoStart 查询当前用户是否已启用开机自启。
  * 
  * 判断标准是注册表项存在且指向当前可执行文件：升级或更改安装目录后，

@@ -61,8 +61,8 @@ export function DownloadArchive(sessionID: string, transferID: string, remotePat
 
 /**
  * DownloadFile 将远程文件下载到本地路径。
- * 与 UploadFile 对称：分块复制并推送进度，同样写入 "<localPath>.terminator-part-<总字节数>"
- * 以支持断点续传，完成后原子重命名到 localPath。
+ * 与 UploadFile 对称：分块复制并推送进度，同样写入带源端身份的
+ * ".terminator-part-*" 临时文件以支持断点续传，完成后原子重命名到 localPath。
  */
 export function DownloadFile(sessionID: string, transferID: string, remotePath: string, localPath: string): $CancellablePromise<void> {
     return $Call.ByID(3219845717, sessionID, transferID, remotePath, localPath);
@@ -190,9 +190,13 @@ export function UploadDirArchive(sessionID: string, transferID: string, localPat
  * 该方法是同步的（Wails 绑定调用），但会通过 emitter 持续推送传输进度，
  * 前端可据 transferID 关联进度事件。传输结束（无论成功失败）推送完成事件。
  * 
- * 支持断点续传：数据先写入 "<remotePath>.terminator-part-<总字节数>"，中断时该文件保留，
- * 重试时按已有大小从断点继续；全部写完后才原子重命名到 remotePath，
- * 因此目标路径不会出现半截文件。续传假定源文件在两次尝试之间未改动。
+ * 支持断点续传：数据先写入
+ * "<remotePath>.terminator-part-<总字节数>-<源文件修改时间与传输ID摘要>"，
+ * 中断时该文件保留，同一传输重试时按已有大小从断点继续；全部写完后才原子
+ * 重命名到 remotePath，因此目标路径不会出现半截文件。
+ * 源文件大小/修改时间变化或换成另一次传输时会使用新的临时文件，从 0 开始，
+ * 避免把两次不同来源的数据拼接成一个"成功"的损坏文件。
+ * 注意"失败后重建传输"（前端会生成新传输 ID）不会复用旧断点。
  */
 export function UploadFile(sessionID: string, transferID: string, localPath: string, remotePath: string): $CancellablePromise<void> {
     return $Call.ByID(890062900, sessionID, transferID, localPath, remotePath);

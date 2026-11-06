@@ -111,8 +111,12 @@ export const usePortForwardStore = create<PortForwardState>((set, get) => ({
         set((state) => ({forwards: state.forwards.filter((f) => f.id !== id)}));
     },
 
-    restoreForward: (forward) =>
-        set((state) => ({forwards: [...state.forwards, forward]})),
+    restoreForward: (forward) => {
+        // 删除时已同步删除了持久化记录；后端取消失败回滚时必须一并写回，
+        // 否则重启后这条转发配置永久丢失，而后端监听器可能仍在运行。
+        upsertStoredForward(toStored(forward));
+        set((state) => ({forwards: [...state.forwards, forward]}));
+    },
 
     activateRestored: (persistedId, sessionId, sessionTitle, scope, runtime) => {
         set((state) => {

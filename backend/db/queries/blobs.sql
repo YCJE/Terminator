@@ -40,8 +40,10 @@ ON CONFLICT(id) DO UPDATE SET
 WHERE excluded.updated_at > encrypted_blobs.updated_at;
 
 -- name: SoftDeleteBlob :exec
+-- blob 一并清空：墓碑记录只需保留 id/时间戳/删除标记，密文继续保留会让
+-- 已删除的密码等敏感内容随同步文件长期存在于远端与备份中。
 UPDATE encrypted_blobs
-SET is_deleted = 1, updated_at = ?
+SET is_deleted = 1, blob = '', updated_at = ?
 WHERE id = ?;
 
 -- name: WipeBlobs :exec

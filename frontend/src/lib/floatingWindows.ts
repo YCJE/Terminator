@@ -15,6 +15,8 @@ export interface FloatingDockData {
     sessionId: string;
     title: string;
     kind: string;
+    /** 来源主机 ID（工作区恢复、书签与端口转发作用域依赖它） */
+    hostId?: string;
     config?: SSHConnectionConfig | null;
     /** true 表示后端会话仍在运行，主窗口直接附着；false 表示需要重新连接 */
     attach?: boolean;
@@ -35,6 +37,8 @@ export async function popOutSession(session: TerminalSession, alwaysOnTop = fals
             sessionId: session.id,
             title: session.title,
             kind: session.kind ?? "ssh",
+            // 主机归属随会话一起传递，收回标签栏时才能恢复
+            hostId: session.hostId,
             // 本地终端没有 SSH 连接参数；SSH 会话带上完整路由（含跳板链与代理），
             // 供浮动窗口内的"重连"使用
             config: session.kind === "local" ? null : session.config,
@@ -68,6 +72,7 @@ export function adoptDockedSession(data: FloatingDockData): void {
         sessionId: data.sessionId,
         title: data.title,
         kind,
+        hostId: data.hostId,
         config,
         attached: data.attach !== false,
     });

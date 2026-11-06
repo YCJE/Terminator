@@ -77,9 +77,15 @@ func uniqueArchiveName(name string, used map[string]struct{}) string {
 	}
 }
 
+// maxArchiveEntries 限制一次打包下载的条目总数。
+// 条目由远端目录内容决定，普通文件系统里数十万条目已难以使用，
+// 而扫描结果全部驻留内存，没有上限时可被超大目录耗尽。
+const maxArchiveEntries = 200_000
+
 // collectArchiveEntries 递归收集需要写入 ZIP 的条目，并统计总字节数。
 // 目录条目会保留（空目录也能还原）；符号链接跳过，避免链接环导致无限递归。
-func collectArchiveEntries(src archiveSource, remotePaths []string) ([]archiveEntry, int64, error) {
+// ctx 用于在扫描超大目录期间响应取消，否则用户点"取消"后仍要扫完整个树。
+func collectArchiveEntries(ctx context.Context, src archiveSource, remotePaths []string) ([]archiveEntry, int64, error) {
 	used := map[string]struct{}{}
 	visited := map[string]struct{}{}
 	var entries []archiveEntry
@@ -91,11 +97,20 @@ func collectArchiveEntries(src archiveSource, remotePaths []string) ([]archiveEn
 			return nil
 		}
 		visited[remoteDir] = struct{}{}
+		if err := checkCanceled(ctx); err != nil {
+			return err
+		}
 		infos, err := src.readDir(remoteDir)
 		if err != nil {
 			return fmt.Errorf("读取远程目录 %q 失败: %w", remoteDir, err)
 		}
 		for _, info := range infos {
+			if err := checkCanceled(ctx); err != nil {
+				return err
+			}
+			if len(entries) >= maxArchiveEntries {
+				return fmt.Errorf("打包条目超过 %d 个，请缩小选择范围", maxArchiveEntries)
+			}
 			// 服务端返回的名字不可信：带分隔符的条目写进 ZIP 会变成
 			// 解压时的路径穿越成员（zip-slip），直接跳过
 			if !isSafeEntryName(info.Name()) {
@@ -130,6 +145,9 @@ func collectArchiveEntries(src archiveSource, remotePaths []string) ([]archiveEn
 	}
 
 	for _, remotePath := range remotePaths {
+		if err := checkCanceled(ctx); err != nil {
+			return nil, 0, err
+		}
 		clean := path.Clean(strings.TrimSpace(remotePath))
 		if clean == "" || clean == "." {
 			continue
@@ -187,7 +205,7 @@ func (s *SftpService) downloadArchive(
 	localPath string,
 	remotePaths []string,
 ) error {
-	entries, total, err := collectArchiveEntries(src, remotePaths)
+	entries, total, err := collectArchiveEntries(ctx, src, remotePaths)
 	if err != nil {
 		return err
 	}
@@ -252,7 +270,9 @@ func (s *SftpService) downloadArchive(
 			cleanup()
 			return fmt.Errorf("打开远程文件 %q 失败: %w", entry.remotePath, err)
 		}
-		copyErr := s.copyWithProgress(
+		// 打包场景不校验实传字节数：ZIP 条目大小由写入的实际字节决定，
+		// 源文件在打包期间被截短只会少收一段内容，归档本身仍然有效。
+		_, copyErr := s.copyWithProgress(
 			ctx, source, writer,
 			sessionID, transferID, displayName,
 			total, written,
@@ -286,7 +306,11 @@ func (s *SftpService) downloadArchive(
 // DownloadArchive 将多个远程文件/目录打包成 ZIP 保存到本地。
 // remotePaths 支持混合选择；目录会递归包含，空目录保留。
 func (s *SftpService) DownloadArchive(sessionID string, transferID string, remotePaths []string, localPath string) error {
-	ctx, done := s.registerTransfer(transferID)
+	ctx, done, err := s.registerTransfer(transferID)
+	if err != nil {
+		s.emitter.EmitTransferComplete(sessionID, transferID, false, err.Error())
+		return err
+	}
 	defer done()
 
 	if len(remotePaths) == 0 {

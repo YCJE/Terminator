@@ -152,12 +152,19 @@ export function TerminalStack({isVisible}: TerminalStackProps) {
 
         const offComplete = Events.On(SFTP_COMPLETE_EVENT, (event) => {
             const d = event?.data;
-            if (d?.transferId !== undefined) {
-                updateTransfer(d.transferId, {
-                    status: d.success ? "success" : "error",
-                    error: d.error,
-                });
-            }
+            if (d?.transferId === undefined) return;
+            // 暂停后续传会复用同一个 transferID：上一次被取消的传输先结束，
+            // 其"已取消"完成事件可能在续传进入 active 之后才送达。完成事件只带
+            // transferID、无法区分是第几次执行，若照常写入终态，刚续传的任务就会被
+            // 标成已取消，后续进度与成功结果全部被终态保护忽略。
+            // 每个传输的绑定调用都会 await 并自行写入结果（含取消/失败），
+            // 因此进行中的条目不需要依赖事件；其余状态（如 pausing）仍按事件落地。
+            const current = useTransferStore.getState().transfers.find((t) => t.id === d.transferId);
+            if (current?.status === "active") return;
+            updateTransfer(d.transferId, {
+                status: d.success ? "success" : "error",
+                error: d.error,
+            });
         });
 
         return () => {

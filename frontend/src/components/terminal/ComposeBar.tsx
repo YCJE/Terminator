@@ -49,8 +49,19 @@ export function ComposeBar({ sessionId }: ComposeBarProps) {
         const content = text.replace(/\r\n/g, "\n").replace(/\s+$/, "");
         if (!content.trim()) return;
 
+        // "全部已连接"与终端广播保持同一套安全语义：本地 shell 不接收远端命令，
+        // 被移出广播的会话（例如生产机）也不应在这里收到批量输入。
+        // 只按"活跃"过滤会把多行脚本直接灌进本机和已排除的会话。
+        const state = useSessionStore.getState();
         const ids = sendToAll
-            ? useSessionStore.getState().getActiveSessionIds()
+            ? state.sessions
+                .filter((s) =>
+                    s.status === "connected"
+                    && !s.disconnected
+                    && (s.kind ?? "ssh") !== "local"
+                    && !state.broadcastExcluded.includes(s.id)
+                )
+                .map((s) => s.id)
             : [sessionId];
         for (const id of ids) {
             // 按会话类型路由：本地终端走 LocalShellService，SSH 走 SshService

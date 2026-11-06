@@ -150,12 +150,15 @@ export function SnippetPanel({ sessionId }: SnippetPanelProps) {
         }
     };
 
-    // 在所有已连接会话中执行同一片段（每个会话独立展开变量）
+    // 在所有已连接会话中执行同一片段（每个会话独立展开变量）。
+    // 本地 shell 不参与：与广播一致，远端片段的命令语义不能落到本机，
+    // 否则一次"在所有会话执行"可能在本机执行破坏性命令。
     const handleExecuteOnAll = (snippet: Snippet) => {
         const state = useSessionStore.getState();
         const ids = state.getActiveSessionIds();
         for (const id of ids) {
             const session = state.sessions.find((s) => s.id === id);
+            if ((session?.kind ?? "ssh") === "local") continue;
             sendSessionInput(id, renderSnippetCommand(snippet.command, session) + "\n").catch(() => {});
         }
     };

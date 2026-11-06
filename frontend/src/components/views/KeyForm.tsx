@@ -59,8 +59,12 @@ export function KeyForm({initialData, isSaving, onSave}: KeyFormProps) {
     }, [initialData]);
 
     const handleFileRead = (file: File) => {
+        // 读取是异步的：期间用户可能切换编辑目标，回填会覆盖另一条记录的私钥。
+        // 记录发起读取时的编辑目标，返回时比对，不一致则丢弃结果。
+        const startId = editingIdRef.current;
         const reader = new FileReader();
         reader.onload = (e) => {
+            if (editingIdRef.current !== startId) return;
             if (e.target?.result) {
                 setPrivateKey(e.target.result as string);
                 // 换了一把密钥：旧口令与旧指纹都不再适用
@@ -69,6 +73,7 @@ export function KeyForm({initialData, isSaving, onSave}: KeyFormProps) {
             }
         };
         reader.onerror = () => {
+            if (editingIdRef.current !== startId) return;
             handleAppError(new Error("读取文件失败"));
         };
         reader.readAsText(file);

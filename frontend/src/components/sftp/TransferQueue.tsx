@@ -87,6 +87,9 @@ const TransferRow = memo(function TransferRow({ item, onRetry }: { item: Transfe
         }
         if (cancelling) return;
         setCancelling(true);
+        // 标记本次取消由用户发起：取消/续传复用同一 transferID，只有带该标记的
+        // 取消结果才能结束进行中的条目，避免上一次取消的迟到拒绝误伤续传任务。
+        useTransferStore.getState().markCancelRequested(item.id);
         // 后端会推送一次失败完成事件，队列据此转为"已取消"状态。
         // 无论调用成功还是失败都复位 cancelling：事件可能因任务刚好结束、
         // 连接断开而丢失，只在 catch 里复位会让按钮永久禁用。

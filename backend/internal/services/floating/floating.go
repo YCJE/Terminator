@@ -37,7 +37,11 @@ type Request struct {
 	SessionID string `json:"sessionId"`
 	Title     string `json:"title"`
 	// Kind 会话来源："ssh" 或 "local"
-	Kind   string                   `json:"kind"`
+	Kind string `json:"kind"`
+	// HostID 会话来源主机 ID（工作区恢复、书签与端口转发作用域都依赖它）。
+	// 会话收回主窗口时必须原样带回，否则这些按主机归属的数据会退化为
+	// user@host:port 作用域。
+	HostID string                   `json:"hostId,omitempty"`
 	Config *ssh.SSHConnectionConfig `json:"config,omitempty"`
 	// Attach 为 true 表示新窗口附着到正在运行的会话；
 	// 会话已断开时传 false，由新窗口重新建立连接。
@@ -53,6 +57,7 @@ type Payload struct {
 	SessionID string                   `json:"sessionId"`
 	Title     string                   `json:"title"`
 	Kind      string                   `json:"kind"`
+	HostID    string                   `json:"hostId,omitempty"`
 	Config    *ssh.SSHConnectionConfig `json:"config,omitempty"`
 	Attach    bool                     `json:"attach"`
 }
@@ -62,6 +67,7 @@ type DockPayload struct {
 	SessionID string                   `json:"sessionId"`
 	Title     string                   `json:"title"`
 	Kind      string                   `json:"kind"`
+	HostID    string                   `json:"hostId,omitempty"`
 	Config    *ssh.SSHConnectionConfig `json:"config,omitempty"`
 	// Attach 为 false 时主窗口需要重新连接（浮动窗口中的会话已断开）
 	Attach bool `json:"attach"`
@@ -118,14 +124,11 @@ func (s *Service) OpenFloatingTerminal(req Request) (string, error) {
 
 	// 同一会话只能有一个浮动窗口：两个窗口共享同一后端会话，
 	// 任一窗口关闭都会把连接断开，另一个窗口会莫名失效。
-	s.mu.Lock()
-	for _, existing := range s.windows {
-		if existing.payload.SessionID == sessionID {
-			s.mu.Unlock()
-			return "", errors.New("该会话已在浮动窗口中打开")
-		}
+	// 这里先做一次快速检查（避免正常路径下白建窗口），登记时还会在锁内
+	// 重新检查：两个并发请求都通过初始检查时，后登记的一方关闭自己新建的窗口。
+	if err := s.ensureSessionFree(sessionID); err != nil {
+		return "", err
 	}
-	s.mu.Unlock()
 
 	title := strings.TrimSpace(req.Title)
 	if title == "" {
@@ -139,6 +142,7 @@ func (s *Service) OpenFloatingTerminal(req Request) (string, error) {
 		SessionID: sessionID,
 		Title:     title,
 		Kind:      kind,
+		HostID:    req.HostID,
 		Config:    req.Config,
 		Attach:    req.Attach,
 	}
@@ -160,6 +164,15 @@ func (s *Service) OpenFloatingTerminal(req Request) (string, error) {
 
 	record := &windowRecord{window: win, payload: payload}
 	s.mu.Lock()
+	for _, existing := range s.windows {
+		if existing.payload.SessionID == sessionID {
+			s.mu.Unlock()
+			// 竞态：另一个请求在初始检查之后登记了同一会话。放弃本次创建的窗口，
+			// 否则两个窗口都会认为连接归自己所有。
+			win.Close()
+			return "", errors.New("该会话已在浮动窗口中打开")
+		}
+	}
 	s.windows[token] = record
 	s.mu.Unlock()
 
@@ -167,6 +180,18 @@ func (s *Service) OpenFloatingTerminal(req Request) (string, error) {
 		s.handleWindowClosed(token)
 	})
 	return token, nil
+}
+
+// ensureSessionFree 检查该会话是否已有浮动窗口（调用方不应持有 s.mu）。
+func (s *Service) ensureSessionFree(sessionID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, existing := range s.windows {
+		if existing.payload.SessionID == sessionID {
+			return errors.New("该会话已在浮动窗口中打开")
+		}
+	}
+	return nil
 }
 
 // TakeFloatingTerminal 返回窗口的启动参数。
@@ -199,6 +224,7 @@ func (s *Service) DockBack(token string, attach bool) error {
 		SessionID: payload.SessionID,
 		Title:     payload.Title,
 		Kind:      payload.Kind,
+		HostID:    payload.HostID,
 		Config:    payload.Config,
 		Attach:    attach,
 	})

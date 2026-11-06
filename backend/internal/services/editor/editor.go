@@ -104,6 +104,11 @@ type watcher struct {
 
 	// conflictNotified 冲突只提示一次，避免用户每次编辑都收到同一条告警
 	conflictNotified bool
+
+	// 自动回传失败后的指数退避：一次网络/SFTP 抖动不应让本次修改永久丢失，
+	// 也不能每 2 秒重试一次把错误提示刷屏。
+	retryAt    time.Time
+	retryDelay time.Duration
 }
 
 func (w *watcher) requestStop() {
@@ -163,6 +168,30 @@ func localEditorFileName(remotePath string) string {
 		return "remote-file"
 	}
 	return clean
+}
+
+// executableEditorExtensions 是"双击即执行"而非"用编辑器查看"的扩展名。
+//
+// 远端文件来自用户连接的主机，内容完全不可信：把原名交给 Windows 的
+// ShellExecute / macOS 的 open 打开时，.bat、.cmd、.exe、.lnk 等会被直接执行，
+// 相当于让远端主机在本机落地任意代码。对这些扩展名追加 ".txt"，系统只会按
+// 文本打开；其余扩展名保持不变以保留编辑器语法高亮。
+var executableEditorExtensions = map[string]struct{}{
+	".app": {}, ".appref-ms": {}, ".application": {}, ".bat": {}, ".cmd": {},
+	".com": {}, ".command": {}, ".cpl": {}, ".dmg": {}, ".exe": {}, ".gadget": {},
+	".hta": {}, ".jar": {}, ".js": {}, ".jse": {}, ".lnk": {}, ".mpkg": {},
+	".msi": {}, ".msp": {}, ".msix": {}, ".appx": {}, ".pif": {}, ".pkg": {},
+	".pl": {}, ".ps1": {}, ".psm1": {}, ".py": {}, ".pyw": {}, ".rb": {},
+	".reg": {}, ".scpt": {}, ".scr": {}, ".terminal": {}, ".vbe": {}, ".vbs": {},
+	".workflow": {}, ".wsf": {}, ".wsh": {},
+}
+
+// safeEditorFileName 避免不可信远端文件在本机被系统当作可执行文件打开。
+func safeEditorFileName(name string) string {
+	if _, bad := executableEditorExtensions[strings.ToLower(path.Ext(name))]; bad {
+		return name + ".txt"
+	}
+	return name
 }
 
 // openWithDefaultApp 用系统默认程序打开本地文件。
@@ -227,7 +256,7 @@ func (s *Service) OpenRemoteFile(sessionID string, remotePath string) (string, e
 	if err != nil {
 		return "", fmt.Errorf("创建临时目录失败: %w", err)
 	}
-	localPath := filepath.Join(localDir, localEditorFileName(cleanRemote))
+	localPath := filepath.Join(localDir, safeEditorFileName(localEditorFileName(cleanRemote)))
 	if err := downloadTo(client, cleanRemote, localPath); err != nil {
 		_ = os.RemoveAll(localDir)
 		return "", err
@@ -335,6 +364,9 @@ func (s *Service) watch(w *watcher) {
 			lastSize = info.Size()
 			dirty = true
 			stable = 0
+			// 用户重新编辑：立即允许下一次回传，并重置退避
+			w.retryAt = time.Time{}
+			w.retryDelay = 0
 			// 用户又编辑了本地文件：即便上一轮已提示过远端冲突，也要重新提示。
 			// 否则 conflictNotified 一旦置位就再也不会复位（上传永远被跳过），
 			// 后续所有保存都会静默丢弃，编辑器却显示"已保存"。
@@ -348,20 +380,58 @@ func (s *Service) watch(w *watcher) {
 		if stable < quietTicks {
 			continue
 		}
+		// 失败后的退避窗口内不重试，避免每两秒刷一次错误提示
+		if !w.retryAt.IsZero() && time.Now().Before(w.retryAt) {
+			continue
+		}
 		dirty = false
 		stable = 0
-		s.uploadBack(w)
+		switch s.uploadBack(w) {
+		case uploadOK:
+			w.retryAt = time.Time{}
+			w.retryDelay = 0
+		case uploadConflict:
+			// 冲突期间不自动重试：等用户再次编辑本地文件才会重新判定
+			w.retryAt = time.Time{}
+			w.retryDelay = 0
+		case uploadFailed:
+			// 瞬时故障：保留 dirty 并按指数退避重试，直到成功或用户重新编辑
+			dirty = true
+			if w.retryDelay == 0 {
+				w.retryDelay = watchInterval * 2
+			} else {
+				w.retryDelay *= 2
+			}
+			if w.retryDelay > 30*time.Second {
+				w.retryDelay = 30 * time.Second
+			}
+			w.retryAt = time.Now().Add(w.retryDelay)
+		}
 	}
 }
 
+// uploadOutcome 描述一次自动回传的结果，决定监听循环是否继续重试。
+type uploadOutcome int
+
+const (
+	uploadOK uploadOutcome = iota
+	uploadConflict
+	uploadFailed
+)
+
 // uploadBack 把本地临时文件写回远端。远端在此期间被他人修改时只推送一次冲突事件。
-func (s *Service) uploadBack(w *watcher) {
+func (s *Service) uploadBack(w *watcher) uploadOutcome {
 	client, err := s.remote.GetSFTPClient(w.sessionID)
 	if err != nil {
 		s.emitter.EmitEditorSaved(w.sessionID, w.remotePath, false, false, err.Error())
-		return
+		return uploadFailed
 	}
-	if info, statErr := client.Stat(w.remotePath); statErr == nil {
+
+	// 必须先确认远端仍是我们下载时的版本。Stat 失败（非"不存在"）说明无法
+	// 确认远端状态，此时继续写入会在远端被他人修改/删除时静默覆盖对方内容。
+	info, statErr := client.Stat(w.remotePath)
+	switch {
+	case statErr == nil:
 		// 远端大小或修改时间变化都说明内容已不是我们下载时的版本
 		if !info.ModTime().Equal(w.remoteMod) || info.Size() != w.remoteSize {
 			if !w.conflictNotified {
@@ -371,21 +441,44 @@ func (s *Service) uploadBack(w *watcher) {
 					"远端文件已被其他程序修改，已跳过本次自动保存",
 				)
 			}
-			return
+			return uploadConflict
 		}
+	case os.IsNotExist(statErr):
+		// 远端文件已被删除：自动保存不应把它重新创建出来
+		if !w.conflictNotified {
+			w.conflictNotified = true
+			s.emitter.EmitEditorSaved(
+				w.sessionID, w.remotePath, false, true,
+				"远端文件已被删除，已跳过本次自动保存",
+			)
+		}
+		return uploadConflict
+	default:
+		s.emitter.EmitEditorSaved(
+			w.sessionID, w.remotePath, false, false,
+			fmt.Sprintf("读取远端文件状态失败: %v", statErr),
+		)
+		return uploadFailed
 	}
 
 	if err := s.writer.WriteLocalFileToRemote(w.sessionID, w.localPath, w.remotePath); err != nil {
 		s.emitter.EmitEditorSaved(w.sessionID, w.remotePath, false, false, err.Error())
-		return
+		return uploadFailed
 	}
-	// 以本次写入后的远端状态作为下一轮基准，避免下一次保存被判成冲突
-	if info, statErr := client.Stat(w.remotePath); statErr == nil {
-		w.remoteMod = info.ModTime()
-		w.remoteSize = info.Size()
+	// 以本次写入后的远端状态作为下一轮基准，避免下一次保存被判成冲突。
+	// 写回已成功，Stat 偶发失败时短暂重试；仍失败则保留旧基准，由下一轮的
+	// 前置检查处理（那次失败会作为可重试错误而不是误报冲突）。
+	for attempt := 0; attempt < 3; attempt++ {
+		if info, statErr = client.Stat(w.remotePath); statErr == nil {
+			w.remoteMod = info.ModTime()
+			w.remoteSize = info.Size()
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
 	}
 	w.conflictNotified = false
 	s.emitter.EmitEditorSaved(w.sessionID, w.remotePath, true, false, "")
+	return uploadOK
 }
 
 // removeWatcher 注销监听并停止其轮询协程。
@@ -398,6 +491,24 @@ func (s *Service) removeWatcher(key string) {
 	s.mu.Unlock()
 	if ok {
 		w.requestStop()
+	}
+}
+
+// CleanupTempFiles 停止全部监听并删除各自的临时目录（擦除数据时调用）。
+//
+// 与 Close 不同：临时目录里保存着远端文件的完整副本，擦除数据时必须一并删除，
+// 否则用户以为已清空，磁盘上仍留有一份可读的远端文件。
+func (s *Service) CleanupTempFiles() {
+	s.mu.Lock()
+	list := make([]*watcher, 0, len(s.watchers))
+	for _, w := range s.watchers {
+		list = append(list, w)
+	}
+	s.watchers = make(map[string]*watcher)
+	s.mu.Unlock()
+	for _, w := range list {
+		w.requestStop()
+		_ = os.RemoveAll(w.localDir)
 	}
 }
 

@@ -149,18 +149,38 @@ func (s *SyncService) ResolveConflict(ctx context.Context, blobID string, keepLo
 		return err
 	}
 
-	// 校验当前本地副本仍与冲突快照一致：冲突产生后用户可能又编辑过该条目
+	// 校验当前本地副本仍与冲突快照之一一致：冲突产生后用户可能又编辑过该条目
 	// （或对端已有第三个版本）。若不一致，用旧快照写回会静默丢弃较新的修改，
 	// 因此拒绝并要求用户重新查看冲突后再选择。
+	//
+	// 必须同时接受「本地快照」与「远端快照」两种状态：检测到冲突后同步仍按
+	// 较新者生效写回本地，远端较新时本地行已经变成 RemoteBlob/RemoteUpdatedAt。
+	// 若只接受本地快照，「保留本地」在这种情况下必然被拒绝，用户原本的修改
+	// 将永远无法恢复。
 	current, err := qtx.GetBlobByID(ctx, blobID)
 	switch {
 	case err == nil:
 		// 两步写回已在同一事务内完成，不会出现「时间戳已改而冲突未删」的半成功
-		// 状态，因此恢复严格校验：任一字段与快照不一致都拒绝。
-		if current.Blob != conflict.LocalBlob ||
-			current.UpdatedAt != conflict.LocalUpdatedAt ||
-			current.IsDeleted != conflict.LocalDeleted {
-			return apperror.Validation("本地副本在冲突产生后已被修改，请重新查看冲突后再选择")
+		// 状态，因此恢复严格校验：必须与某一份快照完全一致，否则视为第三个版本。
+		matchesLocal := current.Blob == conflict.LocalBlob &&
+			current.UpdatedAt == conflict.LocalUpdatedAt &&
+			current.IsDeleted == conflict.LocalDeleted
+		matchesRemote := current.Blob == conflict.RemoteBlob &&
+			current.UpdatedAt == conflict.RemoteUpdatedAt &&
+			current.IsDeleted == conflict.RemoteDeleted
+		if !matchesLocal && !matchesRemote {
+			// 冲突产生后本地已演进到第三个版本（例如用户又编辑过，或对端又同步来
+			// 一个更新的版本）：旧快照已不能再代表任何一方的当前状态，写回只会
+			// 丢弃新修改。此时直接清除这条过期冲突——否则它会永远留在列表里，
+			// 任何选择都被拒绝，用户既无法解决也无法删除。
+			if err := qtx.DeleteConflict(ctx, blobID); err != nil {
+				return err
+			}
+			if err := tx.Commit(); err != nil {
+				return err
+			}
+			s.emitter.EmitUpdatesAvailable()
+			return apperror.Validation("该冲突已过期：本地副本已是更新的版本，冲突记录已自动清除")
 		}
 	case errors.Is(err, sql.ErrNoRows):
 		return apperror.Validation("本地副本已不存在，无法按冲突快照写回")

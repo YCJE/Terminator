@@ -13,8 +13,55 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"time"
 )
+
+// downloadIdleTimeout 是下载过程中两次收到数据之间的最长间隔。
+// 服务器返回响应头后停止发送数据（黑洞连接、被劫持的代理）时，resp.Body.Read
+// 会一直阻塞到 30 分钟总超时，设置页只能干等且无法重新发起下载。
+const downloadIdleTimeout = 30 * time.Second
+
+// idleCancelReader 在连续 idle 时间内没有收到任何数据时取消请求。
+// http 的响应体读取会响应请求上下文取消，从而让阻塞中的 Read 尽快返回。
+type idleCancelReader struct {
+	r       io.Reader
+	idle    time.Duration
+	timer   *time.Timer
+	cancel  context.CancelFunc
+	idleHit atomic.Bool
+}
+
+func newIdleCancelReader(r io.Reader, idle time.Duration, cancel context.CancelFunc) *idleCancelReader {
+	w := &idleCancelReader{r: r, idle: idle, cancel: cancel}
+	w.timer = time.AfterFunc(idle, func() {
+		w.idleHit.Store(true)
+		cancel()
+	})
+	return w
+}
+
+func (w *idleCancelReader) Read(p []byte) (int, error) {
+	n, err := w.r.Read(p)
+	if n > 0 {
+		// 收到数据即重置计时；Reset 与定时器触发并发时只会多取消一次，无副作用
+		w.timer.Reset(w.idle)
+	}
+	return n, err
+}
+
+func (w *idleCancelReader) Close() error {
+	w.timer.Stop()
+	if c, ok := w.r.(io.Closer); ok {
+		return c.Close()
+	}
+	return nil
+}
+
+// timedOut 返回是否因空闲超时被取消（用于区分用户/系统取消与网络停滞）。
+func (w *idleCancelReader) timedOut() bool {
+	return w.idleHit.Load()
+}
 
 // ReleaseAsset GitHub Release 中的可下载资产。
 type ReleaseAsset struct {
@@ -336,7 +383,8 @@ func (s *UpdaterService) downloadWithProgress(url, dst string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer func() { _ = resp.Body.Close() }()
+	body := newIdleCancelReader(resp.Body, downloadIdleTimeout, cancel)
+	defer func() { _ = body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("下载失败，状态码: %d", resp.StatusCode)
@@ -355,7 +403,7 @@ func (s *UpdaterService) downloadWithProgress(url, dst string) (string, error) {
 	buf := make([]byte, 128*1024)
 
 	for {
-		n, readErr := resp.Body.Read(buf)
+		n, readErr := body.Read(buf)
 		if n > 0 {
 			if _, wErr := f.Write(buf[:n]); wErr != nil {
 				return "", wErr
@@ -364,6 +412,11 @@ func (s *UpdaterService) downloadWithProgress(url, dst string) (string, error) {
 			written += int64(n)
 			if total > 0 {
 				percent := uint(written * 100 / total)
+				// Content-Length 与实际写入量可能不一致（分块/压缩/代理改写），
+				// 超过 100 会让进度条越界
+				if percent > 100 {
+					percent = 100
+				}
 				if percent != lastPercent {
 					lastPercent = percent
 					s.emitter.EmitProgress(percent)
@@ -374,6 +427,11 @@ func (s *UpdaterService) downloadWithProgress(url, dst string) (string, error) {
 			break
 		}
 		if readErr != nil {
+			// 空闲看门狗取消请求时，Read 只会返回笼统的 context canceled；
+			// 换成可诊断的提示，便于用户判断是网络停滞而非应用故障。
+			if body.timedOut() {
+				return "", fmt.Errorf("下载超时：服务器在 %s 内没有发送数据", downloadIdleTimeout)
+			}
 			return "", readErr
 		}
 	}

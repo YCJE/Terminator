@@ -83,21 +83,9 @@ func partPath(path string, total int64, identity string) string {
 	return fmt.Sprintf("%s%s-%d-%x", path, partSuffix, total, sum[:4])
 }
 
-// remoteResumeOffset 探测远程续传起点：临时文件存在且大小严格小于源文件总
+// localResumeOffset 探测本地续传起点：临时文件存在且大小严格小于源文件总
 // 大小时从该大小继续，否则返回 0 从头开始。大小不小于 total 说明源文件已
 // 变化（变短或内容不同），续传会得到错误内容，故从头重来。
-func remoteResumeOffset(client *sftp.Client, part string, total int64) int64 {
-	info, err := client.Stat(part)
-	if err != nil || info.IsDir() {
-		return 0
-	}
-	if size := info.Size(); size > 0 && size < total {
-		return size
-	}
-	return 0
-}
-
-// localResumeOffset 是 remoteResumeOffset 的本地版本，语义完全一致。
 func localResumeOffset(part string, total int64) int64 {
 	info, err := os.Stat(part)
 	if err != nil || info.IsDir() {
@@ -122,20 +110,47 @@ func renameOver(client *sftp.Client, from string, to string) error {
 }
 
 // openRemoteForResume 打开远程临时文件用于写入，返回实际生效的起始偏移。
-// offset > 0 时以追加方式打开以从断点继续；少数服务器不支持追加标志，
-// 此时回退为截断重建并返回 0，从头重传。
-func openRemoteForResume(client *sftp.Client, part string, offset int64) (*sftp.File, int64, error) {
-	if offset > 0 {
-		if f, err := client.OpenFile(part, os.O_WRONLY|os.O_CREATE|os.O_APPEND); err == nil {
-			return f, offset, nil
-		}
-	}
-
-	f, err := client.OpenFile(part, os.O_WRONLY|os.O_CREATE|os.O_TRUNC)
+//
+// 续传不使用 O_APPEND：SFTP 的写入请求带显式偏移，pkg/sftp 的 *File 从 0 开始
+// 跟踪写入位置，部分服务器又忽略 append 标志，追加打开后会从文件头覆盖而不是
+// 续写，最终把半截内容重命名成"成功"的文件。这里改为普通打开、以打开后
+// 查到的大小为准 Seek 到断点：无论服务器是否支持/忽略 append 标志，
+// 写入偏移都与文件现有长度一致。
+//
+// 临时文件为空、长度已达到甚至超过源文件总长（旧断点来自已变化的源文件），
+// 或无法确认长度时，截断到 0 从头重传，避免旧内容的尾部残留在新文件里。
+func openRemoteForResume(client *sftp.Client, part string, total int64) (*sftp.File, int64, error) {
+	f, err := client.OpenFile(part, os.O_WRONLY|os.O_CREATE)
 	if err != nil {
 		return nil, 0, err
 	}
-	return f, 0, nil
+
+	restart := func(reason error) (*sftp.File, int64, error) {
+		// 截断而不是仅 Seek(0)：残留的旧内容会在写到 total 之前一直留在文件尾，
+		// 重命名后得到一个比源文件更长、尾部是旧数据的损坏文件。
+		if terr := f.Truncate(0); terr != nil {
+			_ = f.Close()
+			return nil, 0, fmt.Errorf("重置远程临时文件 %q 失败: %w（续传起点不可用: %v）", part, terr, reason)
+		}
+		if _, serr := f.Seek(0, io.SeekStart); serr != nil {
+			_ = f.Close()
+			return nil, 0, fmt.Errorf("定位远程临时文件 %q 失败: %w", part, serr)
+		}
+		return f, 0, nil
+	}
+
+	info, err := f.Stat()
+	if err != nil || info.IsDir() {
+		return restart(err)
+	}
+	size := info.Size()
+	if size <= 0 || size >= total {
+		return restart(fmt.Errorf("临时文件大小 %d 不适合续传", size))
+	}
+	if _, err := f.Seek(size, io.SeekStart); err != nil {
+		return restart(err)
+	}
+	return f, size, nil
 }
 
 // SftpService 提供 SFTP 文件管理能力，作为 Wails 服务注册。
@@ -155,6 +170,10 @@ type SftpService struct {
 // 导致续传后的任务再也无法取消。
 type transferCancel struct {
 	cancel context.CancelFunc
+	// done 在传输主体结束时关闭，供同一 transferID 的下一次传输等待交接。
+	done chan struct{}
+	// once 保证 done 只关闭一次（注销函数可能被重复调用）。
+	once sync.Once
 }
 
 // NewSftpService 创建 SFTP 文件管理服务。
@@ -171,16 +190,50 @@ func NewSftpService(sshSvc *ssh.SshService, emitter SFTPEmitter) *SftpService {
 // 前端按该文案识别并显示"已取消"而不是普通失败。
 var errTransferCanceled = errors.New("传输已取消")
 
+// transferHandoverTimeout 是续传时等待上一次传输退出的最长时间。
+// 取消只会让复制循环在下一个数据块前退出，正常情况下远小于该值；
+// 只有连接假死、写入阻塞时才会等满。
+const transferHandoverTimeout = 10 * time.Second
+
 // registerTransfer 为一次传输注册取消句柄，返回上下文与注销函数。
 // 注销函数同时清除记录，避免 map 随传输次数无限增长。
-func (s *SftpService) registerTransfer(transferID string) (context.Context, func()) {
+//
+// 同一 transferID 只允许一个传输在写：续传会复用 ID 与同一个断点临时文件，
+// 若上一次传输尚未退出（例如前端 2.5 秒兜底已把状态标成"已暂停"，但后端
+// 仍阻塞在写入上），两个任务会并发写同一个文件，拼出损坏内容。
+// 因此先取消旧任务并等待其退出；超时则拒绝本次传输，由前端提示重试。
+func (s *SftpService) registerTransfer(transferID string) (context.Context, func(), error) {
 	ctx, cancel := context.WithCancel(context.Background())
-	entry := &transferCancel{cancel: cancel}
+	entry := &transferCancel{cancel: cancel, done: make(chan struct{})}
+
 	s.mu.Lock()
+	previous := s.cancels[transferID]
 	s.cancels[transferID] = entry
 	s.mu.Unlock()
+
+	fail := func() (context.Context, func(), error) {
+		s.mu.Lock()
+		if current, ok := s.cancels[transferID]; ok && current == entry {
+			delete(s.cancels, transferID)
+		}
+		s.mu.Unlock()
+		cancel()
+		entry.once.Do(func() { close(entry.done) })
+		return nil, nil, fmt.Errorf("上一次传输尚未结束，请稍后重试")
+	}
+
+	if previous != nil {
+		previous.cancel()
+		select {
+		case <-previous.done:
+		case <-time.After(transferHandoverTimeout):
+			return fail()
+		}
+	}
+
 	return ctx, func() {
 		cancel()
+		entry.once.Do(func() { close(entry.done) })
 		s.mu.Lock()
 		// 只删除本次注册的条目：续传会复用 transferID，若此时新传输已登记，
 		// 无条件 delete 会把新任务从 CancelTransfer 的索引里抹掉。
@@ -188,7 +241,7 @@ func (s *SftpService) registerTransfer(transferID string) (context.Context, func
 			delete(s.cancels, transferID)
 		}
 		s.mu.Unlock()
-	}
+	}, nil
 }
 
 // CancelTransfer 取消进行中的传输。
@@ -751,7 +804,11 @@ func (s *SftpService) SearchFiles(sessionID string, searchPath string, query str
 // 内部目录结构按本地相对路径还原；符号链接会被跳过，避免目录环或把
 // 目录外的内容传到服务器。
 func (s *SftpService) Upload(sessionID string, transferID string, localPath string, remotePath string) error {
-	ctx, done := s.registerTransfer(transferID)
+	ctx, done, err := s.registerTransfer(transferID)
+	if err != nil {
+		s.emitter.EmitTransferComplete(sessionID, transferID, false, err.Error())
+		return err
+	}
 	defer done()
 
 	info, err := os.Stat(localPath)
@@ -777,7 +834,11 @@ func (s *SftpService) Upload(sessionID string, transferID string, localPath stri
 // 避免把两次不同来源的数据拼接成一个"成功"的损坏文件。
 // 注意"失败后重建传输"（前端会生成新传输 ID）不会复用旧断点。
 func (s *SftpService) UploadFile(sessionID string, transferID string, localPath string, remotePath string) error {
-	ctx, done := s.registerTransfer(transferID)
+	ctx, done, err := s.registerTransfer(transferID)
+	if err != nil {
+		s.emitter.EmitTransferComplete(sessionID, transferID, false, err.Error())
+		return err
+	}
 	defer done()
 	return s.uploadFile(ctx, sessionID, transferID, localPath, remotePath)
 }
@@ -843,7 +904,7 @@ func (s *SftpService) uploadOne(
 	total := info.Size()
 
 	part := partPath(remotePath, total, transferIdentity(info.ModTime(), transferID))
-	remoteFile, offset, err := openRemoteForResume(client, part, remoteResumeOffset(client, part, total))
+	remoteFile, offset, err := openRemoteForResume(client, part, total)
 	if err != nil {
 		return fmt.Errorf("创建远程文件 %q 失败: %w", part, err)
 	}
@@ -856,15 +917,22 @@ func (s *SftpService) uploadOne(
 		}
 	}
 
-	if err := s.copyWithProgress(
+	copied, err := s.copyWithProgress(
 		ctx,
 		localFile, remoteFile,
 		sessionID, transferID, displayName,
 		progressTotal, progressBase+offset,
-	); err != nil {
+	)
+	if err != nil {
 		remoteFile.Close()
 		// 保留 part 文件：下次重试可据此续传，不再删除已传数据
 		return err
+	}
+	if copied < total-offset {
+		// 源文件在传输期间被截短/替换：已写入的数据不足，不能当作完整文件重命名。
+		// 保留 part 文件，下次重试会按新的断点继续（源文件身份已变化时从头开始）。
+		_ = remoteFile.Close()
+		return fmt.Errorf("上传 %q 不完整：已传 %d 字节，期望 %d 字节（源文件可能在传输期间被修改）", localPath, offset+copied, total)
 	}
 	if err := remoteFile.Close(); err != nil {
 		return fmt.Errorf("关闭远程文件失败: %w", err)
@@ -900,11 +968,25 @@ func (s *SftpService) uploadDir(ctx context.Context, sessionID string, transferI
 		totalBytes int64
 	)
 
-	walkErr := filepath.Walk(localPath, func(p string, fi os.FileInfo, err error) error {
+	// 根路径本身是符号链接时必须先解析：Upload 用 os.Stat 判定它是目录，
+	// 而 filepath.Walk 使用 Lstat 不跟随链接，只会看到链接自身并按"跳过符号
+	// 链接"规则丢弃，最终"上传成功"却一个文件也没传。遍历内部的符号链接
+	// 仍然跳过，避免目录环与把目录外内容带上去。
+	root := localPath
+	if fi, lerr := os.Lstat(localPath); lerr == nil && fi.Mode()&os.ModeSymlink != 0 {
+		resolved, rerr := filepath.EvalSymlinks(localPath)
+		if rerr != nil {
+			s.emitter.EmitTransferComplete(sessionID, transferID, false, fmt.Sprintf("解析目录链接失败: %v", rerr))
+			return fmt.Errorf("解析目录链接 %q 失败: %w", localPath, rerr)
+		}
+		root = resolved
+	}
+
+	walkErr := filepath.Walk(root, func(p string, fi os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
-		rel, err := filepath.Rel(localPath, p)
+		rel, err := filepath.Rel(root, p)
 		if err != nil {
 			return err
 		}
@@ -919,6 +1001,12 @@ func (s *SftpService) uploadDir(ctx context.Context, sessionID string, transferI
 		}
 		if fi.IsDir() {
 			dirs = append(dirs, remote)
+			return nil
+		}
+		// 只上传常规文件：FIFO/套接字/设备文件用 os.Open 读取会永久阻塞
+		//（FIFO 等待写入方，且 ctx 取消无法打断阻塞中的 open），
+		// 让整个目录上传卡死且用户无法取消。
+		if !fi.Mode().IsRegular() {
 			return nil
 		}
 		files = append(files, fileItem{
@@ -966,7 +1054,11 @@ func (s *SftpService) uploadDir(ctx context.Context, sessionID string, transferI
 // Download 下载远程文件或目录到本地路径。
 // 目标是目录时递归下载：localPath 即为目标目录本身（不存在时自动创建）。
 func (s *SftpService) Download(sessionID string, transferID string, remotePath string, localPath string) error {
-	ctx, done := s.registerTransfer(transferID)
+	ctx, done, err := s.registerTransfer(transferID)
+	if err != nil {
+		s.emitter.EmitTransferComplete(sessionID, transferID, false, err.Error())
+		return err
+	}
 	defer done()
 
 	client, err := s.sshSvc.GetSFTPClient(sessionID)
@@ -989,7 +1081,11 @@ func (s *SftpService) Download(sessionID string, transferID string, remotePath s
 // 与 UploadFile 对称：分块复制并推送进度，同样写入带源端身份的
 // ".terminator-part-*" 临时文件以支持断点续传，完成后原子重命名到 localPath。
 func (s *SftpService) DownloadFile(sessionID string, transferID string, remotePath string, localPath string) error {
-	ctx, done := s.registerTransfer(transferID)
+	ctx, done, err := s.registerTransfer(transferID)
+	if err != nil {
+		s.emitter.EmitTransferComplete(sessionID, transferID, false, err.Error())
+		return err
+	}
 	defer done()
 	return s.downloadFile(ctx, sessionID, transferID, remotePath, localPath)
 }
@@ -1073,15 +1169,22 @@ func (s *SftpService) downloadOne(
 		}
 	}
 
-	if err := s.copyWithProgress(
+	copied, err := s.copyWithProgress(
 		ctx,
 		remoteFile, localFile,
 		sessionID, transferID, displayName,
 		progressTotal, progressBase+offset,
-	); err != nil {
+	)
+	if err != nil {
 		localFile.Close()
 		// 保留 part 文件：下次重试可据此续传
 		return err
+	}
+	if copied < total-offset {
+		// 远端文件在传输期间被截短（如日志轮转）：本地 part 只是残片，
+		// 不能重命名为"完整下载"。保留 part，下次重试按新大小重新判断。
+		_ = localFile.Close()
+		return fmt.Errorf("下载 %q 不完整：已传 %d 字节，期望 %d 字节（远端文件可能在传输期间被修改）", remotePath, offset+copied, total)
 	}
 	if err := localFile.Close(); err != nil {
 		return fmt.Errorf("关闭文件失败: %w", err)
@@ -1190,9 +1293,14 @@ func (s *SftpService) downloadDir(ctx context.Context, client *sftp.Client, sess
 // 每 progressEmitInterval 推送一次进度（时间节流，非每块都发）。
 // src/dst 必须已打开，total 为本次传输的总字节数，
 // initial 为续传时已存在的字节数（从 0 开始传输时传 0）。
-func (s *SftpService) copyWithProgress(ctx context.Context, src io.Reader, dst io.Writer, sessionID string, transferID string, filename string, total int64, initial int64) error {
+//
+// 返回本次实际复制的字节数（不含 initial）。调用方必须校验它与
+// "源文件总字节数 - 断点偏移"一致：源文件在传输过程中被截短/改写时，
+// 少读的部分不会被发现，直接重命名会把半截文件当成完整文件。
+func (s *SftpService) copyWithProgress(ctx context.Context, src io.Reader, dst io.Writer, sessionID string, transferID string, filename string, total int64, initial int64) (int64, error) {
 	buf := make([]byte, transferChunkSize)
 	transferred := initial
+	var copied int64
 	lastEmit := time.Now()
 
 	// 续传时立即上报断点位置，避免进度条先显示 0% 再跳到断点
@@ -1203,27 +1311,28 @@ func (s *SftpService) copyWithProgress(ctx context.Context, src io.Reader, dst i
 	for {
 		// 每块前检查取消信号：单块最大 256KB，取消延迟可控
 		if err := checkCanceled(ctx); err != nil {
-			return err
+			return copied, err
 		}
 		n, readErr := src.Read(buf)
 		if n > 0 {
 			written, werr := dst.Write(buf[:n])
 			if werr != nil {
-				return werr
+				return copied, werr
 			}
 			// 部分写回退保护：循环写入直到全部完成
 			for written < n {
 				m, werr2 := dst.Write(buf[written:n])
 				if werr2 != nil {
-					return werr2
+					return copied, werr2
 				}
 				// Writer 返回 0 字节且无错误时循环不会推进，会永久挂起；
 				// 按短写处理，交由调用方清理临时文件后重试
 				if m <= 0 {
-					return io.ErrShortWrite
+					return copied, io.ErrShortWrite
 				}
 				written += m
 			}
+			copied += int64(written)
 			transferred += int64(written)
 			// 时间节流：距上次发射超过 200ms 才推送，避免高频事件淹没前端
 			if now := time.Now(); now.Sub(lastEmit) >= progressEmitInterval {
@@ -1235,10 +1344,10 @@ func (s *SftpService) copyWithProgress(ctx context.Context, src io.Reader, dst i
 			if readErr == io.EOF {
 				break
 			}
-			return readErr
+			return copied, readErr
 		}
 	}
 	// 发送最终进度，确保前端进度条显示 100% 而非卡在最后一次节流的值
 	s.emitter.EmitTransferProgress(sessionID, transferID, filename, transferred, total)
-	return nil
+	return copied, nil
 }

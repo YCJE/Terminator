@@ -13,8 +13,12 @@ import (
 // httpTimeout WebDAV 请求的超时时间
 const httpTimeout = 30 * time.Second
 
-// maxResponseBody 响应体最大读取大小（10MB），防止恶意服务器返回超大响应导致 OOM
-const maxResponseBody = 10 * 1024 * 1024
+// maxResponseBody 单次 WebDAV 读写的数据上限（64MB），防止恶意服务器返回超大响应导致 OOM。
+//
+// GET 与 PUT 必须使用同一上限：旧实现只限制 GET，超过 10MB 的同步数据可以
+// 成功写入远端，但之后每一轮都读不回来，同步永久失败且用户无法自愈。
+// 上传前同样按该上限校验，至少能在写入时给出明确错误而不是留下不可读的文件。
+const maxResponseBody = 64 * 1024 * 1024
 
 // newClient 创建一个带超时设置的 HTTP 客户端
 func newClient() *http.Client {
@@ -81,6 +85,12 @@ func GetFile(ctx context.Context, url, username, password string) (data []byte, 
 // 两者均为空表示新建文件（不带条件头）。
 // 返回上传成功后的新 ETag。
 func PutFile(ctx context.Context, url, username, password string, data []byte, ifMatchETag, ifUnmodifiedSince string) (newETag string, err error) {
+	// 超过 GET 上限的数据写上去也读不回来：提前拒绝，避免远端留下一个
+	// 每轮同步都会失败的"毒化"文件。
+	if len(data) > maxResponseBody {
+		return "", fmt.Errorf("同步数据超过 WebDAV 单文件上限 %d 字节，请减少条目或改用服务器同步", maxResponseBody)
+	}
+
 	client := newClient()
 	// PUT 不能跟随重定向：Go 的 http.Client 遇到 301/302/303 会把方法改成 GET
 	// 并丢弃请求体，目标服务器最终返回 200，调用方会把"根本没上传"当成成功。

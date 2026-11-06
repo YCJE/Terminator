@@ -215,6 +215,8 @@ interface SessionState {
         title: string;
         kind: SessionKind;
         config: SSHConnectionConfig;
+        /** 来源主机 ID：浮动窗口收回时原样带回，工作区/书签等按主机归属 */
+        hostId?: string;
         /** Telnet / 串口连接参数 */
         netConn?: NetConnConfig;
         /** false 表示后端会话已断开，挂回后需要重新连接 */
@@ -386,7 +388,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         }));
     },
 
-    adoptSession: ({sessionId, title, kind, config, netConn, attached = true}) => {
+    adoptSession: ({sessionId, title, kind, config, hostId, netConn, attached = true}) => {
         // 会话已收回标签栏：所有权重新归主窗口，后续卸载可以正常关闭连接
         detachedSessionIds.delete(sessionId);
         const state = get();
@@ -400,6 +402,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
             title: title || config.host,
             config,
             kind,
+            hostId: hostId || undefined,
             netConn,
             // 后端连接仍在运行时直接标记为已连接，终端以附着模式挂载；
             // 会话已断开时保持 connecting，由终端组件重新建立连接
@@ -607,6 +610,12 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     },
 
     reconnectSession: (id) => {
+        // 重连会先关闭旧连接，后端随之释放该会话的全部端口转发监听器。
+        // 只把状态改成 connecting 会让列表里的条目继续显示"运行中"，
+        // PortForwardRestorer 又因 active 条目跳过重建，重连成功后这些转发
+        // 永远无法恢复；同时清空失败记录，让恢复逻辑重新尝试。
+        usePortForwardStore.getState().markStoppedBySession(id);
+        resetRestoreAttempts(id);
         set((state) => ({
             sessions: state.sessions.map((s) =>
                 s.id === id
@@ -702,6 +711,9 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         const {sessions} = get();
         sessions.forEach((session) => {
             closeSessionTransport(session);
+            // 清掉该会话的端口转发恢复记录：会话 ID 不会复用，
+            // 不清理会让模块级 Map 随每次锁屏/擦除持续增长
+            resetRestoreAttempts(session.id);
         });
 
         // 清空所有传输任务
@@ -710,6 +722,10 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         usePortForwardStore.getState().clearAll();
         useUIStore.getState().setActiveView(ViewType.Hosts);
         useUIStore.getState().setFilePanelVisible(false);
+        // 锁屏/擦除/导入备份会卸载并重建整个界面，但这几个开关存在 store 里：
+        // 不复位的话解锁后命令面板会"自己弹出来"，快速连接对话框也会重新打开。
+        useUIStore.getState().setCommandPaletteOpen(false);
+        useUIStore.getState().setQuickConnectOpen(false);
         // 浮动窗口已全部关闭，它们的会话所有权标记也就没有意义了
         detachedSessionIds.clear();
         // 广播模式必须一起复位：锁屏/擦除/恢复备份后是新一批会话，
@@ -756,6 +772,11 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         const state = get();
         const root = state.sessions.find((s) => s.id === rootSessionId);
         if (!root || !shape) return;
+        // 同一时刻只维护一组分屏：已有布局时不能直接覆盖，否则旧布局里的
+        // 窗格会话会从渲染树中消失（既不在布局里，也不是当前标签），
+        // 但连接仍在后台运行，用户再也无法看到或关闭它们。
+        // 快照/工作区恢复因此退化为"只恢复标签"；关闭现有分屏后可再次打开快照。
+        if (state.layout) return;
         const panes = countPaneShape(shape);
         if (panes < 2 || panes > MAX_PANES) return;
 

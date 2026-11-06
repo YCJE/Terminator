@@ -77,8 +77,8 @@ func parseSSHConfigFile(path string) ([]SSHConfigHost, error) {
 	}
 
 	for _, raw := range strings.Split(string(data), "\n") {
-		line := strings.TrimSpace(raw)
-		if line == "" || strings.HasPrefix(line, "#") {
+		line := stripSSHConfigComment(strings.TrimSpace(raw))
+		if line == "" {
 			continue
 		}
 		key, value := splitSSHConfigLine(line)
@@ -128,6 +128,28 @@ func parseSSHConfigFile(path string) ([]SSHConfigHost, error) {
 	flush()
 
 	return entries, nil
+}
+
+// stripSSHConfigComment 去掉行内注释。
+//
+// OpenSSH 允许注释出现在行尾（例如 "HostName 10.0.0.1 # 说明"），
+// `#` 作为新 token 的开头时开始注释；引号内的 `#` 属于值本身。
+// 不处理的话注释会被拼进 HostName / User 等字段，导入后的主机无法连接。
+func stripSSHConfigComment(line string) string {
+	var quote byte
+	for i := 0; i < len(line); i++ {
+		switch ch := line[i]; {
+		case quote != 0:
+			if ch == quote {
+				quote = 0
+			}
+		case ch == '\'' || ch == '"':
+			quote = ch
+		case ch == '#' && (i == 0 || line[i-1] == ' ' || line[i-1] == '\t'):
+			return strings.TrimSpace(line[:i])
+		}
+	}
+	return line
 }
 
 // splitSSHConfigLine 拆分 "Key Value" 或 "Key=Value" 两种写法，并去除引号。

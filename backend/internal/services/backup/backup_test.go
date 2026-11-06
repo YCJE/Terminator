@@ -282,6 +282,61 @@ func TestReadBackupFileRejectsNewerVersion(t *testing.T) {
 	}
 }
 
+// 备份结构合法但某条目无法解密时必须中止，且不得清空已有数据。
+// 旧实现只校验主密钥可解密，随后在事务里先 Wipe 再写入：一份被修补过
+// （或混入其它账户条目）的备份会把原有数据抹掉并提交一份打不开的库。
+func TestImportRejectsUndecryptableBlob(t *testing.T) {
+	ctx := context.Background()
+	svc, q, v, dialog := newTestService(t)
+
+	masterKey := seedAccount(t, q, v)
+	original := seedBlob(t, q, masterKey, "blob-1", "web-1")
+
+	path := filepath.Join(t.TempDir(), "backup.json")
+	dialog.savePath = path
+	if _, err := svc.ExportBackup(ctx); err != nil {
+		t.Fatalf("导出失败: %v", err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("读取备份失败: %v", err)
+	}
+	var payload backupPayload
+	if err := json.Unmarshal(data, &payload); err != nil {
+		t.Fatalf("解析备份失败: %v", err)
+	}
+	// 合法 base64 但无法通过 GCM 校验的密文：模拟文件被修补或混入其它账户条目
+	payload.Blobs[0].Blob = base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{0xAA}, 64))
+	tampered, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("序列化损坏备份失败: %v", err)
+	}
+	if err := os.WriteFile(path, tampered, 0600); err != nil {
+		t.Fatalf("写入损坏备份失败: %v", err)
+	}
+
+	dialog.openPath = path
+	if _, err := svc.SelectBackupFile(); err != nil {
+		t.Fatalf("选择备份失败: %v", err)
+	}
+	if err := svc.ImportBackup(ctx, testPassword); err == nil {
+		t.Fatal("包含无法解密条目的备份竟然导入成功")
+	}
+
+	// 校验发生在清空数据之前：原账户与条目必须原样保留
+	if _, err := q.GetUser(ctx); err != nil {
+		t.Fatalf("导入失败后账户丢失: %v", err)
+	}
+	blobs, err := q.GetAllBlobs(ctx)
+	if err != nil {
+		t.Fatalf("读取条目失败: %v", err)
+	}
+	if len(blobs) != 1 || blobs[0].Blob != original {
+		t.Fatalf("导入失败后本地条目被修改: %+v", blobs)
+	}
+}
+
 // 保险库锁定时不得导出：此时无法确认账户与密文的归属。
 func TestExportRequiresUnlockedVault(t *testing.T) {
 	svc, _, _, _ := newTestService(t)

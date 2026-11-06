@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -21,6 +22,7 @@ import (
 	"terminator-desktop/backend/internal/apperror"
 	"terminator-desktop/backend/internal/crypto"
 	"terminator-desktop/backend/internal/dbgen"
+	"terminator-desktop/backend/internal/services/settings"
 	"terminator-desktop/backend/internal/timeutil"
 	"terminator-desktop/backend/internal/vault"
 
@@ -105,6 +107,9 @@ type BackupService struct {
 
 	sshDisconn SessionDisconnector
 	syncPauser SyncPauser
+	// settingsSvc 用于导入其他账户的备份后重置同步通道。
+	// 不清空 WebDAV 配置会让新账户的主密钥去解密/覆盖上一账户的远端数据。
+	settingsSvc *settings.SettingsService
 
 	mu sync.Mutex
 	// pending 记录 SelectBackupFile 选中的备份。
@@ -146,6 +151,13 @@ func (s *BackupService) SetSessionDisconnector(d SessionDisconnector) {
 //wails:ignore 仅由后端装配（main.go）调用，参数是接口类型无法 JSON 序列化，不暴露给前端
 func (s *BackupService) SetSyncPauser(p SyncPauser) {
 	s.syncPauser = p
+}
+
+// SetSettingsService 注入设置服务，导入备份后按账户归属重置同步通道。
+//
+//wails:ignore 仅由后端装配（main.go）调用，参数是内部类型，不暴露给前端
+func (s *BackupService) SetSettingsService(svc *settings.SettingsService) {
+	s.settingsSvc = svc
 }
 
 func (s *BackupService) appVersion() string {
@@ -334,6 +346,22 @@ func (s *BackupService) ImportBackup(ctx context.Context, password string) error
 	}
 	defer clearBytes(loginKey)
 
+	// 主密钥能解开只说明密码正确，不代表所有条目可用：备份文件被截断后修补、
+	// 手工编辑，或混入了其它账户的条目时，写入这些密文后界面只会显示"无法解密"，
+	// 而本地原有数据已在同一事务里被清空，恢复不可逆。因此先逐条校验再动数据。
+	// 墓碑条目的密文本就为空（删除时已清空），无需也无法校验。
+	for _, b := range payload.Blobs {
+		if b.IsDeleted || b.Blob == "" {
+			continue
+		}
+		plain, derr := crypto.UnpackAndDecrypt(b.Blob, masterKey)
+		if derr != nil {
+			return apperror.Validation(fmt.Sprintf(
+				"备份中的条目 %q 无法解密，已中止恢复（本地数据未修改）", b.ID))
+		}
+		clearBytes(plain)
+	}
+
 	// 密码校验通过、确认要替换数据后再暂停同步：暂停会等待在途同步结束，
 	// 密码错误时不应无谓地阻塞同步循环
 	if s.syncPauser != nil {
@@ -359,6 +387,18 @@ func (s *BackupService) ImportBackup(ctx context.Context, password string) error
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	// 判断恢复的是否为当前账户（用户名与同步服务器都一致）。
+	// 不是当前账户时必须重置同步通道：settings.json 里的 WebDAV 地址与凭据
+	// 属于被替换的账户，新账户的主密钥既解不开旧远端数据，也会把新数据写进
+	// 上一账户的云盘空间；备份里的同步游标也属于另一账户，需要清空后重新对齐。
+	previousUser, userErr := s.q.GetUser(ctx)
+	if userErr != nil && !errors.Is(userErr, sql.ErrNoRows) {
+		return userErr
+	}
+	sameAccount := userErr == nil &&
+		previousUser.Username == payload.User.Username &&
+		previousUser.ServerUrl.String == payload.User.ServerURL
+
 	qtx := s.q.WithTx(tx)
 	if err := qtx.WipeBlobs(ctx); err != nil {
 		return err
@@ -373,8 +413,9 @@ func (s *BackupService) ImportBackup(ctx context.Context, password string) error
 
 	user := payload.User
 	// 备份格式不记录用户 ID（ID 不参与密钥派生），恢复时重新生成
+	newUserID := uuid.New().String()
 	if err := qtx.CreateUser(ctx, dbgen.CreateUserParams{
-		ID:                 uuid.New().String(),
+		ID:                 newUserID,
 		Username:           user.Username,
 		KeySalt:            user.KeySalt,
 		AuthSalt:           sql.NullString{String: user.AuthSalt, Valid: user.AuthSalt != ""},
@@ -402,6 +443,24 @@ func (s *BackupService) ImportBackup(ctx context.Context, password string) error
 
 	// 旧 token 属于被替换掉的账户，必须丢弃
 	s.client.ClearToken()
+
+	// 恢复的是另一个账户：清除上一账户的 WebDAV 凭据（连同同步方式一起复位），
+	// 并清空备份带来的同步游标——它属于另一账户/服务器，继续沿用会让增量
+	// 同步漏掉新服务器上的既有数据。清理失败只告警，不回滚已成功恢复的数据。
+	if !sameAccount {
+		if s.settingsSvc != nil {
+			if err := s.settingsSvc.ClearWebDAVConfig(); err != nil {
+				slog.Warn("failed to clear WebDAV config after backup import", "error", err)
+			}
+		}
+		if err := s.q.UpdateUserLastSyncTime(ctx, dbgen.UpdateUserLastSyncTimeParams{
+			LastSyncTime: sql.NullString{},
+			ID:           newUserID,
+		}); err != nil {
+			slog.Warn("failed to reset sync cursor after backup import", "error", err)
+		}
+	}
+
 	// 直接用备份口令解锁：备份已校验可解密，无需用户重新登录
 	s.vault.Unlock(masterKey, loginKey)
 

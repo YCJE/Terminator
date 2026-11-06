@@ -294,6 +294,10 @@ export function FilePanel({ sessionId }: FilePanelProps) {
 
     // 请求序列号，防止快速切换目录时的竞态条件
     const loadIdRef = useRef(0);
+    // 静默刷新（上传/删除完成后刷新列表）的序列号，与 loadIdRef 分开：
+    // 刷新不应让正在进行的目录切换失效（否则用户点了新目录，结果被刷新的
+    // 旧目录列表覆盖，面板停在原目录），但会话切换时必须让它失效。
+    const refreshIdRef = useRef(0);
 
     // 预览请求序列号：切换会话时递增，使在途的 ReadFile 失效。
     // 与 loadIdRef 分开：loadIdRef 会被目录导航递增，若复用它，
@@ -356,8 +360,10 @@ export function FilePanel({ sessionId }: FilePanelProps) {
         if (!request || request.sessionId !== sessionId) return;
         // nonce 单调递增：同一次请求只处理一次，避免重渲染时反复导航
         if (request.nonce <= lastNavigateNonceRef.current) return;
-        lastNavigateNonceRef.current = request.nonce;
+        // 会话尚未连接时不要消费请求：连接成功后本 effect 会因 sessionStatus
+        // 变化再次执行，届时再执行导航；提前消费会让请求永久丢失。
         if (sessionStatus !== "connected") return;
+        lastNavigateNonceRef.current = request.nonce;
         void loadDir(request.path);
     }, [sftpNavigateRequest, sessionId, sessionStatus, loadDir]);
 
@@ -365,10 +371,12 @@ export function FilePanel({ sessionId }: FilePanelProps) {
     // 不显示整页 loading、不清空搜索与滚动位置，避免列表闪空。
     const refreshDir = useCallback(async (path: string) => {
         if (path !== currentPathRef.current) return;
-        const myId = ++loadIdRef.current;
+        const myId = ++refreshIdRef.current;
         try {
             const list = await SftpService.ListDir(sessionId, path);
-            if (myId !== loadIdRef.current) return;
+            if (myId !== refreshIdRef.current) return;
+            // 请求期间用户可能已切到其它目录：此时旧目录的列表不能回填
+            if (path !== currentPathRef.current) return;
             setEntries(list || []);
         } catch {
             // 静默刷新失败时保留现有列表，真正的错误由用户的下一次操作暴露
@@ -387,6 +395,8 @@ export function FilePanel({ sessionId }: FilePanelProps) {
         // 使在途的目录/目录树加载失效：新会话可能尚未连接，若不递增序列号，
         // 上一个会话的在途请求返回后仍会通过校验，把旧主机的文件写入新会话面板
         ++loadIdRef.current;
+        // 静默刷新同样必须失效：它不属于 loadIdRef 的序列，单独递增
+        ++refreshIdRef.current;
         // 使在途的文件预览失效：否则旧主机的预览内容会在切换后回填，
         // 此时"编辑→保存"会用新会话身份写入旧主机的路径（跨会话误写）
         ++previewIdRef.current;
@@ -1434,8 +1444,13 @@ export function FilePanel({ sessionId }: FilePanelProps) {
                 try {
                     exists = await SftpService.Exists(target.sessionId, remotePath);
                 } catch {
-                    // 检查失败时继续上传：真实的连接/权限问题会由传输队列如实上报
-                    exists = false;
+                    // 无法确认远端是否存在时，skip 策略必须按"已存在"处理：
+                    // 按"不存在"继续上传会在用户明确选择跳过的情况下覆盖目标文件。
+                    // overwrite 策略不受影响，照常上传。
+                    if (policy === "skip") {
+                        skipped++;
+                        continue;
+                    }
                 }
                 if (exists && policy === "skip") {
                     skipped++;
@@ -1936,6 +1951,7 @@ export function FilePanel({ sessionId }: FilePanelProps) {
                             restoreScrollTop={restoreScrollTop}
                             selectedNames={selectedNames}
                             onSelectionChange={(names) => setSelectedNames(new Set(names))}
+                            dirKey={`${sessionId}\n${currentPath}`}
                         />
                     )}
                 </div>

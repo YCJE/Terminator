@@ -245,6 +245,72 @@ type SshService struct {
 	// authMu 保护 authWaiters（key = request ID）
 	authMu      sync.Mutex
 	authWaiters map[string]chan authAnswer
+
+	// agentForwards 记录每个池化 client 上已注册的 agent 转发处理器及引用它的会话数。
+	// ForwardToAgent 只能对同一个 *ssh.Client 注册一次，第二个会话再注册会失败；
+	// 而处理器按 client 生效、不属于某个会话，若各会话结束时各自关闭，先结束的会话
+	// 会把仍在运行的其它会话的 agent 转发一并断掉。因此按 client 共享并在
+	// 引用归零时关闭。
+	agentForwards   map[*ssh.Client]*agentForwardState
+	agentForwardsMu sync.Mutex
+}
+
+// agentForwardState 是一个 client 上共享的 agent 转发注册。
+type agentForwardState struct {
+	closer io.Closer
+	refs   int
+}
+
+// agentForwardLease 是单个会话对共享 agent 转发的引用，Close 时递减引用计数。
+type agentForwardLease struct {
+	svc    *SshService
+	client *ssh.Client
+	state  *agentForwardState
+	once   sync.Once
+}
+
+func (l *agentForwardLease) Close() error {
+	l.once.Do(func() {
+		l.svc.agentForwardsMu.Lock()
+		st, ok := l.svc.agentForwards[l.client]
+		var toClose io.Closer
+		if ok && st == l.state {
+			st.refs--
+			if st.refs <= 0 {
+				delete(l.svc.agentForwards, l.client)
+				toClose = st.closer
+			}
+		}
+		l.svc.agentForwardsMu.Unlock()
+		if toClose != nil {
+			_ = toClose.Close()
+		}
+	})
+	return nil
+}
+
+// acquireAgentForward 获取（必要时注册）client 上共享的 agent 转发。
+// 返回的 Closer 由会话持有，会话结束时调用一次即可。
+func (s *SshService) acquireAgentForward(client *ssh.Client) (io.Closer, error) {
+	s.agentForwardsMu.Lock()
+	defer s.agentForwardsMu.Unlock()
+
+	if st, ok := s.agentForwards[client]; ok {
+		st.refs++
+		return &agentForwardLease{svc: s, client: client, state: st}, nil
+	}
+
+	ag, ac, err := sshagent.New()
+	if err != nil {
+		return nil, err
+	}
+	if err := agent.ForwardToAgent(client, ag); err != nil {
+		_ = ac.Close()
+		return nil, err
+	}
+	st := &agentForwardState{closer: ac, refs: 1}
+	s.agentForwards[client] = st
+	return &agentForwardLease{svc: s, client: client, state: st}, nil
 }
 
 // pooledConn 池化 SSH 连接，引用计数管理生命周期
@@ -267,6 +333,8 @@ const (
 	defaultKeepAlive = 30 * time.Second
 	// maxKeepAlive 限制保活间隔上限。
 	maxKeepAlive = 300 * time.Second
+	// maxPortForwards 限制单个应用内端口转发总数，防止资源耗尽。
+	maxPortForwards = 100
 )
 
 // terminalType 返回请求 PTY 时使用的终端类型。
@@ -284,6 +352,13 @@ func terminalType(config *SSHConnectionConfig) string {
 		}
 	}
 	return term
+}
+
+// joinHostPort 拼接 host:port，兼容 IPv6 字面量与 "[::1]" 写法。
+// 直接用 "%s:%d" 会让 "::1:22" 因冒号过多而拨号/监听失败。
+func joinHostPort(host string, port int) string {
+	host = strings.TrimSuffix(strings.TrimPrefix(strings.TrimSpace(host), "["), "]")
+	return net.JoinHostPort(host, strconv.Itoa(port))
 }
 
 // connectionTimeout 返回建立连接（含跳板/代理握手）的超时。
@@ -328,6 +403,7 @@ func NewSshService(emitter SSHEmitter, logDir string) *SshService {
 		forwards:        make(map[string]net.Listener),
 		sessionForwards: make(map[string][]string),
 		forwardConns:    make(map[string]map[net.Conn]struct{}),
+		agentForwards:   make(map[*ssh.Client]*agentForwardState),
 		logDir:          logDir,
 		authWaiters:     make(map[string]chan authAnswer),
 	}
@@ -442,6 +518,17 @@ func (s *SshService) Connect(config *SSHConnectionConfig) error {
 	if strings.TrimSpace(config.ID) == "" {
 		return apperror.Validation("session id is required")
 	}
+	// 配置校验与 TestConnection 保持一致：空 Host 会被拼成 ":22"，net.Dial
+	// 会直接连到本机；端口越界/空用户名也应在进入网络层前拒绝。
+	if strings.TrimSpace(config.Host) == "" {
+		return apperror.Validation("host is required")
+	}
+	if config.Port <= 0 || config.Port > 65535 {
+		return apperror.Validation("port must be between 1 and 65535")
+	}
+	if strings.TrimSpace(config.Username) == "" {
+		return apperror.Validation("username is required")
+	}
 	// 编码在连接阶段校验：非法值不应等到用户敲键盘时才报错。
 	encodingSpec, err := charset.Parse(config.Encoding)
 	if err != nil {
@@ -489,15 +576,12 @@ func (s *SshService) Connect(config *SSHConnectionConfig) error {
 	// ForwardToAgent 将本地 agent 注册到 SSH client，处理服务器发起的 agent 通道。
 	var agentCloser io.Closer
 	if config.AgentForwarding {
-		if ag, ac, agentErr := sshagent.New(); agentErr == nil {
-			if ferr := agent.ForwardToAgent(client, ag); ferr != nil {
-				_ = ac.Close()
-				slog.Debug("failed to set up agent forwarding on client", "session", config.ID, "error", ferr)
-			} else {
-				agentCloser = ac // 保存 closer，会话结束时关闭
-			}
+		// 处理器按 client 共享：同一池化连接上的第二个会话不能再注册，
+		// 关闭也不能由任一会话单独触发（见 acquireAgentForward）。
+		if lease, agentErr := s.acquireAgentForward(client); agentErr == nil {
+			agentCloser = lease // 保存引用，会话结束时释放
 		} else {
-			slog.Debug("SSH agent not available for forwarding", "session", config.ID, "error", agentErr)
+			slog.Debug("failed to set up agent forwarding on client", "session", config.ID, "error", agentErr)
 		}
 		// best-effort：忽略错误，不影响正常连接
 		if ferr := agent.RequestAgentForwarding(session); ferr != nil {
@@ -905,7 +989,7 @@ func (s *SshService) dialSSH(config *SSHConnectionConfig) (*ssh.Client, error) {
 		Timeout:         connectionTimeout(config),
 	}
 
-	targetAddr := fmt.Sprintf("%s:%d", config.Host, config.Port)
+	targetAddr := joinHostPort(config.Host, config.Port)
 
 	if config.JumpHost != nil {
 		return s.dialThroughJumpHost(config, clientConfig, targetAddr)
@@ -936,6 +1020,22 @@ func (s *SshService) dialThroughJumpHost(config *SSHConnectionConfig, targetConf
 		chain = append(chain, jh)
 	}
 
+	// 跳板机参数校验：空 Host 会被拼成 ":22" 从而连到本机控制台，
+	// 端口越界/空用户名也只会在握手阶段报出难以理解的错误。
+	for _, jh := range chain {
+		if strings.TrimSpace(jh.Host) == "" {
+			return nil, apperror.SSHConnectionFailed("跳板机地址不能为空", nil)
+		}
+		if jh.Port <= 0 || jh.Port > 65535 {
+			return nil, apperror.SSHConnectionFailed(
+				fmt.Sprintf("跳板机 %s 的端口必须是 1-65535", jh.Host), nil)
+		}
+		if strings.TrimSpace(jh.Username) == "" {
+			return nil, apperror.SSHConnectionFailed(
+				fmt.Sprintf("跳板机 %s 的用户名不能为空", jh.Host), nil)
+		}
+	}
+
 	// established 保存已建立的各级连接，失败或断开时统一清理
 	var established []*ssh.Client
 	cleanup := func() {
@@ -946,7 +1046,7 @@ func (s *SshService) dialThroughJumpHost(config *SSHConnectionConfig, targetConf
 
 	// 第一跳：本机（或经代理）直连最外层跳板机
 	first := chain[0]
-	firstAddr := fmt.Sprintf("%s:%d", first.Host, first.Port)
+	firstAddr := joinHostPort(first.Host, first.Port)
 	firstAuth, authErr := buildAuthMethods(first.PrivateKey, first.PrivateKeyPassphrase, first.Password, first.Certificate)
 	if authErr != nil {
 		return nil, apperror.SSHConnectionFailed(
@@ -966,7 +1066,7 @@ func (s *SshService) dialThroughJumpHost(config *SSHConnectionConfig, targetConf
 	// 中间跳：从上一跳穿透到下一跳
 	cur := firstClient
 	for _, jh := range chain[1:] {
-		nextAddr := fmt.Sprintf("%s:%d", jh.Host, jh.Port)
+		nextAddr := joinHostPort(jh.Host, jh.Port)
 		nextAuth, authErr := buildAuthMethods(jh.PrivateKey, jh.PrivateKeyPassphrase, jh.Password, jh.Certificate)
 		if authErr != nil {
 			cleanup()
@@ -1034,7 +1134,7 @@ func dialWithProxy(network, addr string, sshConfig *ssh.ClientConfig, config *SS
 		return ssh.Dial(network, addr, sshConfig)
 	}
 
-	proxyAddr := fmt.Sprintf("%s:%d", config.ProxyHost, config.ProxyPort)
+	proxyAddr := joinHostPort(config.ProxyHost, config.ProxyPort)
 	dialTimeout := connectionTimeout(config)
 	var conn net.Conn
 
@@ -1465,7 +1565,7 @@ func buildAgentAuthMethod() (ssh.AuthMethod, io.Closer) {
 
 // makeHostKeyCallback returns a callback that enforces Trust-On-First-Use.
 func (s *SshService) makeHostKeyCallback(host string, port int) ssh.HostKeyCallback {
-	addr := fmt.Sprintf("%s:%d", host, port)
+	addr := joinHostPort(host, port)
 	return func(hostname string, remote net.Addr, key ssh.PublicKey) error {
 		s.hostsMu.Lock()
 		defer s.hostsMu.Unlock()
@@ -2016,11 +2116,54 @@ func (s *SshService) ExecCommand(sessionID string, command string, timeout time.
 		}()
 	}
 
-	output, err := session.CombinedOutput(command)
-	if err != nil {
-		return string(output), err
+	// 与 CombinedOutput 等价（stdout/stderr 合并），但输出有硬上限
+	out := &cappedBuffer{}
+	session.Stdout = out
+	session.Stderr = out
+	err = session.Run(command)
+	return out.String(), err
+}
+
+// maxExecOutputBytes 限制单条非交互命令收集的输出总量（stdout+stderr 合并）。
+// 批量执行会同时收集最多 200 台主机的输出，若某台执行了持续输出的命令
+// （如 `yes`、`cat /dev/urandom`），在超时前就会把这些字节全部留在内存里。
+// 超过上限后丢弃后续输出，命令仍会正常运行到结束/超时。
+const maxExecOutputBytes = 8 << 20
+
+// cappedBuffer 是带硬上限的并发安全缓冲区，实现 io.Writer。
+type cappedBuffer struct {
+	mu        sync.Mutex
+	buf       strings.Builder
+	truncated bool
+}
+
+func (c *cappedBuffer) Write(p []byte) (int, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	remaining := maxExecOutputBytes - c.buf.Len()
+	if remaining <= 0 {
+		c.truncated = true
+		return len(p), nil
 	}
-	return string(output), nil
+	if len(p) > remaining {
+		c.buf.Write(p[:remaining])
+		c.truncated = true
+		return len(p), nil
+	}
+	c.buf.Write(p)
+	return len(p), nil
+}
+
+// String 返回已收集的输出；发生过截断时附带一条说明，避免调用方
+// 把"只看到前 8MB"误当成完整结果。
+func (c *cappedBuffer) String() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	out := c.buf.String()
+	if c.truncated {
+		out += fmt.Sprintf("\n[输出超过 %d 字节，已截断]\n", maxExecOutputBytes)
+	}
+	return out
 }
 
 // AddPortForward 添加端口转发
@@ -2028,6 +2171,17 @@ func (s *SshService) AddPortForward(spec *PortForwardSpec) error {
 	// 同 Connect：spec 为 nil 时下方读取 spec.SessionID 会触发空指针 panic。
 	if spec == nil {
 		return apperror.Validation("port forward spec is required")
+	}
+	// ID 是后续 RemovePortForward 的唯一索引，空 ID 会让删除操作无法命中；
+	// 端口 0 会绑定随机端口（用户界面仍显示 0，无法实际使用），一并拒绝。
+	if strings.TrimSpace(spec.ID) == "" {
+		return apperror.Validation("port forward id is required")
+	}
+	if spec.LocalPort <= 0 || spec.LocalPort > 65535 {
+		return apperror.Validation("local port must be between 1 and 65535")
+	}
+	if spec.RemotePort <= 0 || spec.RemotePort > 65535 {
+		return apperror.Validation("remote port must be between 1 and 65535")
 	}
 
 	s.mu.RLock()
@@ -2038,13 +2192,14 @@ func (s *SshService) AddPortForward(spec *PortForwardSpec) error {
 		return apperror.SSHSessionNotFound()
 	}
 
-	// 限制端口转发总数，防止资源耗尽
+	// 限制端口转发总数，防止资源耗尽（真正的递增在 start*Forward 的锁内复查，
+	// 这里只做快速失败，避免并发请求同时通过检查）
 	s.forwardsMu.Lock()
-	if len(s.forwards) >= 100 {
-		s.forwardsMu.Unlock()
-		return fmt.Errorf("端口转发总数已达上限（100）")
-	}
+	atLimit := len(s.forwards) >= maxPortForwards
 	s.forwardsMu.Unlock()
+	if atLimit {
+		return fmt.Errorf("端口转发总数已达上限（%d）", maxPortForwards)
+	}
 
 	switch spec.Type {
 	case "local":
@@ -2066,10 +2221,13 @@ func (s *SshService) startLocalForward(spec *PortForwardSpec, client *ssh.Client
 	if localHost == "" {
 		localHost = "127.0.0.1"
 	}
-	if localHost == "0.0.0.0" || localHost == "::" || localHost == "[::]" {
-		return fmt.Errorf("本地监听地址 %s 会把隧道暴露给局域网且无鉴权，请填写具体网卡地址（如 192.168.1.10）", localHost)
+	// 允许用户填写 IPv6 字面量（含 [::1] 形式）：先去方括号，再用 JoinHostPort
+	// 拼接。直接用 "%s:%d" 会让 "::1:8080" 因冒号过多而监听失败。
+	localHost = strings.TrimSuffix(strings.TrimPrefix(localHost, "["), "]")
+	if ip := net.ParseIP(localHost); ip != nil && ip.IsUnspecified() {
+		return fmt.Errorf("本地监听地址 %s 会把隧道暴露给局域网且无鉴权，请填写具体网卡地址（如 192.168.1.10）", spec.LocalHost)
 	}
-	localAddr := fmt.Sprintf("%s:%d", localHost, spec.LocalPort)
+	localAddr := net.JoinHostPort(localHost, strconv.Itoa(spec.LocalPort))
 	listener, err := net.Listen("tcp", localAddr)
 	if err != nil {
 		// 友好提示端口占用
@@ -2085,6 +2243,13 @@ func (s *SshService) startLocalForward(spec *PortForwardSpec, client *ssh.Client
 		s.forwardsMu.Unlock()
 		_ = listener.Close()
 		return fmt.Errorf("port forward with ID %s already exists", spec.ID)
+	}
+	// 与 AddPortForward 的前置检查不同，这里在登记锁内复查上限：
+	// 并发请求都通过前置检查时，只有这里的检查能阻止实际数量越界。
+	if len(s.forwards) >= maxPortForwards {
+		s.forwardsMu.Unlock()
+		_ = listener.Close()
+		return fmt.Errorf("端口转发总数已达上限（%d）", maxPortForwards)
 	}
 	s.forwards[spec.ID] = listener
 	s.sessionForwards[spec.SessionID] = append(s.sessionForwards[spec.SessionID], spec.ID)
@@ -2164,7 +2329,9 @@ func (s *SshService) startRemoteForward(spec *PortForwardSpec, client *ssh.Clien
 	if remoteHost == "" {
 		remoteHost = "127.0.0.1"
 	}
-	remoteAddr := fmt.Sprintf("%s:%d", remoteHost, spec.RemotePort)
+	// 与本地转发一致：支持 IPv6 字面量，方括号由 JoinHostPort 按需补上
+	remoteHost = strings.TrimSuffix(strings.TrimPrefix(remoteHost, "["), "]")
+	remoteAddr := net.JoinHostPort(remoteHost, strconv.Itoa(spec.RemotePort))
 	listener, err := client.Listen("tcp", remoteAddr)
 	if err != nil {
 		return fmt.Errorf("failed to listen on remote %s: %w", remoteAddr, err)
@@ -2176,6 +2343,12 @@ func (s *SshService) startRemoteForward(spec *PortForwardSpec, client *ssh.Clien
 		s.forwardsMu.Unlock()
 		_ = listener.Close()
 		return fmt.Errorf("port forward with ID %s already exists", spec.ID)
+	}
+	// 同本地转发：在登记锁内复查总数上限，防止并发请求同时越过前置检查
+	if len(s.forwards) >= maxPortForwards {
+		s.forwardsMu.Unlock()
+		_ = listener.Close()
+		return fmt.Errorf("端口转发总数已达上限（%d）", maxPortForwards)
 	}
 	s.forwards[spec.ID] = listener
 	s.sessionForwards[spec.SessionID] = append(s.sessionForwards[spec.SessionID], spec.ID)
@@ -2291,14 +2464,21 @@ func (s *SshService) cleanupForwards(sessionID string) {
 	s.forwardsMu.Unlock()
 
 	// 远端转发的 listener.Close 会向服务器发送 cancel-tcpip-forward 并等待应答，
-	// 半开连接上可能永久阻塞。整体放到后台并设置总超时，避免关闭会话时卡住。
+	// 半开连接上可能永久阻塞。每个 listener 独立并发关闭：串行关闭时只要
+	// 第一个卡住，后续 listener 在超时后仍未关闭，端口会一直被占用。
 	if len(listeners) > 0 {
 		done := make(chan struct{})
 		go func() {
 			defer close(done)
+			var wg sync.WaitGroup
+			wg.Add(len(listeners))
 			for _, listener := range listeners {
-				_ = listener.Close()
+				go func(l net.Listener) {
+					defer wg.Done()
+					_ = l.Close()
+				}(listener)
 			}
+			wg.Wait()
 		}()
 		select {
 		case <-done:

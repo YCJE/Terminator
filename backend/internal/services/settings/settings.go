@@ -178,13 +178,19 @@ func (s *SettingsService) SaveSettings(settings AppSettings) error {
 	// 先读取磁盘上的现有配置，与传入值合并
 	// 防止调用方发送部分设置时覆盖未包含的字段（如 WebDAV 凭据）
 	var existing AppSettings
-	if data, err := os.ReadFile(s.configPath); err == nil {
+	data, readErr := os.ReadFile(s.configPath)
+	switch {
+	case readErr == nil:
 		if err := json.Unmarshal(data, &existing); err != nil {
 			// 配置文件已损坏：不能用零值参与下方的"传入为空则沿用旧值"合并，
 			// 否则合并逻辑全部失效，WebDAV 凭据等字段会被静默清空且无从察觉。
 			// 宁可直接拒绝本次保存，也不要用零值把用户数据覆盖掉。
 			return fmt.Errorf("配置文件已损坏，拒绝覆盖以避免丢失现有设置（请先修复或删除 %s）: %w", s.configPath, err)
 		}
+	case !os.IsNotExist(readErr):
+		// 非"文件不存在"的读取失败（权限、被其他进程独占等）同样必须以零值参与
+		// 合并的风险处理：直接拒绝保存，否则下一次写入会把现有 WebDAV 凭据清空。
+		return fmt.Errorf("读取配置文件失败，拒绝覆盖以避免丢失现有设置: %w", readErr)
 	}
 	merged := AppSettings{
 		Language:                settings.Language,

@@ -114,6 +114,9 @@ export function LogViewer() {
     const [loading, setLoading] = useState(false);
     const [copied, setCopied] = useState(false);
     const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    // 应用日志的请求序号：快速连续刷新时只采纳最后一次响应；
+    // 清空日志后递增，使清空前发起的慢请求无法把已删除的内容重新显示出来。
+    const appLogSeqRef = useRef(0);
 
     // ─── 会话日志 ─────────────────────────────────────────────
     const [logFiles, setLogFiles] = useState<SessionLogFile[]>([]);
@@ -138,15 +141,18 @@ export function LogViewer() {
     }, []);
 
     const loadLogs = useCallback(async () => {
+        const myId = ++appLogSeqRef.current;
         setLoading(true);
         try {
             const content = await SettingsService.GetLogs(500);
+            if (myId !== appLogSeqRef.current) return;
             setRawLogs(content || "");
         } catch (err) {
+            if (myId !== appLogSeqRef.current) return;
             handleAppError(err);
             setRawLogs("");
         } finally {
-            setLoading(false);
+            if (myId === appLogSeqRef.current) setLoading(false);
         }
     }, []);
 
@@ -174,6 +180,10 @@ export function LogViewer() {
     const handleClear = useCallback(async () => {
         try {
             await SettingsService.ClearLogs();
+            // 作废清除前（以及清除期间）发起的加载请求：其响应携带的是
+            // 清空前的日志内容，晚到会把已删除的日志重新显示出来。
+            ++appLogSeqRef.current;
+            setLoading(false);
             setRawLogs("");
         } catch (err) {
             handleAppError(err);

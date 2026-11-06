@@ -135,6 +135,33 @@ func (s *SshService) ReadSessionLog(name string, maxLines int) (string, error) {
 	return strings.Join(lines, "\n"), nil
 }
 
+// RemoveAllSessionLogs 删除日志目录内的全部会话日志（保留目录本身）。
+//
+// 供"擦除数据"使用：终端输出可能包含用户输入的口令、令牌，擦除后不应
+// 在磁盘上残留。只删除直接子文件，不递归，避免误删用户放在同目录的其它内容。
+func RemoveAllSessionLogs(dir string) error {
+	if strings.TrimSpace(dir) == "" {
+		return nil
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	var firstErr error
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		if err := os.Remove(filepath.Join(dir, entry.Name())); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
+}
+
 // ExportSessionLog 把指定会话日志另存到 destPath（用户选择的本地路径）。
 // 导出的是磁盘上的原始日志（含 ANSI 控制序列），而不是界面展示的剥色版本：
 // 用户导出通常是为了归档或转交排查，保留原始字节更可靠。
@@ -157,9 +184,11 @@ func (s *SshService) ExportSessionLog(name string, destPath string) error {
 	}
 	defer func() { _ = in.Close() }()
 
-	// 先写临时文件再改名：导出中断不会留下半截文件覆盖用户原文件
+	// 先写临时文件再改名：导出中断不会留下半截文件覆盖用户原文件。
+	// 日志可能含用户输入的口令/令牌，导出文件必须与原日志一样仅本人可读；
+	// os.Create 默认 0666（受 umask 影响通常为 0644），同机其他用户可读。
 	tmp := destPath + ".terminator-tmp"
-	out, err := os.Create(tmp)
+	out, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 	if err != nil {
 		return fmt.Errorf("创建导出文件失败: %w", err)
 	}

@@ -16,6 +16,7 @@ export class DockPayload {
     "sessionId": string;
     "title": string;
     "kind": string;
+    "hostId"?: string;
     "config"?: ssh$0.SSHConnectionConfig | null;
 
     /**
@@ -45,10 +46,10 @@ export class DockPayload {
      * Creates a new DockPayload instance from a string or object.
      */
     static createFrom($$source: any = {}): DockPayload {
-        const $$createField3_0 = $$createType1;
+        const $$createField4_0 = $$createType1;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("config" in $$parsedSource) {
-            $$parsedSource["config"] = $$createField3_0($$parsedSource["config"]);
+            $$parsedSource["config"] = $$createField4_0($$parsedSource["config"]);
         }
         return new DockPayload($$parsedSource as Partial<DockPayload>);
     }
@@ -61,6 +62,7 @@ export class Payload {
     "sessionId": string;
     "title": string;
     "kind": string;
+    "hostId"?: string;
     "config"?: ssh$0.SSHConnectionConfig | null;
     "attach": boolean;
 
@@ -86,10 +88,10 @@ export class Payload {
      * Creates a new Payload instance from a string or object.
      */
     static createFrom($$source: any = {}): Payload {
-        const $$createField3_0 = $$createType1;
+        const $$createField4_0 = $$createType1;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("config" in $$parsedSource) {
-            $$parsedSource["config"] = $$createField3_0($$parsedSource["config"]);
+            $$parsedSource["config"] = $$createField4_0($$parsedSource["config"]);
         }
         return new Payload($$parsedSource as Partial<Payload>);
     }
@@ -109,6 +111,13 @@ export class Request {
      * Kind 会话来源："ssh" 或 "local"
      */
     "kind": string;
+
+    /**
+     * HostID 会话来源主机 ID（工作区恢复、书签与端口转发作用域都依赖它）。
+     * 会话收回主窗口时必须原样带回，否则这些按主机归属的数据会退化为
+     * user@host:port 作用域。
+     */
+    "hostId"?: string;
     "config"?: ssh$0.SSHConnectionConfig | null;
 
     /**
@@ -146,10 +155,10 @@ export class Request {
      * Creates a new Request instance from a string or object.
      */
     static createFrom($$source: any = {}): Request {
-        const $$createField3_0 = $$createType1;
+        const $$createField4_0 = $$createType1;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("config" in $$parsedSource) {
-            $$parsedSource["config"] = $$createField3_0($$parsedSource["config"]);
+            $$parsedSource["config"] = $$createField4_0($$parsedSource["config"]);
         }
         return new Request($$parsedSource as Partial<Request>);
     }

@@ -71,7 +71,7 @@ func (t sftpCopyTarget) mkdirAll(p string) error {
 }
 
 func (t sftpCopyTarget) openPart(p string, total int64) (io.WriteCloser, int64, error) {
-	file, offset, err := openRemoteForResume(t.client, p, remoteResumeOffset(t.client, p, total))
+	file, offset, err := openRemoteForResume(t.client, p, total)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -209,14 +209,20 @@ func (s *SftpService) copyCrossOne(
 		}
 	}
 
-	if err := s.copyWithProgress(
+	copied, err := s.copyWithProgress(
 		ctx, reader, writer,
 		sessionID, transferID, displayName,
 		progressTotal, progressBase+offset,
-	); err != nil {
+	)
+	if err != nil {
 		_ = writer.Close()
 		// 保留临时文件：下次重试可据此续传
 		return err
+	}
+	if copied < size-offset {
+		// 源文件在复制期间被截短：不足的字节不能当作完整副本重命名
+		_ = writer.Close()
+		return fmt.Errorf("复制 %q 不完整：已传 %d 字节，期望 %d 字节（源文件可能在复制期间被修改）", srcPath, offset+copied, size)
 	}
 	if err := writer.Close(); err != nil {
 		return fmt.Errorf("关闭目标文件 %q 失败: %w", dstPath, err)
@@ -298,7 +304,11 @@ func (s *SftpService) CopyBetweenSessions(
 	dstPath string,
 	transferID string,
 ) error {
-	ctx, done := s.registerTransfer(transferID)
+	ctx, done, err := s.registerTransfer(transferID)
+	if err != nil {
+		s.emitter.EmitTransferComplete(srcSessionID, transferID, false, err.Error())
+		return err
+	}
 	defer done()
 
 	emitFail := func(err error) error {

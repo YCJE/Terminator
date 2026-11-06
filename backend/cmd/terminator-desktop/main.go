@@ -261,6 +261,19 @@ func main() {
 	// 否则在途同步会把替换前的旧条目推回服务器
 	authService.SetSyncPauser(syncService)
 	backupService.SetSyncPauser(syncService)
+	// 恢复的是其他账户的备份时，需要清除上一账户遗留的 WebDAV 配置与同步游标
+	backupService.SetSettingsService(settingsService)
+	// 擦除数据除了清空数据库，还要删除磁盘上的敏感残留：
+	// 会话日志可能含用户输入的口令，外部编辑的临时目录存有远端文件副本。
+	authService.SetEphemeralCleaner(func() error {
+		var firstErr error
+		if err := ssh.RemoveAllSessionLogs(sshLogDir); err != nil {
+			slog.Warn("failed to remove session logs after wipe", "error", err)
+			firstErr = err
+		}
+		editorService.CleanupTempFiles()
+		return firstErr
+	})
 
 	app.RegisterService(application.NewService(authService))
 	app.RegisterService(application.NewService(syncService))
@@ -279,7 +292,7 @@ func main() {
 	app.RegisterService(application.NewService(settingsService))
 	app.RegisterService(application.NewService(updaterService))
 	app.RegisterService(application.NewService(backupService))
-	app.RegisterService(application.NewService(NewWebDAVService(settingsService)))
+	app.RegisterService(application.NewService(NewWebDAVService(settingsService, syncService.ResetSyncCursor)))
 	// 浮动终端窗口：会话仍由 SSH/本地终端服务持有，窗口只是另一个视图
 	app.RegisterService(application.NewService(
 		floating.NewService(app, sshService.Disconnect, localShellService.Close),

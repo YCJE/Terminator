@@ -33,6 +33,7 @@ import {
 import { useSyncStore } from "@/store/syncStore.ts";
 import { useUIStore, Theme, ACCENT_PRESETS, SPACINESS_PRESETS, SKIN_PRESETS, TERMINAL_FONT_SIZE_MIN, TERMINAL_FONT_SIZE_MAX, TERMINAL_LINE_HEIGHT_MIN, TERMINAL_LINE_HEIGHT_MAX, type AccentColor, type Spaciness, type Skin, type SettingsCategory } from "@/store/uiStore.ts";
 import { HIGHLIGHT_COLORS } from "@/lib/highlightRules";
+import { isHighlightPatternValid } from "@/lib/keywordHighlight";
 import {
     comboFromEvent,
     comboLabel,
@@ -120,15 +121,10 @@ const RESERVED_SHORTCUTS: ShortcutCombo[] = [
     { ctrl: true, alt: false, shift: true, code: "KeyV" },
 ];
 
-/** 仅正则规则需要校验；非法表达式在设置页标红并跳过应用 */
+/** 仅正则规则需要校验；非法或运行时会被跳过的规则在设置页标红 */
 function isInvalidRegex(pattern: string, regex: boolean): boolean {
     if (!regex || !pattern) return false;
-    try {
-        new RegExp(pattern);
-        return false;
-    } catch {
-        return true;
-    }
+    return !isHighlightPatternValid(pattern, true);
 }
 
 export function SettingsPage() {
@@ -249,6 +245,9 @@ export function SettingsPage() {
     const [snapshots, setSnapshots] = useState<SessionSnapshot[]>([]);
     const [snapshotName, setSnapshotName] = useState("");
     const [openingSnapshotId, setOpeningSnapshotId] = useState<string | null>(null);
+    // 覆盖/删除是破坏性操作（旧布局立即丢失且无法撤销），先二次确认
+    const [snapshotToOverwrite, setSnapshotToOverwrite] = useState<SessionSnapshot | null>(null);
+    const [snapshotToDelete, setSnapshotToDelete] = useState<SessionSnapshot | null>(null);
 
     useEffect(() => {
         setSnapshots(loadSessionSnapshots());
@@ -275,7 +274,11 @@ export function SettingsPage() {
         toast.success(t("snapshot_saved", {name}));
     };
 
-    const handleOverwriteSnapshot = (snapshot: SessionSnapshot) => {
+    // 覆盖会永久丢弃快照里的旧布局，先弹确认再执行
+    const handleOverwriteSnapshot = () => {
+        const snapshot = snapshotToOverwrite;
+        setSnapshotToOverwrite(null);
+        if (!snapshot) return;
         const layout = captureCurrentLayout();
         if (layout.sessions.length === 0) {
             toast.error(t("snapshot_empty_workspace"));
@@ -305,7 +308,11 @@ export function SettingsPage() {
         }
     };
 
-    const handleDeleteSnapshot = (snapshot: SessionSnapshot) => {
+    // 删除同样不可撤销：确认后再移除
+    const handleDeleteSnapshot = () => {
+        const snapshot = snapshotToDelete;
+        setSnapshotToDelete(null);
+        if (!snapshot) return;
         const next = snapshots.filter((item) => item.id !== snapshot.id);
         setSnapshots(next);
         saveSessionSnapshots(next);
@@ -1229,7 +1236,7 @@ export function SettingsPage() {
                                         <Button
                                             variant="ghost"
                                             size="icon-sm"
-                                            onClick={() => handleOverwriteSnapshot(snapshot)}
+                                            onClick={() => setSnapshotToOverwrite(snapshot)}
                                             title={t("snapshot_overwrite")}
                                         >
                                             <Camera className="size-3.5"/>
@@ -1237,7 +1244,7 @@ export function SettingsPage() {
                                         <Button
                                             variant="ghost"
                                             size="icon-sm"
-                                            onClick={() => handleDeleteSnapshot(snapshot)}
+                                            onClick={() => setSnapshotToDelete(snapshot)}
                                             title={t("snapshot_delete")}
                                         >
                                             <Trash2 className="size-3.5"/>
@@ -1663,6 +1670,26 @@ export function SettingsPage() {
                 title={t("disconnect_confirm_title")}
                 description={t("disconnect_confirm_desc")}
                 confirmText={t("disconnect_btn")}
+                isDestructive={true}
+            />
+
+            <ConfirmModal
+                isOpen={!!snapshotToOverwrite}
+                onClose={() => setSnapshotToOverwrite(null)}
+                onConfirm={handleOverwriteSnapshot}
+                title={t("snapshot_overwrite_title")}
+                description={t("snapshot_overwrite_desc", {name: snapshotToOverwrite?.name ?? ""})}
+                confirmText={t("snapshot_overwrite")}
+                isDestructive={true}
+            />
+
+            <ConfirmModal
+                isOpen={!!snapshotToDelete}
+                onClose={() => setSnapshotToDelete(null)}
+                onConfirm={handleDeleteSnapshot}
+                title={t("snapshot_delete_title")}
+                description={t("snapshot_delete_desc", {name: snapshotToDelete?.name ?? ""})}
+                confirmText={t("snapshot_delete")}
                 isDestructive={true}
             />
 

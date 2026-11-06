@@ -177,8 +177,9 @@ export function CommandPalette() {
             const xtermInput = !!target && target.classList.contains("xterm-helper-textarea");
 
             // Ctrl+K 作为命令面板的便捷别名，但只在终端外生效：
-            // 终端里的 Ctrl+K 是 shell 的「删除到行尾」，不能抢占。
-            const altPalette = !xtermInput
+            // 终端里的 Ctrl+K 是 shell 的「删除到行尾」，不能抢占；输入框内
+            // 也可能被终端以外的编辑器/快捷键占用，同样不抢占。
+            const altPalette = !xtermInput && !editable
                 && e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey
                 && e.key.toLowerCase() === "k";
             if (matchesCombo(e, combos.palette) || altPalette) {

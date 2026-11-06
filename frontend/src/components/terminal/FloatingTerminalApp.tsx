@@ -5,7 +5,7 @@
 // SSH/本地终端会话，因此弹出/收回都不会打断正在运行的命令。
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { Events, Window } from "@wailsio/runtime";
+import { Window } from "@wailsio/runtime";
 import { useTranslation } from "react-i18next";
 import { ArrowDownToLine, Link2, Minus, Pin, PinOff, RotateCw, X } from "lucide-react";
 import i18n from "@/i18n";
@@ -13,7 +13,6 @@ import { Service as FloatingService } from "../../../bindings/terminator-desktop
 import { SSHConnectionConfig } from "../../../bindings/terminator-desktop/backend/internal/services/ssh";
 import { TerminalInstance } from "@/components/terminal/TerminalInstance";
 import { Toaster } from "@/components/ui/sonner";
-import { AppEvent } from "@/lib/events";
 import { applyAppearanceToDocument, isDarkAppearance, syncAppearanceFromSettings } from "@/lib/appAppearance";
 import { cn } from "@/lib/utils";
 import { useUIStore } from "@/store/uiStore";
@@ -141,17 +140,9 @@ export function FloatingTerminalApp() {
         };
     }, []);
 
-    const sessionId = state.status === "ready" ? state.sessionId : null;
-
-    // 后端会话断开（网络中断、远端退出、连接被主窗口锁定流程关闭）时提示并可重连
-    useEffect(() => {
-        if (!sessionId) return;
-        const unsubscribe = Events.On(AppEvent.SshClosed, (event) => {
-            const data = event?.data as { id?: string } | null;
-            if (data?.id === sessionId) setDisconnected(true);
-        });
-        return () => unsubscribe();
-    }, [sessionId]);
+    // 断开状态完全由 TerminalInstance 上报（onConnectionLost）：它区分了
+    // "重连前主动断开旧连接"与"真正的意外断开"。此处不再单独监听 SshClosed，
+    // 否则重连时旧连接的 closed 事件会把刚恢复的会话重新标成已断开。
 
     const subtitle = useMemo(() => {
         if (state.status !== "ready") return "";
@@ -254,6 +245,8 @@ export function FloatingTerminalApp() {
                     disconnected={disconnected}
                     reconnectNonce={reconnectNonce}
                     attachOnMount={state.attach}
+                    onReconnectRequest={handleReconnect}
+                    onConnectionLost={() => setDisconnected(true)}
                     className="inset-0"
                 />
             </div>

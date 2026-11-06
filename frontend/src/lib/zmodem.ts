@@ -32,6 +32,12 @@ export interface ZmodemHooks {
 const MAX_FILE_BYTES = 128 << 20;
 /** 发出 rz 后退远未开始传输的最长等待时间 */
 const UPLOAD_TIMEOUT_MS = 20_000;
+/**
+ * 协议会话的空闲上限：传输过程中若连续这么久既没有远端数据、也没有发出数据，
+ * 视为对端已卡死。zmodem.js 自身没有整体超时，`send_offer` / `accept` 的
+ * Promise 会一直挂起，导致会话永远不清空、后续上传被永久拒绝。
+ */
+const SESSION_IDLE_TIMEOUT_MS = 60_000;
 
 function encodeBase64(bytes: ArrayLike<number>): string {
     let binary = "";
@@ -70,6 +76,8 @@ export class ZmodemBridge {
     // 下载保存串行化：多个文件依次弹保存框，避免同时打开多个系统对话框
     private saveChain: Promise<void> = Promise.resolve();
     private disposed = false;
+    // 协议会话的空闲看门狗：见 SESSION_IDLE_TIMEOUT_MS
+    private idleTimer: ReturnType<typeof setTimeout> | null = null;
 
     constructor(hooks: ZmodemHooks) {
         this.hooks = hooks;
@@ -78,7 +86,9 @@ export class ZmodemBridge {
                 if (!this.disposed) this.hooks.writeToTerminal(new Uint8Array(octets));
             },
             sender: (octets) => {
-                if (!this.disposed) this.hooks.sendToRemote(encodeBase64(octets));
+                if (this.disposed) return;
+                this.touchIdleTimer();
+                this.hooks.sendToRemote(encodeBase64(octets));
             },
             on_detect: (detection) => this.handleDetect(detection),
             on_retract: () => {},
@@ -88,6 +98,8 @@ export class ZmodemBridge {
     /** 送入终端输出字节；非 ZMODEM 数据会自动写回终端 */
     consume(bytes: Uint8Array): void {
         if (this.disposed) return;
+        // 收到远端数据即视为对端存活：重置空闲计时，避免正常但缓慢的传输被中止
+        if (this.session) this.touchIdleTimer();
         this.sentry.consume(bytes);
     }
 
@@ -119,6 +131,7 @@ export class ZmodemBridge {
     /** 用户主动中止（Esc）：终结协议并把控制权交回终端 */
     abort(): void {
         this.clearPending();
+        this.clearIdleTimer();
         const session = this.session;
         this.session = null;
         if (session) {
@@ -134,7 +147,18 @@ export class ZmodemBridge {
     dispose(): void {
         this.disposed = true;
         this.clearPending();
+        this.clearIdleTimer();
+        // 必须显式 abort：zmodem.js 的会话持有内部定时器与回调，
+        // 只清空引用会让这些资源存活到组件卸载之后，继续向已销毁的终端写数据。
+        const session = this.session;
         this.session = null;
+        if (session) {
+            try {
+                session.abort();
+            } catch {
+                // 会话可能已结束，忽略
+            }
+        }
     }
 
     private clearPending(): void {
@@ -142,6 +166,33 @@ export class ZmodemBridge {
             clearTimeout(this.pending.timer);
             this.pending = null;
         }
+    }
+
+    private clearIdleTimer(): void {
+        if (this.idleTimer !== null) {
+            clearTimeout(this.idleTimer);
+            this.idleTimer = null;
+        }
+    }
+
+    /** 重置空闲计时；仅在会话进行中生效 */
+    private touchIdleTimer(): void {
+        this.clearIdleTimer();
+        if (this.disposed || !this.session) return;
+        this.idleTimer = setTimeout(() => this.handleIdleTimeout(), SESSION_IDLE_TIMEOUT_MS);
+    }
+
+    private handleIdleTimeout(): void {
+        this.idleTimer = null;
+        const session = this.session;
+        if (!session || this.disposed) return;
+        this.session = null;
+        try {
+            session.abort();
+        } catch {
+            // ignore
+        }
+        this.hooks.onError("ZMODEM 传输长时间无响应，已中止");
     }
 
     private handleDetect(detection: ZmodemDetection): void {
@@ -172,11 +223,13 @@ export class ZmodemBridge {
         clearTimeout(pending.timer);
         this.pending = null;
         this.session = session;
+        this.touchIdleTimer();
         void this.sendFiles(session, pending.files);
     }
 
     private startReceive(session: any): void {
         this.session = session;
+        this.touchIdleTimer();
         session.on("offer", (offer: any) => this.handleOffer(offer));
         session.on("session_end", () => this.finishSession());
         session.start().catch((err: unknown) => {
@@ -188,7 +241,24 @@ export class ZmodemBridge {
     private handleOffer(offer: any): void {
         const details = offer.get_details?.() ?? {};
         const name = safeBaseName(details.name);
-        const size = Number(details.size) || 0;
+        // 0 字节是合法的空文件，必须与"未提供大小"区分开：仅当字段缺失/
+        // 非数字/负数时才视为未知。
+        const sizeKnown = details.size !== undefined && details.size !== null &&
+            details.size !== "" && Number.isFinite(Number(details.size)) && Number(details.size) >= 0;
+        const size = sizeKnown ? Number(details.size) : 0;
+
+        // 大小未知时不能接受：accept() 后 zmodem.js 会把整个文件收进内存，
+        // 没有大小就无法在上限检查前拒绝，恶意/异常发送方可以让内存无限增长。
+        if (!sizeKnown) {
+            try {
+                offer.skip();
+            } catch {
+                // ignore
+            }
+            this.hooks.onEvent({kind: "download-skipped", name});
+            this.hooks.onError(`${name} 未提供有效的文件大小，已跳过`);
+            return;
+        }
 
         if (size > MAX_FILE_BYTES) {
             try {
@@ -272,6 +342,7 @@ export class ZmodemBridge {
     }
 
     private finishSession(): void {
+        this.clearIdleTimer();
         if (this.session) {
             this.session = null;
         }

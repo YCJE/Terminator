@@ -2,7 +2,9 @@ package updater
 
 import (
 	"errors"
+	"io"
 	"testing"
+	"time"
 )
 
 func TestDownloadUpdateNoPending(t *testing.T) {
@@ -22,6 +24,56 @@ func TestDownloadUpdateRejectsConcurrent(t *testing.T) {
 	err := s.DownloadUpdate()
 	if !errors.Is(err, ErrDownloadInProgress) {
 		t.Fatalf("并发下载应返回 ErrDownloadInProgress，实际 %v", err)
+	}
+}
+
+// 服务器返回响应头后不再发送数据时，读取必须被空闲看门狗取消，
+// 否则会阻塞到 30 分钟总超时，期间用户既无法重试也无法取消。
+func TestIdleCancelReaderCancelsStalledRead(t *testing.T) {
+	pr, pw := io.Pipe()
+	defer func() { _ = pw.Close() }()
+
+	canceled := make(chan struct{})
+	r := newIdleCancelReader(pr, 30*time.Millisecond, func() { close(canceled) })
+	defer func() { _ = r.Close() }()
+
+	select {
+	case <-canceled:
+	case <-time.After(2 * time.Second):
+		t.Fatal("空闲超时后未取消请求")
+	}
+	if !r.timedOut() {
+		t.Error("空闲取消后 timedOut() 应为 true")
+	}
+}
+
+// 持续有数据时看门狗不应触发。
+func TestIdleCancelReaderKeepsAliveOnData(t *testing.T) {
+	pr, pw := io.Pipe()
+	defer func() { _ = pw.Close() }()
+
+	canceled := make(chan struct{})
+	r := newIdleCancelReader(pr, 400*time.Millisecond, func() { close(canceled) })
+	defer func() { _ = r.Close() }()
+
+	// io.Pipe 的写入会阻塞到有读者消费，因此把写入放到独立 goroutine
+	go func() {
+		for i := 0; i < 3; i++ {
+			time.Sleep(50 * time.Millisecond)
+			_, _ = pw.Write([]byte("chunk"))
+		}
+	}()
+
+	buf := make([]byte, 16)
+	for i := 0; i < 3; i++ {
+		if _, err := r.Read(buf); err != nil {
+			t.Fatalf("读取测试数据失败: %v", err)
+		}
+	}
+	select {
+	case <-canceled:
+		t.Fatal("持续有数据时不应取消请求")
+	default:
 	}
 }
 

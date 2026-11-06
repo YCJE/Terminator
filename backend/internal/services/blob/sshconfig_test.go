@@ -19,7 +19,7 @@ func TestParseSSHConfigFile(t *testing.T) {
 	path := writeSSHConfig(t, `
 # 全局注释
 Host prod
-    HostName 10.0.0.1
+    HostName 10.0.0.1 # 行尾注释不能拼进 HostName
     User deploy
     Port 2222
     IdentityFile ~/.ssh/id_prod

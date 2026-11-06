@@ -56,6 +56,10 @@ type UpdaterService struct {
 	latest     *velopack.UpdateInfo
 	state      updaterState
 	mu         sync.Mutex
+	// managerMu 串行化 velopack manager 的调用（它不支持并发）。
+	// 与 mu 分开：检查更新是网络操作，可能持续数十秒，持 mu 会让
+	// 下载/应用等只读状态的调用全部阻塞。
+	managerMu sync.Mutex
 	// downloading 标记是否有下载任务在进行中，防止并发重复下载
 	downloading bool
 	// manualDownloading 标记手动「下载并校验」是否在进行中，
@@ -229,60 +233,64 @@ func parseSemverParts(v string) (major, minor, patch int, pre string, ok bool) {
 
 // getManager 懒加载并复用 UpdateManager，避免每次 Check 都新建实例
 // 导致已下载的更新包丢失和锁文件/句柄泄漏。
-func (s *UpdaterService) getManager() (*velopack.UpdateManager, error) {
+// 调用方必须持有 managerMu；内部只用 mu 保护 manager / cgoUnavailable 字段。
+// cgo 不可用时返回 nil，不报错。
+func (s *UpdaterService) getManager() *velopack.UpdateManager {
+	s.mu.Lock()
 	if s.manager != nil {
-		return s.manager, nil
+		manager := s.manager
+		s.mu.Unlock()
+		return manager
 	}
-	// cgo 不可用时直接返回 nil（无更新），不报错
-	if s.cgoUnavailable {
-		return nil, nil
+	unavailable := s.cgoUnavailable
+	s.mu.Unlock()
+	if unavailable {
+		return nil
 	}
+
 	manager, err := velopack.NewUpdateManager(s.updateURL)
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if err != nil {
 		// cgo disabled 或 velopack 初始化失败时，标记为不可用，静默处理
 		s.cgoUnavailable = true
-		return nil, nil
+		return nil
 	}
 	s.manager = manager
-	return manager, nil
+	return manager
 }
 
 func (s *UpdaterService) CheckForUpdates() (*UpdateInfo, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	// 如果已经下载了更新，不要重复检查——防止丢失已下载内容
-	if s.state == stateDownloaded && s.latest != nil {
-		return &UpdateInfo{
-			IsAvailable: true,
-			Version:     s.latest.TargetFullRelease.Version,
-		}, nil
+	// 快路径：已下载或正在下载时直接返回，不能去等 managerMu——
+	// 下载可能持续数分钟，等待会让界面上的检查操作一直转圈。
+	if info, done := s.checkPreamble(); done {
+		return info, nil
 	}
 
-	// 下载进行中不得重新检查：velopack 的 manager 不支持并发调用；
-	// 且重新检查会覆盖 s.latest，使下载完成后无法标记为已下载
-	// （DownloadUpdate 会因 s.latest != latest 跳过状态更新），用户将无法应用更新
-	if s.downloading {
-		if s.latest != nil && s.latest.TargetFullRelease != nil {
-			return &UpdateInfo{
-				IsAvailable: true,
-				Version:     s.latest.TargetFullRelease.Version,
-			}, nil
-		}
-		return &UpdateInfo{IsAvailable: false}, nil
+	// manager 不支持并发调用：所有 manager 操作都通过 managerMu 串行化
+	s.managerMu.Lock()
+	defer s.managerMu.Unlock()
+
+	// 等锁期间状态可能已变化（另一线程刚完成下载或开始下载）
+	if info, done := s.checkPreamble(); done {
+		return info, nil
 	}
 
-	manager, err := s.getManager()
-	if err != nil || manager == nil {
+	manager := s.getManager()
+	if manager == nil {
 		// cgo 不可用或 manager 初始化失败，返回无更新（不报错）
 		return &UpdateInfo{IsAvailable: false}, nil
 	}
 
+	// 网络检查期间不持有 s.mu：Check 可能耗时数十秒，期间其它绑定调用
+	// （下载/应用/读状态）不需要被阻塞，也不会读到半更新的状态。
 	latest, status, err := manager.CheckForUpdates()
 	if err != nil {
 		return &UpdateInfo{IsAvailable: false}, nil
 	}
 
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if status == velopack.UpdateAvailable && latest != nil && latest.TargetFullRelease != nil {
 		s.latest = latest
 		s.state = stateChecked
@@ -298,9 +306,22 @@ func (s *UpdaterService) CheckForUpdates() (*UpdateInfo, error) {
 }
 
 func (s *UpdaterService) DownloadUpdate() error {
+	// 快路径：并发调用只允许一个下载进行，其余立即返回错误。
+	// 不能先去等 managerMu：下载可能持续数分钟，第二个调用会一直卡住而不是
+	// 收到"已在进行中"。
 	s.mu.Lock()
-	// 并发调用只允许一个下载进行，其余立即返回错误：
-	// 避免重复下载，也避免调用方在下载未完成时误判为已就绪
+	if s.downloading {
+		s.mu.Unlock()
+		return ErrDownloadInProgress
+	}
+	s.mu.Unlock()
+
+	// 与 Check/Apply 串行：manager 不支持并发调用
+	s.managerMu.Lock()
+	defer s.managerMu.Unlock()
+
+	s.mu.Lock()
+	// 等锁期间另一个调用可能已经开始下载
 	if s.downloading {
 		s.mu.Unlock()
 		return ErrDownloadInProgress
@@ -344,7 +365,33 @@ func (s *UpdaterService) DownloadUpdate() error {
 	return nil
 }
 
+// checkPreamble 在持有 s.mu 的前提下处理"已下载/下载中"两种不需要查询
+// manager 的状态；第二个返回值表示是否已得到最终结果。
+func (s *UpdaterService) checkPreamble() (*UpdateInfo, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// 如果已经下载了更新，不要重复检查——防止丢失已下载内容
+	if s.state == stateDownloaded && s.latest != nil {
+		return &UpdateInfo{IsAvailable: true, Version: s.latest.TargetFullRelease.Version}, true
+	}
+
+	// 下载进行中不得重新检查：重新检查会覆盖 s.latest，使下载完成后无法标记为
+	// 已下载（DownloadUpdate 会因 s.latest != latest 跳过状态更新），用户将无法应用更新
+	if s.downloading {
+		if s.latest != nil && s.latest.TargetFullRelease != nil {
+			return &UpdateInfo{IsAvailable: true, Version: s.latest.TargetFullRelease.Version}, true
+		}
+		return &UpdateInfo{IsAvailable: false}, true
+	}
+	return nil, false
+}
+
 func (s *UpdaterService) ApplyAndRestart() error {
+	// 与 Check/Download 串行：manager 不支持并发调用
+	s.managerMu.Lock()
+	defer s.managerMu.Unlock()
+
 	s.mu.Lock()
 	manager := s.manager
 	latest := s.latest

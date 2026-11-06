@@ -33,6 +33,11 @@ type Emitter interface {
 
 const dialTimeout = 15 * time.Second
 
+// writeTimeout 限制单次写入的等待时间。
+// 对端不读取时 TCP 发送窗口会被填满，Write 会永久阻塞并占住 writeMu，
+// 后续用户输入与尺寸协商全部排队，关闭会话也要等它返回。
+const writeTimeout = 30 * time.Second
+
 // Telnet 协议字节与选项号。
 const (
 	telnetIAC  = 255
@@ -73,6 +78,8 @@ func (c *conn) write(data []byte) (int, error) {
 	c.writeMu.Lock()
 	defer c.writeMu.Unlock()
 	if c.telnet != nil {
+		// 每次写入重置截止时间：连接恢复后不应被上一次的过期截止时间影响
+		_ = c.telnet.SetWriteDeadline(time.Now().Add(writeTimeout))
 		return c.telnet.Write(data)
 	}
 	if c.serial != nil {

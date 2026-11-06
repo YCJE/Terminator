@@ -68,6 +68,14 @@ interface TerminalInstanceProps {
      * 浮动窗口弹出/收回会话时使用；显式重连（reconnectNonce 递增）仍会重新连接。
      */
     attachOnMount?: boolean;
+    /**
+     * 无主窗口会话存储时的重连入口（浮动窗口使用）：
+     * 主窗口内会话由 sessionStore.reconnectSession 处理，浮动窗口的 store 里
+     * 没有该会话，必须由宿主组件递增 reconnectNonce。
+     */
+    onReconnectRequest?: () => void;
+    /** 连接失败/会话断开时通知宿主（浮动窗口据此更新断开状态与提示） */
+    onConnectionLost?: () => void;
 }
 
 /**
@@ -119,7 +127,7 @@ function sanitizeTermTitle(raw: string): string {
     return cleaned.length > TERM_TITLE_MAX ? cleaned.slice(0, TERM_TITLE_MAX) : cleaned;
 }
 
-export function TerminalInstance({sessionId, isVisible, isFocused, config, sessionKind, netConn, disconnected, onConnect, className, style, reconnectNonce, attachOnMount}: TerminalInstanceProps) {
+export function TerminalInstance({sessionId, isVisible, isFocused, config, sessionKind, netConn, disconnected, onConnect, className, style, reconnectNonce, attachOnMount, onReconnectRequest, onConnectionLost}: TerminalInstanceProps) {
     const {t} = useTranslation("terminal");
     const isLocal = sessionKind === "local";
     // kind 缺省视为 SSH：旧会话与新增 SSH 会话都不写该字段
@@ -525,6 +533,12 @@ export function TerminalInstance({sessionId, isVisible, isFocused, config, sessi
                 const encoded = await TextFileService.ReadBinary(path);
                 files.push({name: localBasename(path), bytes: decodeBase64ToUint8Array(encoded)});
             }
+            // 选择/读取文件期间会话可能已断开或终端已重建：此时把文件排进旧桥接器
+            // 并发送 rz，只会在 20 秒后报"等待 rz 超时"，还会把字节留在内存里。
+            if (!isReadyRef.current || zmodemBridgeRef.current !== bridge) {
+                toast.error(t("zmodem_not_ready"));
+                return;
+            }
             bridge.queueUpload(files);
             // \x15 清空当前输入行：避免 rz 拼接在用户正在输入的命令之后
             await sendSessionInput(sessionId, "\x15rz\r", sessionKind);
@@ -894,6 +908,9 @@ export function TerminalInstance({sessionId, isVisible, isFocused, config, sessi
                     if (cancelled) return;
                     setSessionStatus(sessionId, "disconnected");
                     printErrorToTerminal(err);
+                    // 浮动窗口的 store 里没有该会话，store 状态更新不会反映到界面：
+                    // 必须通知宿主，否则断开状态点与重连按钮都不会出现。
+                    onConnectionLost?.();
                     // 主机密钥变更属于需要用户介入的安全事件：仅打印原始错误
                     // 用户无法知道如何处理，这里补一条可操作的指引。
                     if (parseAppError(err).message.includes("has changed")) {
@@ -1168,6 +1185,11 @@ export function TerminalInstance({sessionId, isVisible, isFocused, config, sessi
                 if (!isReadyRef.current && !hasConnectedRef.current) return;
                 isReadyRef.current = false;
                 setSessionStatus(sessionId, "disconnected");
+                // 通知宿主（浮动窗口）更新断开状态。宿主不能自己监听 SshClosed：
+                // 重连时会先主动 Disconnect 旧连接并触发一次 closed，宿主无法区分
+                // "我们自己断的"和"真的断了"，会把刚建立的新连接标成已断开。
+                // 这里复用了上面的守卫，只上报真正的意外断开。
+                onConnectionLost?.();
                 // 刷新解码器中残留的字节，避免丢失最后一小段输出：
                 // 关键词高亮按 UTF-8 暂存，流式 TextDecoder 也可能停在半个多字节字符上
                 if (keywordHighlighterRef.current && terminalRef.current) {
@@ -1347,10 +1369,13 @@ export function TerminalInstance({sessionId, isVisible, isFocused, config, sessi
 
         const state = useSessionStore.getState();
         const session = state.sessions.find((s) => s.id === sessionId);
-        if (session?.status !== "connected") return;
+        // 浮动窗口的 store 里没有该会话（由主窗口持有），此时以本视图的连接
+        // 就绪状态为准；否则拖拽上传会被静默丢弃。
+        const canUpload = session ? session.status === "connected" : isReadyRef.current;
+        if (!canUpload) return;
 
-        // 优先使用 shell 上报的 cwd；尚未上报时回退到用户主目录
-        let dir = session.cwd;
+        // 优先使用 shell 上报的 cwd；尚未上报（或浮动窗口中不可用）时回退到主目录
+        let dir = session?.cwd;
         if (!dir) {
             try {
                 dir = await SftpService.HomeDir(sessionId);
@@ -1711,7 +1736,10 @@ export function TerminalInstance({sessionId, isVisible, isFocused, config, sessi
                         type="button"
                         onClick={() => {
                             reconnectAttemptsRef.current = 0;
-                            useSessionStore.getState().reconnectSession(sessionId);
+                            // 浮动窗口没有主窗口的会话存储，交给宿主递增 nonce；
+                            // 主窗口内仍走 store 的统一重连流程（会更新标签状态）
+                            if (onReconnectRequest) onReconnectRequest();
+                            else useSessionStore.getState().reconnectSession(sessionId);
                         }}
                         className="terminal-overlay-btn px-3 py-1.5 text-xs"
                     >

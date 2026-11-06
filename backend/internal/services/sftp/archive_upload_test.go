@@ -409,6 +409,92 @@ func TestTarExtractScriptRejectsTraversal(t *testing.T) {
 	}
 }
 
+// 生成的 tar/7z 脚本必须同时拒绝链接型成员：仅校验成员名挡不住
+// "link -> /etc" + "link/passwd" 这类先建链接再借链接写到目录外的归档。
+func TestExtractScriptRejectsLinkMembers(t *testing.T) {
+	for _, name := range []string{"pkg.tar", "pkg.tar.gz", "pkg.tar.bz2", "pkg.tar.xz"} {
+		command := extractCommand("/tmp/"+name, "/tmp/target")
+		for _, want := range []string{"tar -tv", "^[lh]", "符号链接或硬链接"} {
+			if !strings.Contains(command, want) {
+				t.Errorf("%s 的解压命令缺少链接校验 %q:\n%s", name, want, command)
+			}
+		}
+		linkAt := strings.Index(command, "tar -tv")
+		extractAt := strings.LastIndex(command, "tar -x")
+		if linkAt < 0 || extractAt < 0 || linkAt > extractAt {
+			t.Errorf("%s 必须先校验链接成员、再解压:\n%s", name, command)
+		}
+	}
+
+	command := extractCommand("/tmp/pkg.7z", "/tmp/target")
+	for _, want := range []string{"^Symbolic Link = ", "符号链接或硬链接"} {
+		if !strings.Contains(command, want) {
+			t.Errorf("7z 解压命令缺少链接校验 %q:\n%s", want, command)
+		}
+	}
+	linkAt := strings.Index(command, "^Symbolic Link = ")
+	extractAt := strings.Index(command, "x -y")
+	if linkAt < 0 || extractAt < 0 || linkAt > extractAt {
+		t.Errorf("7z 必须先校验链接成员、再解压:\n%s", command)
+	}
+}
+
+// 实际执行生成脚本：含符号链接成员的 TAR 必须被拒绝，且不在目标目录外落盘。
+func TestTarExtractScriptRejectsSymlinkMembers(t *testing.T) {
+	bash, err := exec.LookPath("bash")
+	if err != nil {
+		t.Skip("未找到 bash，跳过脚本行为测试")
+	}
+	if _, err := exec.LookPath("tar"); err != nil {
+		t.Skip("未找到 tar，跳过脚本行为测试")
+	}
+
+	root := t.TempDir()
+	target := filepath.Join(root, "target")
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		t.Fatalf("创建目标目录失败: %v", err)
+	}
+	archivePath := filepath.Join(root, "link.tar")
+	if err := writeSymlinkTar(archivePath, "link", "/etc"); err != nil {
+		t.Fatalf("创建含链接的 TAR 失败: %v", err)
+	}
+
+	command := extractCommand(toPosixPath(archivePath), toPosixPath(target))
+	output, err := exec.Command(bash, "-c", command).CombinedOutput()
+	if err == nil {
+		t.Fatalf("含符号链接成员的 TAR 应被拒绝，实际成功: %s", output)
+	}
+	if !strings.Contains(string(output), "符号链接或硬链接成员") {
+		t.Fatalf("TAR 未被链接校验拦截，输出: %s", output)
+	}
+	if _, err := os.Lstat(filepath.Join(target, "link")); err == nil {
+		t.Fatal("符号链接成员被解压到了目标目录")
+	}
+}
+
+// writeSymlinkTar 生成只含一个符号链接成员的最小 TAR。
+func writeSymlinkTar(p string, linkName string, linkTarget string) error {
+	file, err := os.Create(p)
+	if err != nil {
+		return err
+	}
+	writer := tar.NewWriter(file)
+	if err := writer.WriteHeader(&tar.Header{
+		Name:     linkName,
+		Mode:     0o777,
+		Typeflag: tar.TypeSymlink,
+		Linkname: linkTarget,
+	}); err != nil {
+		_ = file.Close()
+		return err
+	}
+	if err := writer.Close(); err != nil {
+		_ = file.Close()
+		return err
+	}
+	return file.Close()
+}
+
 // toPosixPath 把 Windows 盘符路径转成 MSYS/Git Bash 可识别的 /c/... 形式；
 // 其他平台原样返回。
 func toPosixPath(p string) string {

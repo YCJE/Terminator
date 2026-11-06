@@ -209,6 +209,48 @@ func TestUploadBackSkipsOnRemoteConflict(t *testing.T) {
 	}
 }
 
+// 远端文件名不可信：会被系统当作可执行文件打开的后缀必须改成文本后缀，
+// 否则打开远端 .bat/.cmd/.exe 会在本机直接执行远端内容。
+func TestSafeEditorFileNameNeutralizesExecutables(t *testing.T) {
+	cases := map[string]string{
+		"run.bat":        "run.bat.txt",
+		"setup.EXE":      "setup.EXE.txt",
+		"script.ps1":     "script.ps1.txt",
+		"notes.txt":      "notes.txt",
+		"deploy.sh":      "deploy.sh",
+		"Makefile":       "Makefile",
+		"archive.tar.gz": "archive.tar.gz",
+	}
+	for in, want := range cases {
+		if got := safeEditorFileName(in); got != want {
+			t.Errorf("safeEditorFileName(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// 远端文件在编辑期间被删除时必须跳过自动保存，不能把它重新创建出来。
+func TestUploadBackSkipsWhenRemoteDeleted(t *testing.T) {
+	remote := &fakeRemote{files: map[string]string{"/remote/a.txt": "original"}}
+	svc, w, writer, emitter := newUploadTestWatcher(t, remote)
+	delete(remote.files, w.remotePath)
+
+	if outcome := svc.uploadBack(w); outcome != uploadConflict {
+		t.Fatalf("远端已删除时应返回冲突，实际 %v", outcome)
+	}
+	if writer.calls != 0 {
+		t.Fatalf("远端已删除时不应写回，实际 %d 次", writer.calls)
+	}
+	if len(emitter.events) != 1 || emitter.events[0].success || !emitter.events[0].conflict {
+		t.Fatalf("期望一次冲突事件，实际: %+v", emitter.events)
+	}
+
+	// 冲突只提示一次
+	svc.uploadBack(w)
+	if len(emitter.events) != 1 {
+		t.Fatalf("冲突应只提示一次，实际事件: %+v", emitter.events)
+	}
+}
+
 func TestUploadBackReportsWriteError(t *testing.T) {
 	remote := &fakeRemote{files: map[string]string{"/remote/a.txt": "original"}}
 	svc, w, writer, emitter := newUploadTestWatcher(t, remote)

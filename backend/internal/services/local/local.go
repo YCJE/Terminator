@@ -54,13 +54,10 @@ func (s *LocalShellService) Start(sessionID string, shell string) error {
 	if strings.TrimSpace(sessionID) == "" {
 		return errors.New("本地终端会话 ID 不能为空")
 	}
-	if strings.TrimSpace(shell) == "" {
-		shell = detectShell()
-	} else if !isAllowedShell(shell) {
-		// shell 来自前端绑定调用：若接受任意路径，渲染进程被注入后可借
-		// Start 启动任意本地程序。只允许系统 shell，其余回退平台默认值。
-		shell = detectShell()
-	}
+	// shell 来自前端绑定调用：若接受任意路径，渲染进程被注入后可借 Start 启动
+	// 任意本地程序。resolveShell 只返回受信任的系统 shell 绝对路径，
+	// 其余输入一律回退平台默认值。
+	shell = resolveShell(shell)
 
 	p, err := pty.New()
 	if err != nil {
@@ -204,17 +201,118 @@ func (s *LocalShellService) teardown(sessionID string, current *session) {
 	})
 }
 
-// isAllowedShell 判断 shell 路径是否为受支持的系统 shell。
-// 只做名称白名单，避免把任意可执行文件路径交给 PTY 启动。
-func isAllowedShell(shell string) bool {
-	switch strings.ToLower(filepath.Base(shell)) {
-	case "pwsh.exe", "pwsh", "powershell.exe", "powershell",
-		"cmd.exe", "cmd", "bash.exe", "bash", "zsh.exe", "zsh",
-		"sh.exe", "sh", "fish.exe", "fish", "dash":
+// allowedShellNames 是允许启动的系统 shell 文件名（小写）。
+var allowedShellNames = map[string]struct{}{
+	"pwsh.exe": {}, "pwsh": {}, "powershell.exe": {}, "powershell": {},
+	"cmd.exe": {}, "cmd": {}, "bash.exe": {}, "bash": {}, "zsh.exe": {},
+	"zsh": {}, "sh.exe": {}, "sh": {}, "fish.exe": {}, "fish": {},
+	"dash": {},
+}
+
+// resolveShell 把前端传入的 shell 配置解析成受信任的系统 shell 绝对路径。
+//
+// 仅按文件名做白名单并不充分：任何目录下的 cmd.exe / bash 都会通过，
+// 渲染进程被注入后可以借此启动任意本地程序；裸文件名还依赖 PATH（Windows
+// 会优先命中当前工作目录）。因此这里要求最终路径位于系统 shell 的标准目录，
+// 裸名也在这些目录中显式查找，而不是交给 exec.LookPath。
+// 无法确认受信任时回退平台默认 shell。
+func resolveShell(shell string) string {
+	shell = strings.TrimSpace(shell)
+	if shell == "" {
+		return detectShell()
+	}
+	base := strings.ToLower(filepath.Base(shell))
+	if _, ok := allowedShellNames[base]; !ok {
+		return detectShell()
+	}
+	// 裸文件名：只在受信任目录中查找，避免 PATH / 当前目录劫持
+	if !strings.ContainsAny(shell, `/\`) {
+		if p := findShellInTrustedDirs(base); p != "" {
+			return p
+		}
+		return detectShell()
+	}
+	abs, err := filepath.Abs(shell)
+	if err != nil {
+		return detectShell()
+	}
+	// 软链接最终指向的仍是可执行文件时才接受（/bin/sh -> /usr/bin/dash 等）
+	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+		abs = resolved
+	}
+	if !isTrustedShellPath(abs) {
+		return detectShell()
+	}
+	return abs
+}
+
+// findShellInTrustedDirs 在系统 shell 的标准安装目录中查找可执行文件。
+func findShellInTrustedDirs(base string) string {
+	for _, dir := range trustedShellDirs() {
+		candidate := filepath.Join(dir, base)
+		if isExecutableFile(candidate) {
+			return candidate
+		}
+	}
+	return ""
+}
+
+// isTrustedShellPath 判断绝对路径是否位于系统 shell 的标准目录下。
+func isTrustedShellPath(abs string) bool {
+	if !isExecutableFile(abs) {
+		return false
+	}
+	for _, dir := range trustedShellDirs() {
+		rel, err := filepath.Rel(dir, abs)
+		if err != nil || rel == "." || strings.HasPrefix(rel, "..") {
+			continue
+		}
 		return true
 	}
-	// 允许与平台默认 shell 完全一致的路径（例如自定义安装位置的 pwsh）
-	return strings.EqualFold(shell, detectShell())
+	return false
+}
+
+// trustedShellDirs 返回当前平台存放系统 shell 的目录。
+// Windows 额外包含 PowerShell 7 的安装目录与 WindowsApps（Store 版 pwsh）。
+func trustedShellDirs() []string {
+	if runtime.GOOS == "windows" {
+		var dirs []string
+		if root := os.Getenv("SystemRoot"); root != "" {
+			dirs = append(dirs,
+				filepath.Join(root, "System32"),
+				filepath.Join(root, "System32", "WindowsPowerShell", "v1.0"),
+				filepath.Join(root, "SysWOW64"),
+			)
+		}
+		for _, env := range []string{"ProgramFiles", "ProgramFiles(x86)"} {
+			if dir := os.Getenv(env); dir != "" {
+				dirs = append(dirs, filepath.Join(dir, "PowerShell"))
+			}
+		}
+		if dir := os.Getenv("LOCALAPPDATA"); dir != "" {
+			dirs = append(dirs, filepath.Join(dir, "Microsoft", "WindowsApps"))
+		}
+		if len(dirs) == 0 {
+			dirs = append(dirs, `C:\Windows\System32`)
+		}
+		return dirs
+	}
+	return []string{
+		"/bin", "/usr/bin", "/usr/local/bin", "/usr/local/sbin",
+		"/sbin", "/usr/sbin", "/opt/homebrew/bin", "/opt/local/bin",
+		"/snap/bin", "/nix/store",
+	}
+}
+
+func isExecutableFile(path string) bool {
+	info, err := os.Stat(path)
+	if err != nil || info.IsDir() {
+		return false
+	}
+	if runtime.GOOS != "windows" && info.Mode().Perm()&0o111 == 0 {
+		return false
+	}
+	return true
 }
 
 func detectShell() string {

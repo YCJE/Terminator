@@ -25,6 +25,12 @@ const (
 	defaultRetryBackoff = 300 * time.Millisecond
 	// maxRetryBackoff 单次重试等待上限
 	maxRetryBackoff = 3 * time.Second
+
+	// defaultRequestTimeout 登录/注册/预检等短请求的单次超时。
+	defaultRequestTimeout = 15 * time.Second
+	// syncRequestTimeout 同步请求的单次超时：一次同步可能上传/下载数十 MB
+	// 的 blob，15 秒在慢链路/VPN 上会稳定超时，游标永远无法推进。
+	syncRequestTimeout = 90 * time.Second
 )
 
 type Client struct {
@@ -38,9 +44,9 @@ type Client struct {
 // NewClient initializes a new API client.
 func NewClient() *Client {
 	return &Client{
-		httpClient: &http.Client{
-			Timeout: 15 * time.Second, // TODO: configurable timeout?
-		},
+		// 不在 http.Client 上设总超时：它同样会限制上传/下载大响应体的时长。
+		// 每种请求的单次超时由 do() 通过 per-attempt context 控制。
+		httpClient:   &http.Client{},
 		retryBackoff: defaultRetryBackoff,
 	}
 }
@@ -66,21 +72,21 @@ func (c *Client) getToken() string {
 
 // Preflight 与 Login 为只读请求，Sync 基于 upsert 幂等，均可安全重试。
 func (c *Client) Preflight(ctx context.Context, baseUrl string, req *PreflightRequest) (*PreflightResponse, error) {
-	return do[PreflightRequest, PreflightResponse](ctx, c, baseUrl, "/auth/preflight", req, true)
+	return do[PreflightRequest, PreflightResponse](ctx, c, baseUrl, "/auth/preflight", req, true, defaultRequestTimeout)
 }
 
 func (c *Client) Login(ctx context.Context, baseUrl string, req *LoginRequest) (*AuthResponse, error) {
-	return do[LoginRequest, AuthResponse](ctx, c, baseUrl, "/auth/login", req, true)
+	return do[LoginRequest, AuthResponse](ctx, c, baseUrl, "/auth/login", req, true, defaultRequestTimeout)
 }
 
 // Register 会创建账号，非幂等：响应丢失时重试只会得到"已存在"，
 // 反而让调用方误判失败，因此不启用重试。
 func (c *Client) Register(ctx context.Context, baseUrl string, req *RegisterRequest) (*AuthResponse, error) {
-	return do[RegisterRequest, AuthResponse](ctx, c, baseUrl, "/auth/register", req, false)
+	return do[RegisterRequest, AuthResponse](ctx, c, baseUrl, "/auth/register", req, false, defaultRequestTimeout)
 }
 
 func (c *Client) Sync(ctx context.Context, baseUrl string, req *SyncRequest) (*SyncResponse, error) {
-	return do[SyncRequest, SyncResponse](ctx, c, baseUrl, "/sync", req, true)
+	return do[SyncRequest, SyncResponse](ctx, c, baseUrl, "/sync", req, true, syncRequestTimeout)
 }
 
 func do[Req any, Res any](
@@ -90,6 +96,7 @@ func do[Req any, Res any](
 	path string,
 	reqBody *Req,
 	allowRetry bool,
+	attemptTimeout time.Duration,
 ) (*Res, error) {
 
 	var jsonData []byte
@@ -122,7 +129,14 @@ func do[Req any, Res any](
 			}
 		}
 
-		result, retryable, err := doOnce[Res](ctx, c, reqUrl, jsonData, reqBody != nil)
+		// 每次尝试独立计时：重试不应继承上一次已耗尽的超时
+		attemptCtx := ctx
+		cancel := context.CancelFunc(func() {})
+		if attemptTimeout > 0 {
+			attemptCtx, cancel = context.WithTimeout(ctx, attemptTimeout)
+		}
+		result, retryable, err := doOnce[Res](attemptCtx, c, reqUrl, jsonData, reqBody != nil)
+		cancel()
 		if err == nil {
 			return result, nil
 		}

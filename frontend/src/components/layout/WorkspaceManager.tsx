@@ -18,12 +18,26 @@ let restoreStarted = false;
 /** 恢复流程进行中时不得清理空快照：异步恢复可能还没建出会话。 */
 let restoreInProgress = false;
 
+/**
+ * 本次挂载不恢复、也不得按"用户关空了标签"清理空快照。
+ *
+ * 锁定会让组件卸载并清空会话；解锁后组件重新挂载，但 restoreStarted 已为 true，
+ * 恢复流程会直接跳过。此时持久化 effect 立刻看到空工作区，若照常启动 4 秒清理，
+ * 锁屏前保存的标签快照会在解锁 4 秒后被永久删除。等用户真正建出会话后再恢复正常清理。
+ */
+let preserveEmptySnapshot = false;
+
 export function WorkspaceManager() {
     const restoredRef = useRef(false);
 
     // 解锁后恢复一次工作区
     useEffect(() => {
-        if (restoredRef.current || restoreStarted) return;
+        if (restoredRef.current || restoreStarted) {
+            // 锁定→解锁后的重新挂载：不能重复恢复，也不能让持久化逻辑把
+            // 上一次的工作区快照当成"用户关掉了所有标签"清掉
+            preserveEmptySnapshot = true;
+            return;
+        }
         restoredRef.current = true;
         restoreStarted = true;
 
@@ -111,6 +125,9 @@ export function WorkspaceManager() {
             if (restoreInProgress) return;
             const snapshot = buildSnapshot();
             if (snapshot.sessions.length > 0) {
+                // 已经有了真实会话：之后用户关闭全部标签属于明确意图，
+                // 空快照可以按正常流程清除
+                preserveEmptySnapshot = false;
                 saveWorkspace(snapshot);
                 return;
             }
@@ -120,6 +137,8 @@ export function WorkspaceManager() {
                 timer = null;
                 // 恢复尚未结束时保留快照，否则下次启动会丢失上次布局
                 if (restoreInProgress) return;
+                // 解锁后的重新挂载：快照属于锁定前的工作区，不能在这里清除
+                if (preserveEmptySnapshot) return;
                 const state = useSessionStore.getState();
                 if (useAuthStore.getState().isUnlocked && state.sessions.length === 0) {
                     clearWorkspace();
@@ -131,7 +150,16 @@ export function WorkspaceManager() {
         // 关闭窗口前立即落盘，避免最后一次布局变更还在防抖窗口内
         const handleBeforeUnload = () => {
             const snapshot = buildSnapshot();
-            if (snapshot.sessions.length > 0) saveWorkspace(snapshot);
+            if (snapshot.sessions.length > 0) {
+                saveWorkspace(snapshot);
+                return;
+            }
+            // 关闭最后一个标签后立即退出，4 秒延迟清理来不及执行：这里补一次，
+            // 避免下次启动又把已关闭的标签恢复出来。锁屏状态下退出（未解锁）
+            // 必须保留快照，否则锁定流程会丢掉用户的工作区。
+            if (!preserveEmptySnapshot && useAuthStore.getState().isUnlocked) {
+                clearWorkspace();
+            }
         };
         window.addEventListener("beforeunload", handleBeforeUnload);
         persist();

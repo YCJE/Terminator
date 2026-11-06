@@ -1,6 +1,7 @@
 package sftp
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,11 +14,20 @@ import (
 func TestRegisterTransferKeepsNewerHandle(t *testing.T) {
 	svc := NewSftpService(nil, nil)
 
-	_, doneOld := svc.registerTransfer("t1")
-	ctxNew, doneNew := svc.registerTransfer("t1")
+	_, doneOld, err := svc.registerTransfer("t1")
+	if err != nil {
+		t.Fatalf("首次注册失败: %v", err)
+	}
+	doneOld()
+
+	ctxNew, doneNew, err := svc.registerTransfer("t1")
+	if err != nil {
+		t.Fatalf("续传注册失败: %v", err)
+	}
 	defer doneNew()
 
-	// 旧传输结束时才执行清理：此时登记表里已经是新传输
+	// 旧传输的清理可能被重复触发（失败路径与 defer 都可能调用），
+	// 此时登记表里已经是新传输，不能误删
 	doneOld()
 
 	svc.mu.Lock()
@@ -32,6 +42,48 @@ func TestRegisterTransferKeepsNewerHandle(t *testing.T) {
 	case <-ctxNew.Done():
 	case <-time.After(time.Second):
 		t.Fatal("新传输的取消句柄未生效")
+	}
+}
+
+// 同一 transferID 的上一次传输尚未退出时，新注册必须等待它结束，
+// 否则两个任务会并发写同一个断点临时文件。
+func TestRegisterTransferWaitsForPrevious(t *testing.T) {
+	svc := NewSftpService(nil, nil)
+
+	_, doneOld, err := svc.registerTransfer("t1")
+	if err != nil {
+		t.Fatalf("首次注册失败: %v", err)
+	}
+
+	registered := make(chan struct{})
+	var (
+		ctxNew  context.Context
+		doneNew func()
+		errNew  error
+	)
+	go func() {
+		ctxNew, doneNew, errNew = svc.registerTransfer("t1")
+		close(registered)
+	}()
+
+	select {
+	case <-registered:
+		t.Fatal("旧传输未结束时不应完成新的注册")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	doneOld()
+	select {
+	case <-registered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("旧传输结束后新的注册未完成")
+	}
+	if errNew != nil {
+		t.Fatalf("续传注册失败: %v", errNew)
+	}
+	defer doneNew()
+	if ctxNew.Err() != nil {
+		t.Fatalf("新传输上下文不应已被取消: %v", ctxNew.Err())
 	}
 }
 

@@ -30,6 +30,12 @@ export interface TransferItem {
     error?: string;
     /** 用户主动取消：界面显示"已取消"并忽略后端返回的取消错误文案 */
     cancelled?: boolean;
+    /**
+     * 已发出取消请求但结果尚未落地。用于区分"本次取消的拒绝"与"上一次被取消
+     * 传输的迟到拒绝"：暂停后续传复用同一 transferID，旧任务的取消错误可能
+     * 在续传进入 active 之后才返回，不能把刚续传的任务标成已取消。
+     */
+    cancelRequested?: boolean;
     /** 传输的本地路径，失败/暂停后重试或续传用 */
     localPath?: string;
     /** 传输的远端路径，失败/暂停后重试或续传用；type=copy 时为目标端路径 */
@@ -60,6 +66,8 @@ interface TransferState {
     updateTransfer: (id: string, updates: Partial<TransferItem>) => void;
     /** 请求暂停：先进入 pausing，等后端完成事件后再转为 paused */
     markPausing: (id: string) => void;
+    /** 标记用户已发起取消（立即生效，不经进度节流） */
+    markCancelRequested: (id: string) => void;
     /** 续传：把 paused 条目恢复为 active（调用方随后重新发起传输） */
     resumeTransfer: (id: string) => void;
     removeTransfer: (id: string) => void;
@@ -168,6 +176,17 @@ export const useTransferStore = create<TransferState>((set, get) => ({
         if (isTerminal(current.status) && !isTerminal(updates.status ?? current.status)) {
             return;
         }
+        // 进行中的条目只接受本次取消请求的取消结果。暂停后续传复用同一
+        // transferID，上一次被取消传输的拒绝可能晚于续传开始返回；没有取消
+        // 请求标记时按迟到结果丢弃，否则续传任务会被永久标成"已取消"。
+        if (
+            updates.status === "error" &&
+            updates.cancelled &&
+            current.status === "active" &&
+            !current.cancelRequested
+        ) {
+            return;
+        }
 
         const now = Date.now();
         let next: Partial<TransferItem> = {...updates};
@@ -258,6 +277,16 @@ export const useTransferStore = create<TransferState>((set, get) => ({
         }));
     },
 
+    markCancelRequested: (id) => {
+        // 不走 updateTransfer 的节流：取消结果可能几十毫秒内就返回，
+        // 标记晚到会让本次取消被当作"上一次取消的迟到结果"丢弃。
+        set((state) => ({
+            transfers: state.transfers.map((t) =>
+                t.id === id ? {...t, cancelRequested: true} : t
+            ),
+        }));
+    },
+
     resumeTransfer: (id) => {
         const current = get().transfers.find((t) => t.id === id);
         if (!current || current.status !== "paused") return;
@@ -272,6 +301,7 @@ export const useTransferStore = create<TransferState>((set, get) => ({
                         status: "active",
                         error: undefined,
                         cancelled: false,
+                        cancelRequested: false,
                         finishedAt: undefined,
                         bytesPerSec: 0,
                     }

@@ -143,6 +143,18 @@ func TestParseProbe(t *testing.T) {
 	}
 }
 
+// /proc/net/dev 的异常行（字段数恰好 11）不得触发越界 panic。
+// 守卫曾写成 len(fields) < 11 却访问 fields[11]，一条被截断的探测输出
+// 就能让采集 goroutine panic 并终止整个应用。
+func TestParseProbeToleratesShortNetLine(t *testing.T) {
+	// 11 个计数字段（缺少 tx_drops）：旧守卫会放行并读取 fields[11]
+	out := "@@net\neth0: 1 2 3 4 5 6 7 8 9 10 11\n@@end"
+	raw := parseProbe(out)
+	if _, ok := raw.net["eth0"]; ok {
+		t.Fatal("字段不足的网卡行应被跳过")
+	}
+}
+
 func TestBuildSampleCPUUsage(t *testing.T) {
 	state := &sessionState{}
 	first := parseProbe(sampleOutput)

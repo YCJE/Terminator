@@ -380,6 +380,7 @@ export function LocalFilePane({
                 <FileTable
                     entries={visibleEntries}
                     loading={loading}
+                    dirKey={currentPath}
                     onOpen={openEntry}
                     onContextMenu={(entry, e) => {
                         // 用名称回查真实路径：Windows 盘符与分隔符不能靠字符串拼接

@@ -101,12 +101,14 @@ export function AuthPromptDialog() {
         setBusy(true);
         try {
             await SshService.SubmitAuthResponses(request.requestId, answers);
+            // 仅在提交成功后出队：提交失败时若已出队，弹窗消失而后端仍在等待
+            // 应答（最长 120 秒），用户既看不到失败原因也无法重试，只能干等超时。
+            setQueue((prev) => prev.filter((item) => item.requestId !== request.requestId));
+            setAnswers([]);
         } catch (err) {
             toast.error(t("auth_prompt_failed"), {description: parseAppError(err).message});
         } finally {
             setBusy(false);
-            setQueue((prev) => prev.filter((item) => item.requestId !== request.requestId));
-            setAnswers([]);
         }
     };
 

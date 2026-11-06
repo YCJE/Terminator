@@ -11,11 +11,14 @@ import (
 // WebDAV 配置存储在 settings.json（AppSettings），不存 DB。
 type WebDAVService struct {
 	settingsSvc *settings.SettingsService
+	// resetSyncCursor 清除增量同步游标。切换同步方式后，旧游标来自另一种
+	// 时钟（服务器 SyncTime / 本地时间），继续作为冲突检测基准会失真。
+	resetSyncCursor func(context.Context) error
 }
 
 // NewWebDAVService 创建 WebDAVService
-func NewWebDAVService(settingsSvc *settings.SettingsService) *WebDAVService {
-	return &WebDAVService{settingsSvc: settingsSvc}
+func NewWebDAVService(settingsSvc *settings.SettingsService, resetSyncCursor func(context.Context) error) *WebDAVService {
+	return &WebDAVService{settingsSvc: settingsSvc, resetSyncCursor: resetSyncCursor}
 }
 
 // TestWebDAVConnection 测试 WebDAV 连接是否可用（前端调用，无需解锁 vault）
@@ -53,6 +56,15 @@ func (s *WebDAVService) SaveWebDAVConfig(url, username, password string) error {
 	// 密码为空时保留原密码，避免编辑配置时意外清空密码
 	if password != "" {
 		current.WebDAVPassword = password
+	}
+
+	// 先清除上一同步方式留下的游标，再保存配置：清除失败时配置保持原样，
+	// 避免出现"已切到 WebDAV、却仍拿服务器时钟的游标当冲突基准"的状态。
+	// 反向顺序（先保存后清除）若清除失败，配置已切换且游标失真，更难恢复。
+	if s.resetSyncCursor != nil {
+		if err := s.resetSyncCursor(context.Background()); err != nil {
+			return err
+		}
 	}
 
 	return s.settingsSvc.SaveSettings(current)
