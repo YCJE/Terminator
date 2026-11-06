@@ -83,6 +83,7 @@ jobs:
           for asset in \
             "releases.windows-stable.json" \
             "Terminator-${VERSION}-windows-stable-full.nupkg" \
+            "Terminator-${VERSION}-windows-stable-delta.nupkg" \
             "Terminator-windows-stable-Setup.exe" \
             "Terminator-windows-stable-Portable.zip"; do
             if printf '%s\n' "$existing" | grep -Fxq "$asset"; then
@@ -187,6 +188,7 @@ jobs:
           for asset in \
             "releases.linux-stable.json" \
             "Terminator-${VERSION}-linux-stable-full.nupkg" \
+            "Terminator-${VERSION}-linux-stable-delta.nupkg" \
             "Terminator-linux-stable.AppImage"; do
             if printf '%s\n' "$existing" | grep -Fxq "$asset"; then
               echo "删除残留资产：$asset"
@@ -280,6 +282,7 @@ jobs:
           for asset in \
             "releases.macos-stable.json" \
             "Terminator-${VERSION}-macos-stable-full.nupkg" \
+            "Terminator-${VERSION}-macos-stable-delta.nupkg" \
             "Terminator-macos-stable-Portable.zip" \
             "Terminator-macos-stable-Setup.pkg"; do
             if printf '%s\n' "$existing" | grep -Fxq "$asset"; then
