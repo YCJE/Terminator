@@ -3,6 +3,7 @@ package sftp
 import (
 	"archive/tar"
 	"archive/zip"
+	"context"
 	"io"
 	"os"
 	"os/exec"
@@ -29,7 +30,7 @@ func TestZipLocalPathPreservesStructure(t *testing.T) {
 	}
 
 	zipPath := filepath.Join(root, "out.zip")
-	size, err := zipLocalPath(source, zipPath)
+	size, err := zipLocalPath(context.Background(), source, zipPath)
 	if err != nil {
 		t.Fatalf("压缩失败: %v", err)
 	}
@@ -93,7 +94,7 @@ func TestZipLocalPathSkipsSymlinks(t *testing.T) {
 	}
 
 	zipPath := filepath.Join(root, "linked.zip")
-	if _, err := zipLocalPath(source, zipPath); err != nil {
+	if _, err := zipLocalPath(context.Background(), source, zipPath); err != nil {
 		t.Fatalf("压缩失败: %v", err)
 	}
 	reader, err := zip.OpenReader(zipPath)

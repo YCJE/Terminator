@@ -167,7 +167,7 @@ func findInstallerAsset(assets []ReleaseAsset, version string) *ReleaseAsset {
 	if version != "" {
 		for _, suffix := range suffixes {
 			for i := range assets {
-				if strings.HasSuffix(assets[i].Name, suffix) && strings.Contains(assets[i].Name, version) {
+				if strings.HasSuffix(assets[i].Name, suffix) && assetNameHasVersion(assets[i].Name, version) {
 					return &assets[i]
 				}
 			}
@@ -181,6 +181,32 @@ func findInstallerAsset(assets []ReleaseAsset, version string) *ReleaseAsset {
 		}
 	}
 	return nil
+}
+
+// assetNameHasVersion 判断资产名是否包含完整版本号。
+//
+// 不能用 strings.Contains：1.2.3 会命中 1.2.30 的安装包，用户更新到的是
+// 另一个版本；真正的 1.2.3 资产反而从未被选中。版本号两侧必须不是数字或
+// 小数点才算完整匹配（分隔符如 "-"、"v"、"_" 均可）。
+func assetNameHasVersion(name string, version string) bool {
+	isVersionChar := func(b byte) bool {
+		return (b >= '0' && b <= '9') || b == '.'
+	}
+	for start := 0; start+len(version) <= len(name); {
+		idx := strings.Index(name[start:], version)
+		if idx < 0 {
+			return false
+		}
+		pos := start + idx
+		end := pos + len(version)
+		beforeOK := pos == 0 || !isVersionChar(name[pos-1])
+		afterOK := end == len(name) || !isVersionChar(name[end])
+		if beforeOK && afterOK {
+			return true
+		}
+		start = pos + 1
+	}
+	return false
 }
 
 // assetURLs 返回资产的候选下载地址，按成功率从高到低排列。

@@ -21,6 +21,10 @@ const (
 	maxTimeoutSeconds = 3600
 	// maxSessions 单次批量执行允许的最大会话数，避免一次创建过多通道
 	maxSessions = 200
+	// outputLimitPerSession 单台主机保留的输出上限。
+	// 批量结果会一次性回传前端渲染，200 台 × 默认 8MB 足以耗尽内存；
+	// 截断部分会在输出末尾注明，不影响退出状态判断。
+	outputLimitPerSession = 256 << 10
 )
 
 // Result 单台主机的执行结果。
@@ -92,7 +96,7 @@ func (s *Service) RunOnSessions(sessionIDs []string, command string, timeoutSeco
 		go func(index int, sessionID string) {
 			defer wg.Done()
 			started := time.Now()
-			output, err := s.sshSvc.ExecCommand(sessionID, cmd, timeout)
+			output, err := s.sshSvc.ExecCommandLimited(sessionID, cmd, timeout, outputLimitPerSession)
 			result := Result{
 				SessionID:  sessionID,
 				Output:     output,

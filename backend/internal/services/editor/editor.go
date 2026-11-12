@@ -20,6 +20,7 @@ import (
 
 	pkgSFTP "github.com/pkg/sftp"
 
+	"terminator-desktop/backend/internal/apperror"
 	"terminator-desktop/backend/internal/services/sftp"
 	"terminator-desktop/backend/internal/services/ssh"
 )
@@ -257,9 +258,33 @@ func (s *Service) OpenRemoteFile(sessionID string, remotePath string) (string, e
 		return "", fmt.Errorf("创建临时目录失败: %w", err)
 	}
 	localPath := filepath.Join(localDir, safeEditorFileName(localEditorFileName(cleanRemote)))
-	if err := downloadTo(client, cleanRemote, localPath); err != nil {
-		_ = os.RemoveAll(localDir)
-		return "", err
+
+	// 冲突基线必须与下载到的内容严格对应。先 Stat 再下载：若远端在两者之间被
+	// 修改，下载到的已是新内容，而基线仍是旧版本，保存时会被误判成冲突；
+	// 反过来只在下载后 Stat，又可能把"下载之后发生的修改"当成基线，
+	// 保存时直接覆盖掉别人的改动。因此下载后重新 Stat，与下载前不一致就
+	// 整体重下一遍，直到前后两次元信息一致（最多重试 3 轮，避免文件持续
+	// 变动时无限循环）。
+	baseline := info
+	for attempt := 0; ; attempt++ {
+		if err := downloadTo(client, cleanRemote, localPath); err != nil {
+			_ = os.RemoveAll(localDir)
+			return "", err
+		}
+		after, statErr := client.Stat(cleanRemote)
+		if statErr != nil {
+			_ = os.RemoveAll(localDir)
+			return "", fmt.Errorf("读取远端文件 %q 信息失败: %w", cleanRemote, statErr)
+		}
+		if after.ModTime().Equal(baseline.ModTime()) && after.Size() == baseline.Size() {
+			baseline = after
+			break
+		}
+		if attempt >= 2 {
+			_ = os.RemoveAll(localDir)
+			return "", fmt.Errorf("远端文件 %q 正在被修改，请稍后再试", cleanRemote)
+		}
+		baseline = after
 	}
 
 	w := &watcher{
@@ -270,8 +295,8 @@ func (s *Service) OpenRemoteFile(sessionID string, remotePath string) (string, e
 		localPath:  localPath,
 		stop:       make(chan struct{}),
 		done:       make(chan struct{}),
-		remoteMod:  info.ModTime(),
-		remoteSize: info.Size(),
+		remoteMod:  baseline.ModTime(),
+		remoteSize: baseline.Size(),
 	}
 
 	s.mu.Lock()
@@ -406,6 +431,11 @@ func (s *Service) watch(w *watcher) {
 				w.retryDelay = 30 * time.Second
 			}
 			w.retryAt = time.Now().Add(w.retryDelay)
+		case uploadAbandoned:
+			// 会话已不存在，重试永远不会成功：注销监听但保留本地文件，
+			// 其中可能还有用户尚未回传的修改，删除后再也无法找回。
+			s.removeWatcher(w.key)
+			return
 		}
 	}
 }
@@ -417,13 +447,26 @@ const (
 	uploadOK uploadOutcome = iota
 	uploadConflict
 	uploadFailed
+	// uploadAbandoned 表示会话已不存在，继续重试没有意义，监听应结束
+	uploadAbandoned
 )
+
+// isSessionGone 判断错误是否表示 SSH 会话已不存在（已断开或被重连替换）。
+// 这类错误不会自行恢复：若按瞬时故障重试，监听会永远每隔几十秒推送一条
+// 相同失败事件，而用户的修改始终没有机会回传。
+func isSessionGone(err error) bool {
+	var appErr *apperror.AppError
+	return errors.As(err, &appErr) && appErr.Code == apperror.CodeSSHSessionNotFound
+}
 
 // uploadBack 把本地临时文件写回远端。远端在此期间被他人修改时只推送一次冲突事件。
 func (s *Service) uploadBack(w *watcher) uploadOutcome {
 	client, err := s.remote.GetSFTPClient(w.sessionID)
 	if err != nil {
 		s.emitter.EmitEditorSaved(w.sessionID, w.remotePath, false, false, err.Error())
+		if isSessionGone(err) {
+			return uploadAbandoned
+		}
 		return uploadFailed
 	}
 
@@ -463,6 +506,10 @@ func (s *Service) uploadBack(w *watcher) uploadOutcome {
 
 	if err := s.writer.WriteLocalFileToRemote(w.sessionID, w.localPath, w.remotePath); err != nil {
 		s.emitter.EmitEditorSaved(w.sessionID, w.remotePath, false, false, err.Error())
+		// Stat 与写入之间会话可能刚好断开，同样不能按瞬时故障无限重试
+		if isSessionGone(err) {
+			return uploadAbandoned
+		}
 		return uploadFailed
 	}
 	// 以本次写入后的远端状态作为下一轮基准，避免下一次保存被判成冲突。

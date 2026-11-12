@@ -8,6 +8,7 @@ package sftp
 
 import (
 	"archive/zip"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -43,7 +44,10 @@ func archiveTopName(localPath string) string {
 
 // zipLocalPath 把本地文件/目录压缩到 zipPath（不含符号链接，避免目录环）。
 // 目录结构在压缩包内以顶层目录名保留，解压后即可还原原目录。
-func zipLocalPath(localPath string, zipPath string) (int64, error) {
+//
+// ctx 用于取消：大目录压缩可能持续数分钟，用户点击取消后必须能尽快停止，
+// 否则前端显示"已暂停"而本地仍在持续写临时压缩包。
+func zipLocalPath(ctx context.Context, localPath string, zipPath string) (int64, error) {
 	out, err := os.OpenFile(zipPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 	if err != nil {
 		return 0, fmt.Errorf("创建临时压缩包失败: %w", err)
@@ -59,6 +63,8 @@ func zipLocalPath(localPath string, zipPath string) (int64, error) {
 
 	writer := zip.NewWriter(out)
 	top := archiveTopName(localPath)
+	// 复用同一个读缓冲：WalkDir 是串行的，无需每个文件重新分配
+	copyBuf := make([]byte, 256*1024)
 
 	// 根路径可能是指向目录的符号链接：WalkDir 不跟随链接，只看到链接自身并
 	// 按下方规则跳过，会打出一个空压缩包却报告上传成功。这里只解析根，
@@ -75,6 +81,9 @@ func zipLocalPath(localPath string, zipPath string) (int64, error) {
 	err = filepath.WalkDir(root, func(p string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
+		}
+		if err := checkCanceled(ctx); err != nil {
+			return err
 		}
 		info, err := entry.Info()
 		if err != nil {
@@ -123,8 +132,24 @@ func zipLocalPath(localPath string, zipPath string) (int64, error) {
 			return fmt.Errorf("读取本地文件 %q 失败: %w", p, err)
 		}
 		defer src.Close()
-		if _, err := io.Copy(dst, src); err != nil {
-			return fmt.Errorf("写入压缩包条目 %q 失败: %w", zipName, err)
+		// 手动分块复制而非 io.Copy：单个大文件复制期间不会经过 WalkDir 回调，
+		// 必须在块与块之间检查取消，否则取消后仍会把整个文件写完。
+		for {
+			if err := checkCanceled(ctx); err != nil {
+				return err
+			}
+			n, readErr := src.Read(copyBuf)
+			if n > 0 {
+				if _, writeErr := dst.Write(copyBuf[:n]); writeErr != nil {
+					return fmt.Errorf("写入压缩包条目 %q 失败: %w", zipName, writeErr)
+				}
+			}
+			if readErr == io.EOF {
+				break
+			}
+			if readErr != nil {
+				return fmt.Errorf("读取本地文件 %q 失败: %w", p, readErr)
+			}
 		}
 		return nil
 	})
@@ -193,7 +218,7 @@ func (s *SftpService) UploadDirArchive(sessionID string, transferID string, loca
 	_ = tempZip.Close()
 	defer os.Remove(zipPath)
 
-	zipSize, err := zipLocalPath(cleanLocal, zipPath)
+	zipSize, err := zipLocalPath(ctx, cleanLocal, zipPath)
 	if err != nil {
 		s.emitter.EmitTransferComplete(sessionID, transferID, false, err.Error())
 		return err

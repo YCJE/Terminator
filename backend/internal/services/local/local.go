@@ -232,18 +232,11 @@ func resolveShell(shell string) string {
 		}
 		return detectShell()
 	}
-	abs, err := filepath.Abs(shell)
-	if err != nil {
-		return detectShell()
+	// 带路径的输入同样要解析软链接后确认最终位置（/bin/sh -> /usr/bin/dash 等）
+	if p := resolveTrustedShell(shell); p != "" {
+		return p
 	}
-	// 软链接最终指向的仍是可执行文件时才接受（/bin/sh -> /usr/bin/dash 等）
-	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
-		abs = resolved
-	}
-	if !isTrustedShellPath(abs) {
-		return detectShell()
-	}
-	return abs
+	return detectShell()
 }
 
 // findShellInTrustedDirs 在系统 shell 的标准安装目录中查找可执行文件。
@@ -315,27 +308,64 @@ func isExecutableFile(path string) bool {
 	return true
 }
 
+// detectShell 在没有可用配置时探测平台默认 shell。
+//
+// 环境变量（COMSPEC / SHELL）与 PATH 都可能被篡改：它们属于进程外部输入，
+// 指向任意可执行文件时，本地终端会在用户毫无察觉的情况下启动该程序。
+// 因此这里只接受位于受信任系统目录中的结果，其余一律回退到固定系统路径。
 func detectShell() string {
 	if runtime.GOOS == "windows" {
 		for _, name := range []string{"pwsh.exe", "powershell.exe"} {
-			if path, err := exec.LookPath(name); err == nil {
-				return path
+			path, err := exec.LookPath(name)
+			if err != nil {
+				continue
+			}
+			if trusted := resolveTrustedShell(path); trusted != "" {
+				return trusted
 			}
 		}
-		if comspec := os.Getenv("COMSPEC"); comspec != "" {
-			return comspec
+		if trusted := resolveTrustedShell(os.Getenv("COMSPEC")); trusted != "" {
+			return trusted
 		}
-		return "cmd.exe"
+		if root := os.Getenv("SystemRoot"); root != "" {
+			if candidate := filepath.Join(root, "System32", "cmd.exe"); isExecutableFile(candidate) {
+				return candidate
+			}
+		}
+		return `C:\Windows\System32\cmd.exe`
 	}
-	if shell := os.Getenv("SHELL"); shell != "" {
-		return shell
+	if trusted := resolveTrustedShell(os.Getenv("SHELL")); trusted != "" {
+		return trusted
 	}
-	for _, name := range []string{"/bin/bash", "/bin/zsh", "/bin/sh"} {
-		if path, err := exec.LookPath(name); err == nil {
+	for _, name := range []string{"bash", "zsh", "sh"} {
+		if path := findShellInTrustedDirs(name); path != "" {
 			return path
 		}
 	}
 	return "/bin/sh"
+}
+
+// resolveTrustedShell 把候选路径解析为受信任的系统 shell 绝对路径。
+// 无法确认（非法白名单名、位于非系统目录、不存在/不可执行）时返回空串。
+func resolveTrustedShell(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	abs, err := filepath.Abs(value)
+	if err != nil {
+		return ""
+	}
+	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+		abs = resolved
+	}
+	if _, ok := allowedShellNames[strings.ToLower(filepath.Base(abs))]; !ok {
+		return ""
+	}
+	if !isTrustedShellPath(abs) {
+		return ""
+	}
+	return abs
 }
 
 // shellEnv 继承当前进程环境并补齐 TERM，保证程序输出标准 ANSI 序列。

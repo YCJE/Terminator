@@ -99,14 +99,74 @@ func localResumeOffset(part string, total int64) int64 {
 
 // renameOver 将 from 原子重命名为 to，目标存在时覆盖。
 // PosixRename 是 POSIX 语义的原子重命名，部分服务器不支持该扩展，
-// 回退到标准 Rename。
+// 回退到标准 Rename；两者都不支持覆盖已存在目标时，走"备份-替换-还原"流程。
 func renameOver(client *sftp.Client, from string, to string) error {
-	if err := client.PosixRename(from, to); err != nil {
-		if err2 := client.Rename(from, to); err2 != nil {
-			return fmt.Errorf("重命名 %q -> %q 失败: %w (posix: %v)", from, to, err2, err)
-		}
+	if err := client.PosixRename(from, to); err == nil {
+		return nil
 	}
+	renameErr := client.Rename(from, to)
+	if renameErr == nil {
+		return nil
+	}
+	return replaceViaBackup(client, from, to, renameErr)
+}
+
+// replaceViaBackup 在服务器不支持覆盖式重命名时，用"目标改名备份 → 源改名到目标
+// → 删除备份"三步完成替换。
+//
+// 部分 NAS/嵌入式 SFTP 服务端既不支持 posix-rename 扩展，标准 rename 又会在
+// 目标已存在时返回 SSH_FX_FAILURE。此时直接报错会让用户已完整上传的数据被
+// 丢弃（调用方删除临时文件），下次还得从头重传；而先删目标再改名，一旦改名
+// 失败就会丢失原文件。这里用备份路径兜底：失败时尽力还原目标，实在无法还原
+// 也会在错误里给出备份路径，数据仍可人工找回。
+func replaceViaBackup(client *sftp.Client, from string, to string, cause error) error {
+	// 目标不存在却重命名失败，说明是权限/只读等其它原因，不适用覆盖流程
+	if _, err := client.Lstat(to); err != nil {
+		return fmt.Errorf("重命名 %q -> %q 失败: %w", from, to, cause)
+	}
+
+	var suffix [6]byte
+	_, _ = rand.Read(suffix[:])
+	backup := fmt.Sprintf("%s.terminator-old-%x", to, suffix)
+	if err := client.Rename(to, backup); err != nil {
+		return fmt.Errorf("重命名 %q -> %q 失败: %w", from, to, cause)
+	}
+	if err := client.Rename(from, to); err != nil {
+		// 还原原目标文件；还原失败时明确告知备份路径，避免用户以为文件丢失
+		if restoreErr := client.Rename(backup, to); restoreErr != nil {
+			return fmt.Errorf("重命名 %q -> %q 失败: %w；原文件已保存为 %q，自动还原失败: %v",
+				from, to, cause, backup, restoreErr)
+		}
+		return fmt.Errorf("重命名 %q -> %q 失败: %w", from, to, cause)
+	}
+	// 备份不再需要；删除失败只留下一个临时文件，不影响替换结果
+	_ = client.Remove(backup)
 	return nil
+}
+
+// chmodForOverwrite 在临时文件上恢复原文件权限，并保证失败时不会放宽权限。
+//
+// 部分 SFTP 服务端不支持 setstat（Windows OpenSSH、部分 NAS/嵌入式设备），
+// Chmod 必然失败。若一律把失败当成写入失败，这些服务器上的"编辑保存"与
+// "外部编辑器回传"会彻底不可用。这里改为先比较临时文件的当前权限：
+// 只要它带有原文件没有的权限位（例如原文件 0600、临时文件 0644），
+// 继续重命名就会让敏感内容对他人可读，必须中止；否则（如仅丢失执行位）
+// 继续完成保存，避免为了权限细节让用户无法保存文件。
+func chmodForOverwrite(client *sftp.Client, tmpPath string, origMode os.FileMode) error {
+	if err := client.Chmod(tmpPath, origMode); err == nil {
+		return nil
+	} else {
+		info, statErr := client.Stat(tmpPath)
+		if statErr != nil {
+			// 无法确认权限时保持保守：宁可不保存，也不写入可能放宽权限的文件
+			return fmt.Errorf("恢复临时文件权限失败（无法读取当前权限）: %w", err)
+		}
+		if widened := info.Mode().Perm() &^ origMode.Perm(); widened != 0 {
+			return fmt.Errorf("恢复临时文件权限失败：临时文件权限 %04o 比原文件 %04o 更宽松: %w",
+				info.Mode().Perm(), origMode.Perm(), err)
+		}
+		return nil
+	}
 }
 
 // openRemoteForResume 打开远程临时文件用于写入，返回实际生效的起始偏移。
@@ -507,10 +567,10 @@ func (s *SftpService) WriteFile(sessionID string, path string, content string) e
 
 	// 恢复原文件权限。Create 创建的临时文件权限由服务端 umask 决定（通常 0644），
 	// 若原文件是 0600 等受限权限，Chmod 失败后继续重命名会让文件变成更宽松的权限。
-	// 故此处必须视为写入失败：保留原文件不动，避免悄悄放宽敏感文件的访问权限。
-	if err := client.Chmod(tmpPath, origMode); err != nil {
+	// 因此权限确实被放宽时必须视为写入失败。
+	if err := chmodForOverwrite(client, tmpPath, origMode); err != nil {
 		_ = client.Remove(tmpPath)
-		return fmt.Errorf("恢复文件 %q 权限失败: %w", path, err)
+		return fmt.Errorf("写入文件 %q 失败: %w", path, err)
 	}
 
 	// 原子重命名（PosixRename 优先，回退到普通 Rename）
@@ -570,9 +630,9 @@ func (s *SftpService) WriteLocalFileToRemote(sessionID string, localPath string,
 		_ = client.Remove(tmpPath)
 		return fmt.Errorf("写入远端文件 %q 失败: %w", remotePath, copyErr)
 	}
-	if err := client.Chmod(tmpPath, remoteInfo.Mode().Perm()); err != nil {
+	if err := chmodForOverwrite(client, tmpPath, remoteInfo.Mode().Perm()); err != nil {
 		_ = client.Remove(tmpPath)
-		return fmt.Errorf("恢复文件 %q 权限失败: %w", remotePath, err)
+		return fmt.Errorf("写入远端文件 %q 失败: %w", remotePath, err)
 	}
 	if err := renameOver(client, tmpPath, remotePath); err != nil {
 		_ = client.Remove(tmpPath)
@@ -595,14 +655,16 @@ func (s *SftpService) Mkdir(sessionID string, path string) error {
 }
 
 // Remove 删除远程文件或空目录。
-// 通过 Stat 判断类型后分别调用 Remove（文件）或 RemoveDirectory（空目录）。
+// 通过 Lstat 判断类型后分别调用 Remove（文件）或 RemoveDirectory（空目录）。
+// 不能使用 Stat：它会跟随软链接，把"指向目录的链接"当成目录调用 rmdir，
+// 多数服务端返回 ENOTDIR，导致该链接永远删不掉。
 func (s *SftpService) Remove(sessionID string, path string) error {
 	client, err := s.sshSvc.GetSFTPClient(sessionID)
 	if err != nil {
 		return err
 	}
 
-	info, err := client.Stat(path)
+	info, err := client.Lstat(path)
 	if err != nil {
 		return fmt.Errorf("获取 %q 信息失败: %w", path, err)
 	}

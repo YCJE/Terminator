@@ -711,6 +711,9 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         const {sessions} = get();
         sessions.forEach((session) => {
             closeSessionTransport(session);
+            // 调度器是模块级队列，不随组件卸载清空：不在这里移除，
+            // 上一批会话排队中的传输会在新界面里继续执行（并写入已关闭的会话）
+            clearScheduledTransfers(session.id);
             // 清掉该会话的端口转发恢复记录：会话 ID 不会复用，
             // 不清理会让模块级 Map 随每次锁屏/擦除持续增长
             resetRestoreAttempts(session.id);

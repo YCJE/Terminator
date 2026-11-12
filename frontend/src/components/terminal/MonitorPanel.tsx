@@ -279,6 +279,12 @@ export function MonitorPanel({sessionId}: {sessionId: string}) {
         };
     }, [sessionId]);
 
+    // 切换会话时清空上一个会话的告警高亮：面板组件不随 sessionId 重建，
+    // 否则新会话的首帧到达前，卡片会沿用旧会话的告警状态。
+    useEffect(() => {
+        setActiveAlerts([]);
+    }, [sessionId]);
+
     const handleIntervalChange = (value: string) => {
         const next = Number(value);
         if (!INTERVAL_OPTIONS.includes(next as (typeof INTERVAL_OPTIONS)[number])) return;

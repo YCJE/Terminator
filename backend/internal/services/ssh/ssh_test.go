@@ -14,10 +14,18 @@ import (
 )
 
 // newTestSshService 构造仅含转发相关字段的服务实例，避免测试触碰真实会话。
+// 必须为所有转发路径会用到的 map 初始化：forwardConns 在建立隧道连接时写入，
+// 遗漏会让 Accept goroutine 内的 nil map 赋值 panic 并带崩整个测试二进制。
 func newTestSshService() *SshService {
 	return &SshService{
 		forwards:        make(map[string]net.Listener),
 		sessionForwards: make(map[string][]string),
+		forwardConns:    make(map[string]map[net.Conn]struct{}),
+		sessions:        make(map[string]*activeSession),
+		connecting:      make(map[string]struct{}),
+		cancelled:       make(map[string]struct{}),
+		probes:          make(map[*ssh.Client]*connProbe),
+		latencyProbes:   make(map[*ssh.Client]*latencyProbe),
 	}
 }
 

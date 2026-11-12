@@ -419,6 +419,14 @@ func (s *BackupService) ImportBackup(ctx context.Context, password string) error
 	user := payload.User
 	// 备份格式不记录用户 ID（ID 不参与密钥派生），恢复时重新生成
 	newUserID := uuid.New().String()
+	// 恢复的是另一个账户时，备份里的同步游标属于旧账户/旧服务器，必须清空后
+	// 重新对齐。这里在事务内直接写入空游标，而不是提交后再补一次 UPDATE：
+	// 补写失败只会告警，应用会带着旧游标继续增量同步，直接漏掉新服务器上
+	// 早于该游标的既有数据，且用户无从察觉。
+	syncCursor := sql.NullString{String: user.LastSyncTime, Valid: user.LastSyncTime != ""}
+	if crossAccount {
+		syncCursor = sql.NullString{}
+	}
 	if err := qtx.CreateUser(ctx, dbgen.CreateUserParams{
 		ID:                 newUserID,
 		Username:           user.Username,
@@ -426,7 +434,7 @@ func (s *BackupService) ImportBackup(ctx context.Context, password string) error
 		AuthSalt:           sql.NullString{String: user.AuthSalt, Valid: user.AuthSalt != ""},
 		EncryptedMasterKey: user.EncryptedMasterKey,
 		ServerUrl:          sql.NullString{String: user.ServerURL, Valid: user.ServerURL != ""},
-		LastSyncTime:       sql.NullString{String: user.LastSyncTime, Valid: user.LastSyncTime != ""},
+		LastSyncTime:       syncCursor,
 	}); err != nil {
 		return err
 	}
@@ -449,20 +457,15 @@ func (s *BackupService) ImportBackup(ctx context.Context, password string) error
 	// 旧 token 属于被替换掉的账户，必须丢弃
 	s.client.ClearToken()
 
-	// 恢复的是另一个账户：清除上一账户的 WebDAV 凭据（连同同步方式一起复位），
-	// 并清空备份带来的同步游标——它属于另一账户/服务器，继续沿用会让增量
-	// 同步漏掉新服务器上的既有数据。清理失败只告警，不回滚已成功恢复的数据。
-	if crossAccount {
+	// 恢复的是另一个账户：清除上一账户的 WebDAV 凭据（连同同步方式一起复位）。
+	// 无既有账户时同样要清理：数据库被删除/重建但 settings.json 仍在的情况下，
+	// 无法证明其中凭据属于待恢复账户，留着会让新账户拿旧凭据读写上一账户的
+	// 云盘空间。清理失败只告警，不回滚已成功恢复的数据。
+	if crossAccount || userErr != nil {
 		if s.settingsSvc != nil {
 			if err := s.settingsSvc.ClearWebDAVConfig(); err != nil {
 				slog.Warn("failed to clear WebDAV config after backup import", "error", err)
 			}
-		}
-		if err := s.q.UpdateUserLastSyncTime(ctx, dbgen.UpdateUserLastSyncTimeParams{
-			LastSyncTime: sql.NullString{},
-			ID:           newUserID,
-		}); err != nil {
-			slog.Warn("failed to reset sync cursor after backup import", "error", err)
 		}
 	}
 
@@ -504,6 +507,33 @@ func readBackupFile(path string) (*backupPayload, error) {
 	if payload.User.Username == "" || payload.User.KeySalt == "" ||
 		payload.User.AuthSalt == "" || payload.User.EncryptedMasterKey == "" {
 		return nil, apperror.Validation("备份文件缺少账户信息，无法恢复")
+	}
+	// 同步游标只用于计算增量同步下界：格式非法时清空即可退化为全量同步，
+	// 不值得因此拒绝一份其余内容完好的备份。
+	if payload.User.LastSyncTime != "" {
+		if _, err := timeutil.Parse(payload.User.LastSyncTime); err != nil {
+			payload.User.LastSyncTime = ""
+		}
+	}
+
+	// 逐条校验条目结构。导入是整体替换，写入缺少 ID 或时间戳的记录后，
+	// 用户既无法在界面上修复，也无法删除，只能再恢复一份备份；而增量同步的
+	// 文本比较与冲突合并都依赖这两列，脏值会让条目永久同步不出去。
+	seen := make(map[string]struct{}, len(payload.Blobs))
+	for i, b := range payload.Blobs {
+		if b.ID == "" {
+			return nil, apperror.Validation(fmt.Sprintf("备份中第 %d 个条目缺少 ID，无法恢复", i+1))
+		}
+		if _, dup := seen[b.ID]; dup {
+			return nil, apperror.Validation(fmt.Sprintf("备份中存在重复条目 %q，无法恢复", b.ID))
+		}
+		seen[b.ID] = struct{}{}
+		if _, err := timeutil.Parse(b.UpdatedAt); err != nil {
+			return nil, apperror.Validation(fmt.Sprintf("备份中的条目 %q 时间戳无效，无法恢复", b.ID))
+		}
+		if !b.IsDeleted && b.Blob == "" {
+			return nil, apperror.Validation(fmt.Sprintf("备份中的条目 %q 缺少密文内容，无法恢复", b.ID))
+		}
 	}
 
 	return &payload, nil

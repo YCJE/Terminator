@@ -129,6 +129,11 @@ function sanitizeTermTitle(raw: string): string {
 
 export function TerminalInstance({sessionId, isVisible, isFocused, config, sessionKind, netConn, disconnected, onConnect, className, style, reconnectNonce, attachOnMount, onReconnectRequest, onConnectionLost}: TerminalInstanceProps) {
     const {t} = useTranslation("terminal");
+    // 事件回调与长生命周期 effect 里用 ref 读取最新的翻译函数：
+    // 直接把 t 放进依赖会让切换语言时重建 effect，自动重连的定时器
+    // 会被 cleanup 清掉并重新计数，等于白白消耗一次重试机会。
+    const tRef = useRef(t);
+    tRef.current = t;
     const isLocal = sessionKind === "local";
     // kind 缺省视为 SSH：旧会话与新增 SSH 会话都不写该字段
     const isSsh = sessionKind === undefined || sessionKind === "ssh";
@@ -620,10 +625,12 @@ export function TerminalInstance({sessionId, isVisible, isFocused, config, sessi
             },
             onCommandDone: (exitCode) => {
                 const store = useSessionStore.getState();
-                store.markSessionDone(sessionId);
+                // 正在查看的窗格（含分屏中可见的非活动窗格）不需要完成指示点，
+                // 否则切走标签后会在刚看过的标签上冒出"未读"提示
+                if (!isVisibleRef.current) store.markSessionDone(sessionId);
                 if (!useUIStore.getState().completionNotify) return;
                 // 当前正在查看的标签不打扰用户
-                if (store.activeSessionId === sessionId && !document.hidden) return;
+                if ((store.activeSessionId === sessionId || isVisibleRef.current) && !document.hidden) return;
                 const now = Date.now();
                 if (now - lastNotifyAtRef.current < 1500) return;
                 lastNotifyAtRef.current = now;
@@ -1131,8 +1138,10 @@ export function TerminalInstance({sessionId, isVisible, isFocused, config, sessi
             // 通知 / 命令结束标记：旁路解析，不影响终端显示
             signalParserRef.current?.(rawBytes);
 
-            // 非激活标签收到输出时点亮活动指示点（store 内部会去重）
-            if (useSessionStore.getState().activeSessionId !== sessionId) {
+            // 非激活标签收到输出时点亮活动指示点（store 内部会去重）。
+            // 分屏时非活动窗格也可能可见，此时用户已能直接看到输出，
+            // 只比较 activeSessionId 会把可见窗格误标成有活动。
+            if (useSessionStore.getState().activeSessionId !== sessionId && !isVisibleRef.current) {
                 useSessionStore.getState().markSessionActivity(sessionId);
             }
 
@@ -1265,7 +1274,7 @@ export function TerminalInstance({sessionId, isVisible, isFocused, config, sessi
                 const delay = [2000, 5000, 10000][attempt];
                 reconnectAttemptsRef.current = attempt + 1;
                 if (terminalRef.current) {
-                    terminalRef.current.write(`\x1b[33m${t("reconnect_attempt", { attempt: attempt + 1, delay: Math.round(delay / 1000) })}\x1b[0m\r\n`);
+                    terminalRef.current.write(`\x1b[33m${tRef.current("reconnect_attempt", { attempt: attempt + 1, delay: Math.round(delay / 1000) })}\x1b[0m\r\n`);
                 }
                 autoReconnectTimerRef.current = setTimeout(() => {
                     autoReconnectTimerRef.current = null;
@@ -1280,7 +1289,14 @@ export function TerminalInstance({sessionId, isVisible, isFocused, config, sessi
                 autoReconnectTimerRef.current = null;
             }
         };
-    }, [disconnected, t, sessionId, setSessionStatus]);
+    }, [disconnected, sessionId, setSessionStatus]);
+
+    // 隐藏标签仍然挂载，多行粘贴确认框通过 Portal 渲染在 body 上，
+    // 切换标签后不会随容器一起隐藏：必须主动关闭，否则后台标签的确认框
+    // 会浮在当前标签上方，且确认后内容会粘贴到看不见的终端。
+    useEffect(() => {
+        if (!isVisible) setPendingPaste(null);
+    }, [isVisible]);
 
     // 关闭补全开关时立即收起建议面板，避免残留列表
     useEffect(() => {
@@ -1355,6 +1371,14 @@ export function TerminalInstance({sessionId, isVisible, isFocused, config, sessi
         }
     };
 
+    // 会话是否仍可接收上传与输入。
+    // 浮动窗口的 store 里没有该会话（由主窗口持有），此时以本视图的连接
+    // 就绪状态为准；否则拖拽上传会被静默丢弃。
+    const isSessionUploadable = () => {
+        const tracked = useSessionStore.getState().sessions.find((s) => s.id === sessionId);
+        return tracked ? tracked.status === "connected" && isReadyRef.current : isReadyRef.current;
+    };
+
     const handleDroppedFiles = async (paths: string[]) => {
         if (!isReadyRef.current || paths.length === 0) return;
 
@@ -1367,12 +1391,8 @@ export function TerminalInstance({sessionId, isVisible, isFocused, config, sessi
         // Telnet / 串口没有 SFTP，无法把本地文件送到对端
         if (!isSsh) return;
 
-        const state = useSessionStore.getState();
-        const session = state.sessions.find((s) => s.id === sessionId);
-        // 浮动窗口的 store 里没有该会话（由主窗口持有），此时以本视图的连接
-        // 就绪状态为准；否则拖拽上传会被静默丢弃。
-        const canUpload = session ? session.status === "connected" : isReadyRef.current;
-        if (!canUpload) return;
+        const session = useSessionStore.getState().sessions.find((s) => s.id === sessionId);
+        if (!isSessionUploadable()) return;
 
         // 优先使用 shell 上报的 cwd；尚未上报（或浮动窗口中不可用）时回退到主目录
         let dir = session?.cwd;
@@ -1432,6 +1452,10 @@ export function TerminalInstance({sessionId, isVisible, isFocused, config, sessi
                 failedCount++;
             }
         }
+
+        // 上传可能持续很久，期间会话可能已断开、重连或被关闭：
+        // 此时插入远端路径只会失败，也不能再提示"上传成功"。
+        if (!isSessionUploadable()) return;
 
         if (uploaded.length > 0) {
             sendSessionInput(sessionId, uploaded.map(shellQuote).join(" ") + " ", sessionKind)
